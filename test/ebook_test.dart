@@ -6,7 +6,134 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:unr/domain/models.dart';
 import 'package:unr/formats/ebook.dart';
 
+final tinyPng = base64Decode(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aN1QAAAAASUVORK5CYII=',
+);
+Uint8List fixture({
+  String extraManifest = '',
+  String metadata = '',
+  String body = '<p>正文</p>',
+  Map<String, List<int>> resources = const {},
+  String? encryption,
+}) {
+  final zip = Archive()
+    ..addFile(
+      ArchiveFile.string(
+        'META-INF/container.xml',
+        '<container><rootfiles><rootfile full-path="OPS/book.opf"/></rootfiles></container>',
+      ),
+    )
+    ..addFile(
+      ArchiveFile.string(
+        'OPS/book.opf',
+        '<package><metadata><title>测试</title><creator>作者</creator>$metadata</metadata><manifest><item id="chapter" href="text/chapter.xhtml" media-type="application/xhtml+xml"/>$extraManifest</manifest><spine><itemref idref="chapter"/></spine></package>',
+      ),
+    )
+    ..addFile(
+      ArchiveFile.string(
+        'OPS/text/chapter.xhtml',
+        '<html><head><title>章节</title></head><body>$body</body></html>',
+      ),
+    );
+  if (encryption != null) {
+    zip.addFile(ArchiveFile.string('META-INF/encryption.xml', encryption));
+  }
+  for (final resource in resources.entries) {
+    zip.addFile(
+      ArchiveFile(resource.key, resource.value.length, resource.value),
+    );
+  }
+  return Uint8List.fromList(ZipEncoder().encode(zip));
+}
+
 void main() {
+  test('EPUB 2 与 3 声明的封面都导入本地资源', () {
+    for (final version in [2, 3]) {
+      final imported = Ebook.importEpub(
+        fixture(
+          extraManifest:
+              '<item id="cover" href="images/封面%20图.png" media-type="image/png" ${version == 3 ? 'properties="cover-image"' : ''}/>',
+          metadata: version == 2 ? '<meta name="cover" content="cover"/>' : '',
+          resources: {'OPS/images/封面 图.png': tinyPng},
+        ),
+      );
+      expect(imported.images[imported.book.cover], tinyPng);
+      expect(imported.book.chapters.length, 1);
+    }
+  });
+  test('字体混淆不妨碍正文导入，正文加密仍给出明确错误', () {
+    String encryption(String path, String algorithm) =>
+        '<encryption><EncryptedData><EncryptionMethod Algorithm="$algorithm"/><CipherData><CipherReference URI="$path"/></CipherData></EncryptedData></encryption>';
+    const algorithm = 'http://www.idpf.org/2008/embedding';
+    final input = fixture(
+      extraManifest:
+          '<item id="font" href="fonts/body.ttf" media-type="font/ttf"/>',
+      encryption: encryption('OPS/fonts/body.ttf', algorithm),
+      resources: {
+        'OPS/fonts/body.ttf': [1, 2, 3],
+      },
+    );
+    expect(Ebook.importEpub(input).contents['0']!.paragraphs.single.text, '正文');
+    for (final method in [
+      algorithm,
+      'http://www.w3.org/2001/04/xmlenc#aes128-cbc',
+    ]) {
+      expect(
+        () => Ebook.importEpub(
+          fixture(encryption: encryption('OPS/text/chapter.xhtml', method)),
+        ),
+        throwsA(isA<SourceException>()),
+      );
+    }
+  });
+  test('SVG 插图中的相对图片转换成内嵌资源，保持前后文字', () {
+    final imported = Ebook.importEpub(
+      fixture(
+        body:
+            '<p>前文</p><svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 100 100"><image xlink:href="../images/a.png" width="100" height="100"/></svg><p>后文</p>',
+        resources: {'OPS/images/a.png': tinyPng},
+      ),
+    );
+    expect(imported.contents['0']!.paragraphs.map((p) => p.text), [
+      '前文',
+      '',
+      '后文',
+    ]);
+    final svg = utf8.decode(imported.images.values.single);
+    expect(svg, contains('data:image/png;base64,'));
+    expect(svg, isNot(contains('../images/a.png')));
+  });
+  test('data URI 插图导入，SVG 封面与简介可导出后再次导入', () async {
+    final svg = utf8.encode(
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 60"><rect width="40" height="60" fill="green"/></svg>',
+    );
+    final imported = Ebook.importEpub(
+      fixture(
+        body:
+            '<p>文字</p><img src="${Uri.dataFromBytes(tinyPng, mimeType: 'image/png')}"/>',
+        extraManifest:
+            '<item id="cover" href="cover.svg" media-type="image/svg+xml" properties="cover-image"/>',
+        metadata: '<description>简介 &amp; 中文</description>',
+        resources: {'OPS/cover.svg': svg},
+      ),
+    );
+    final output = await Ebook.exportEpub(
+      imported.book,
+      imported.contents,
+      (key) async => imported.images[key]!,
+    );
+    final roundtrip = Ebook.importEpub(output);
+    expect(roundtrip.book.cover, isNotEmpty);
+    expect(roundtrip.book.description, '简介 & 中文');
+    expect(roundtrip.book.chapters.length, 1);
+    expect(
+      roundtrip.images.values.any(
+        (bytes) => utf8.decode(bytes, allowMalformed: true).contains('<svg'),
+      ),
+      isTrue,
+    );
+    expect(roundtrip.contents['0']!.paragraphs.first.text, '文字');
+  });
   test('中文 EPUB 往返保留顺序、XML 字符、表情和插图', () async {
     const book = Book(
       id: 'test',

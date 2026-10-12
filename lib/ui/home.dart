@@ -6,6 +6,7 @@ import '../domain/models.dart';
 import '../formats/ebook.dart';
 import 'account.dart';
 import 'book_page.dart';
+import 'image_bytes.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key, required this.library});
@@ -206,7 +207,9 @@ class _HomePageState extends State<HomePage> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Expanded(child: BookCover(book: book)),
+                              Expanded(
+                                child: BookCover(book: book, library: library),
+                              ),
                               const SizedBox(height: 10),
                               Text(
                                 book.title,
@@ -321,15 +324,56 @@ ImportedBook _parseImport(({Uint8List bytes, String name, bool gbk}) data) =>
     ? Ebook.importEpub(data.bytes)
     : Ebook.importTxt(data.bytes, data.name, gbk: data.gbk);
 
-class BookCover extends StatelessWidget {
-  const BookCover({super.key, required this.book});
+class BookCover extends StatefulWidget {
+  const BookCover({super.key, required this.book, this.library});
   final Book book;
+  final Library? library;
+  @override
+  State<BookCover> createState() => _BookCoverState();
+}
+
+class _BookCoverState extends State<BookCover> {
+  Future<Uint8List>? bytes;
+  Book get book => widget.book;
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  void _load() {
+    bytes = book.cover.isEmpty
+        ? null
+        : widget.library?.loadImage(book, book.cover);
+  }
+
+  @override
+  void didUpdateWidget(BookCover oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.book.key != book.key ||
+        oldWidget.book.cover != book.cover ||
+        oldWidget.library != widget.library) {
+      _load();
+    }
+  }
+
   @override
   Widget build(BuildContext context) => ClipRRect(
     borderRadius: BorderRadius.circular(14),
     child: AspectRatio(
       aspectRatio: 2 / 3,
-      child: book.cover.isNotEmpty
+      child: bytes != null
+          ? FutureBuilder<Uint8List>(
+              future: bytes,
+              builder: (context, snapshot) => snapshot.hasData
+                  ? ImageBytes(
+                      snapshot.data!,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, error, stack) => _placeholder(context),
+                    )
+                  : _placeholder(context),
+            )
+          : book.cover.isNotEmpty && !book.cover.startsWith('local:')
           ? Image.network(
               book.cover,
               fit: BoxFit.cover,

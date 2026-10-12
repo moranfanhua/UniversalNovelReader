@@ -146,7 +146,10 @@ class _BookPageState extends State<BookPage> {
                               SizedBox(
                                 width: 100,
                                 height: 150,
-                                child: BookCover(book: book),
+                                child: BookCover(
+                                  book: book,
+                                  library: widget.library,
+                                ),
                               ),
                               const SizedBox(width: 20),
                               Expanded(

@@ -3,6 +3,7 @@
 - [Flutter](https://github.com/flutter/flutter) — BSD-3-Clause
 - [http](https://pub.dev/packages/http)、[crypto](https://pub.dev/packages/crypto)、[html](https://pub.dev/packages/html)、[xml](https://pub.dev/packages/xml) — BSD-3-Clause / MIT
 - [archive](https://pub.dev/packages/archive) — MIT
+- [flutter_svg](https://pub.dev/packages/flutter_svg) — MIT
 - [uuid](https://pub.dev/packages/uuid)、[file_picker](https://pub.dev/packages/file_picker) — MIT
 - [path_provider](https://pub.dev/packages/path_provider) — BSD-3-Clause
 - [flutter_secure_storage](https://pub.dev/packages/flutter_secure_storage) — BSD-3-Clause

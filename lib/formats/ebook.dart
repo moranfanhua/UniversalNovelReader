@@ -7,6 +7,7 @@ import 'package:html/dom.dart' as dom;
 import 'package:html/parser.dart' as html;
 import 'package:xml/xml.dart';
 import '../domain/models.dart';
+import 'image_format.dart';
 
 class Ebook {
   static const maxFileSize = 100 * 1024 * 1024;
@@ -153,9 +154,6 @@ class Ebook {
       return Uri.decodeComponent(uri.path.substring(1));
     }
 
-    if (zip.findFile('META-INF/encryption.xml') != null) {
-      throw const SourceException('暂不支持带 DRM 或加密资源的 EPUB');
-    }
     final container = XmlDocument.parse(
       _decode(read('META-INF/container.xml')),
     );
@@ -174,15 +172,108 @@ class Ebook {
             ?.innerText ??
         fallback;
     final manifest = <String, String>{};
+    final media = <String, String>{};
+    String? coverPath;
     for (final e in opf.descendants.whereType<XmlElement>().where(
       (e) => e.name.local == 'item',
     )) {
       final id = e.getAttribute('id'), href = e.getAttribute('href');
-      if (id != null && href != null) manifest[id] = resolve(opfPath, href);
+      if (id != null && href != null) {
+        final path = resolve(opfPath, href);
+        manifest[id] = path;
+        media[path] = e.getAttribute('media-type') ?? '';
+        if ((e.getAttribute('properties') ?? '')
+            .split(RegExp(r'\s+'))
+            .contains('cover-image')) {
+          coverPath = path;
+        }
+      }
+    }
+    for (final meta in opf.descendants.whereType<XmlElement>()) {
+      if (meta.name.local == 'meta' && meta.getAttribute('name') == 'cover') {
+        coverPath ??= manifest[meta.getAttribute('content')];
+      }
+    }
+    if (zip.findFile('META-INF/encryption.xml') != null) {
+      final encryption = XmlDocument.parse(
+        _decode(read('META-INF/encryption.xml')),
+      );
+      for (final encrypted
+          in encryption.descendants.whereType<XmlElement>().where(
+            (element) => element.name.local == 'EncryptedData',
+          )) {
+        final method = encrypted.descendants
+            .whereType<XmlElement>()
+            .where((element) => element.name.local == 'EncryptionMethod')
+            .firstOrNull;
+        final reference = encrypted.descendants
+            .whereType<XmlElement>()
+            .where((element) => element.name.local == 'CipherReference')
+            .firstOrNull
+            ?.getAttribute('URI');
+        final path = reference == null ? null : resolve('', reference);
+        final font = media[path];
+        if (method?.getAttribute('Algorithm') !=
+                'http://www.idpf.org/2008/embedding' ||
+            ![
+              'font/ttf',
+              'font/otf',
+              'application/vnd.ms-opentype',
+              'application/x-font-ttf',
+              'application/x-font-opentype',
+            ].contains(font)) {
+          throw const SourceException('暂不支持带 DRM 或加密正文资源的 EPUB');
+        }
+        // The reader uses its own fonts, so obfuscated fonts are never loaded.
+      }
     }
     final chapters = <Chapter>[];
     final contents = <String, ChapterContent>{};
     final images = <String, Uint8List>{};
+    Uint8List imageData(String base, String href) {
+      final uri = Uri.tryParse(href);
+      if (uri?.scheme == 'data') {
+        final data = uri!.data!.contentAsBytes();
+        if (data.length > 20 * 1024 * 1024) {
+          throw const SourceException('EPUB 内嵌插图超过大小限制');
+        }
+        return Uint8List.fromList(data);
+      }
+      return read(resolve(base, href));
+    }
+
+    Uint8List prepareSvg(Uint8List bytes, String path) {
+      final svg = XmlDocument.parse(_decode(bytes));
+      svg.rootElement.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+      for (final image in svg.descendants.whereType<XmlElement>().where(
+        (e) => e.name.local == 'image',
+      )) {
+        final attribute = image.attributes
+            .where((a) => a.name.local == 'href')
+            .firstOrNull;
+        if (attribute == null) continue;
+        final data = imageData(path, attribute.value);
+        final mime = ImageFormat.mime(data);
+        if (mime == null || mime == 'image/svg+xml') {
+          throw const SourceException('SVG 插图引用了不支持的图像资源');
+        }
+        attribute.value = Uri.dataFromBytes(data, mimeType: mime).toString();
+      }
+      return Uint8List.fromList(utf8.encode(svg.toXmlString()));
+    }
+
+    String saveImage(Uint8List bytes, String path) {
+      if (ImageFormat.mime(bytes) == 'image/svg+xml') {
+        bytes = prepareSvg(bytes, path);
+      }
+      final key = 'local:${_hash(bytes)}';
+      images[key] = bytes;
+      return key;
+    }
+
+    final cover = coverPath == null
+        ? ''
+        : saveImage(read(coverPath), coverPath);
     for (final spine in opf.descendants.whereType<XmlElement>().where(
       (e) => e.name.local == 'itemref' && e.getAttribute('linear') != 'no',
     )) {
@@ -210,13 +301,27 @@ class Ebook {
           return;
         }
         if (node is! dom.Element) return;
+        if (node.localName == 'svg') {
+          flush();
+          paragraphs.add(
+            Paragraph(
+              '',
+              image: saveImage(
+                Uint8List.fromList(utf8.encode(node.outerHtml)),
+                path,
+              ),
+            ),
+          );
+          return;
+        }
         if (node.localName == 'img') {
           flush();
           final src = node.attributes['src'];
           if (src != null) {
-            final img = resolve(path, src);
-            final key = 'local:${_hash(read(img))}';
-            images[key] = read(img);
+            final key = saveImage(
+              imageData(path, src),
+              src.startsWith('data:') ? path : resolve(path, src),
+            );
             paragraphs.add(Paragraph('', image: key));
           }
           return;
@@ -254,6 +359,8 @@ class Ebook {
         title: metadata('title', '未命名 EPUB'),
         author: metadata('creator', '未知作者'),
         source: 'local',
+        cover: cover,
+        description: html.parseFragment(metadata('description', '')).text ?? '',
         chapters: chapters,
       ),
       contents,
@@ -304,6 +411,37 @@ class Ebook {
     final spine = StringBuffer();
     final toc = StringBuffer();
     final imagePaths = <String, String>{};
+    Future<String> embedImage(String key, {bool cover = false}) async {
+      final existing = imagePaths[key];
+      if (existing != null) return existing;
+      final bytes = await loadImage(key);
+      final mime = ImageFormat.mime(bytes);
+      if (mime == null) {
+        throw const SourceException('EPUB 导出暂只支持 PNG、JPEG、GIF、SVG 图像');
+      }
+      final path = 'images/${imagePaths.length}.${ImageFormat.extension(mime)}';
+      final id = 'image${imagePaths.length}';
+      imagePaths[key] = path;
+      zip.addFile(ArchiveFile('OEBPS/$path', bytes.length, bytes));
+      manifest.write(
+        '<item id="$id" href="$path" media-type="$mime"${cover ? ' properties="cover-image"' : ''}/>',
+      );
+      return path;
+    }
+
+    if (book.cover.isNotEmpty) {
+      final path = await embedImage(book.cover, cover: true);
+      zip.addFile(
+        ArchiveFile.string(
+          'OEBPS/cover.xhtml',
+          _xhtml(book.title, '<div><img src="$path" alt="封面"/></div>'),
+        ),
+      );
+      manifest.write(
+        '<item id="coverpage" href="cover.xhtml" media-type="application/xhtml+xml"/>',
+      );
+      spine.write('<itemref idref="coverpage" linear="no"/>');
+    }
     var index = 0;
     for (final chapter in book.chapters) {
       final content = contents[chapter.id];
@@ -314,33 +452,7 @@ class Ebook {
           body.write('<p>${_xml(p.text)}</p>');
           continue;
         }
-        var path = imagePaths[p.image];
-        if (path == null) {
-          final bytes = await loadImage(p.image!);
-          final mime = bytes.length >= 4 && bytes[0] == 137 && bytes[1] == 80
-              ? 'image/png'
-              : bytes.length >= 3 && bytes[0] == 255 && bytes[1] == 216
-              ? 'image/jpeg'
-              : bytes.length >= 6 &&
-                    ascii.decode(bytes.sublist(0, 3), allowInvalid: true) ==
-                        'GIF'
-              ? 'image/gif'
-              : null;
-          if (mime == null) {
-            throw const SourceException('EPUB 导出暂只支持 PNG、JPEG、GIF 插图');
-          }
-          final ext = {
-            'image/png': 'png',
-            'image/jpeg': 'jpg',
-            'image/gif': 'gif',
-          }[mime]!;
-          path = 'images/${imagePaths.length}.$ext';
-          imagePaths[p.image!] = path;
-          zip.addFile(ArchiveFile('OEBPS/$path', bytes.length, bytes));
-          manifest.write(
-            '<item id="image${imagePaths.length}" href="$path" media-type="$mime"/>',
-          );
-        }
+        final path = await embedImage(p.image!);
         body.write('<p><img src="$path" alt="插图"/></p>');
       }
       final file = 'chapter$index.xhtml';
@@ -357,7 +469,8 @@ class Ebook {
       toc.write('<li><a href="$file">${_xml(chapter.title)}</a></li>');
       index++;
     }
-    final title = contents.length < book.chapters.length
+    if (index == 0) throw const SourceException('没有可导出的目录章节');
+    final title = index < book.chapters.length
         ? '${book.title}（节选）'
         : book.title;
     zip.addFile(
@@ -372,7 +485,7 @@ class Ebook {
     zip.addFile(
       ArchiveFile.string(
         'OEBPS/content.opf',
-        '<?xml version="1.0" encoding="UTF-8"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="bookid"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="bookid">urn:unr:${_xml(book.key)}</dc:identifier><dc:title>${_xml(title)}</dc:title><dc:creator>${_xml(book.author)}</dc:creator><dc:language>zh-CN</dc:language><meta property="dcterms:modified">${DateTime.now().toUtc().toIso8601String().split('.').first}Z</meta></metadata><manifest>$manifest</manifest><spine>$spine</spine></package>',
+        '<?xml version="1.0" encoding="UTF-8"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="bookid"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="bookid">urn:unr:${_xml(book.key)}</dc:identifier><dc:title>${_xml(title)}</dc:title><dc:creator>${_xml(book.author)}</dc:creator><dc:description>${_xml(book.description)}</dc:description><dc:language>zh-CN</dc:language>${book.source == 'sfacg' ? '<dc:source>https://book.sfacg.com/Novel/${_xml(book.id)}/</dc:source>' : ''}<meta property="dcterms:modified">${DateTime.now().toUtc().toIso8601String().split('.').first}Z</meta></metadata><manifest>$manifest</manifest><spine>$spine</spine></package>',
       ),
     );
     return Uint8List.fromList(ZipEncoder().encode(zip));

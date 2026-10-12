@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../data/library.dart';
 import '../domain/models.dart';
 import 'comments_sheet.dart';
+import 'image_bytes.dart';
 
 class ReaderPage extends StatefulWidget {
   const ReaderPage({
@@ -536,7 +537,7 @@ class _BookImageState extends State<BookImage> {
           child: Center(child: CircularProgressIndicator()),
         );
       }
-      return Image.memory(
+      return ImageBytes(
         s.data!,
         errorBuilder: (_, error, stack) => const Text('无法显示此插图'),
       );
