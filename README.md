@@ -4,7 +4,7 @@
 - [http](https://pub.dev/packages/http)、[crypto](https://pub.dev/packages/crypto)、[html](https://pub.dev/packages/html)、[xml](https://pub.dev/packages/xml) — BSD-3-Clause / MIT
 - [archive](https://pub.dev/packages/archive) — MIT
 - [uuid](https://pub.dev/packages/uuid)、[file_picker](https://pub.dev/packages/file_picker) — MIT
-- [shared_preferences](https://pub.dev/packages/shared_preferences) — BSD-3-Clause
+- [path_provider](https://pub.dev/packages/path_provider) — BSD-3-Clause
 - [flutter_secure_storage](https://pub.dev/packages/flutter_secure_storage) — BSD-3-Clause
 - [enough_convert](https://pub.dev/packages/enough_convert) — MPL-2.0
 - [SFacgExporter](https://github.com/moranfanhua/SFacgExporter) — AGPL-3.0；菠萝包签名、正文字符表与导出逻辑参考来源，原作者 moranfanhua。
