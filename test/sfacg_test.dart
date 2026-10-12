@@ -17,6 +17,151 @@ http.Response ok(dynamic data) => http.Response(
 );
 
 void main() {
+  test('登录时不发送旧 Cookie，校验后才保存新会话', () async {
+    var saved = 0;
+    final api = SfacgApi(
+      client: MockClient((req) async {
+        if (req.url.path == '/sessions') {
+          expect(req.headers.containsKey('Cookie'), isFalse);
+          expect(jsonDecode(req.body)['username'], 'synthetic-account');
+          return http.Response(
+            jsonEncode({
+              'status': {'httpCode': 200},
+              'data': {},
+            }),
+            200,
+            headers: {
+              'set-cookie':
+                  '.SFCommunity=new-community; Path=/user; Expires=Wed, 21 Oct 2037 07:28:00 GMT, session_APP=new-session; Path=/sessions',
+            },
+          );
+        }
+        expect(req.url.path, '/user');
+        expect(
+          req.headers['Cookie'],
+          '.SFCommunity=new-community; session_APP=new-session',
+        );
+        expect(saved, 0);
+        return ok({'accountId': 1});
+      }),
+    )..setCookie('.SFCommunity=old-community; session_APP=old-session');
+    api.onSessionChanged = () async {
+      saved++;
+    };
+    await api.login(' synthetic-account ', 'synthetic-password');
+    expect(api.cookies['session_APP'], 'new-session');
+    expect(saved, 1);
+    api.close();
+  });
+
+  test('登录 401 保留错误阶段与错误码，同时隐藏账号密码', () async {
+    final api = SfacgApi(
+      client: MockClient(
+        (_) async => http.Response(
+          jsonEncode({
+            'status': {
+              'httpCode': 401,
+              'errorCode': 407,
+              'msg':
+                  'synthetic-account synthetic-password 13800138000 user@example.test 登录失败',
+            },
+            'data': null,
+          }),
+          401,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        ),
+      ),
+    );
+    try {
+      await api.login('synthetic-account', 'synthetic-password');
+      fail('应拒绝登录');
+    } on SourceException catch (e) {
+      expect(e.message, contains('账号登录失败'));
+      expect(e.message, contains('错误码 407'));
+      for (final secret in [
+        'synthetic-account',
+        'synthetic-password',
+        '13800138000',
+        'user@example.test',
+      ]) {
+        expect(e.message, isNot(contains(secret)));
+      }
+    }
+    api.close();
+  });
+
+  test('会话校验失败不会覆盖原来的有效会话', () async {
+    var saved = 0;
+    final api = SfacgApi(
+      client: MockClient((req) async {
+        if (req.url.path == '/sessions') {
+          return http.Response(
+            jsonEncode({
+              'status': {'httpCode': 200},
+              'data': {},
+            }),
+            200,
+            headers: {
+              'set-cookie':
+                  '.SFCommunity=candidate; Path=/, session_APP=candidate-session; Path=/',
+            },
+          );
+        }
+        return http.Response(
+          jsonEncode({
+            'status': {'httpCode': 401, 'errorCode': 400, 'msg': '会话无效'},
+            'data': null,
+          }),
+          401,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        );
+      }),
+    )..setCookie('.SFCommunity=original; session_APP=original-session');
+    api.onSessionChanged = () async {
+      saved++;
+    };
+    await expectLater(
+      api.login('synthetic-account', 'synthetic-password'),
+      throwsA(
+        isA<SourceException>().having(
+          (e) => e.message,
+          '阶段',
+          contains('登录会话校验失败'),
+        ),
+      ),
+    );
+    expect(api.cookies['session_APP'], 'original-session');
+    expect(saved, 0);
+    api.close();
+  });
+
+  test('嵌套插图与前后文字保持阅读顺序和原始段落编号', () {
+    final c = SfacgSource.parsePublicChapter(
+      '<div id="ChapterBody"><p>前文<span><img src="/image.jpg"></span>后文</p><p></p><p>第三段</p></div>',
+    );
+    expect(c.paragraphs.map((p) => p.image ?? p.text), [
+      '前文',
+      'https://book.sfacg.com/image.jpg',
+      '后文',
+      '第三段',
+    ]);
+    expect(c.paragraphs.map((p) => p.remoteIndex), [1, 1, 1, 3]);
+  });
+
+  test('App 多行插图不会变成标签文字或改变后续段评位置', () {
+    final c = SfacgSource.parseAppContent(
+      '前文\r\n[img=700,875]\r\nhttps://rss.sfacg.com/image.jpg\r\n[/img]\r\n后文\r\n混合[img=https://rss.sfacg.com/other.jpg]结尾',
+    );
+    expect(c.paragraphs.map((p) => p.image ?? p.text), [
+      '前文',
+      'https://rss.sfacg.com/image.jpg',
+      '后文',
+      '混合',
+      'https://rss.sfacg.com/other.jpg',
+      '结尾',
+    ]);
+    expect(c.paragraphs.map((p) => p.remoteIndex), [1, 2, 5, 6, 6, 6]);
+  });
   test('签名与 SFacgExporter 协议向量一致', () {
     expect(
       sfacgSign(

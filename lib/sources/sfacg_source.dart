@@ -154,50 +154,113 @@ class SfacgSource implements NovelSource {
     if (body == null) throw const SourceException('官网未返回完整正文');
     final paragraphs = <Paragraph>[];
     var row = 0;
-    for (final p in body.querySelectorAll('p')) {
-      row++;
-      // Keep the original row even when a paragraph is empty or contains an image.
-      for (final node in p.nodes) {
-        if (node is Element && node.localName == 'img') {
-          final src = node.attributes['src'];
-          if (src != null) {
-            paragraphs.add(
-              Paragraph(
-                '',
-                image: Uri.parse(
-                  'https://book.sfacg.com',
-                ).resolve(src).toString(),
-                remoteIndex: row,
-              ),
-            );
-          }
-        }
+    final text = StringBuffer();
+    void flush(int? currentRow) {
+      final value = text.toString().trim();
+      text.clear();
+      if (value.isNotEmpty) {
+        paragraphs.add(Paragraph(value, remoteIndex: currentRow));
       }
-      final text = p.text.trim();
-      if (text.isNotEmpty) paragraphs.add(Paragraph(text, remoteIndex: row));
     }
+
+    void visit(Node node, int? currentRow) {
+      if (node is Text) {
+        text.write(node.text);
+        return;
+      }
+      if (node is! Element || ['script', 'style'].contains(node.localName)) {
+        return;
+      }
+      if (node.localName == 'p') {
+        flush(currentRow);
+        // Empty paragraphs still occupy a row in the official App.
+        final paragraphRow = ++row;
+        for (final child in node.nodes) {
+          visit(child, paragraphRow);
+        }
+        flush(paragraphRow);
+        return;
+      }
+      if (node.localName == 'img') {
+        flush(currentRow);
+        final src = node.attributes['data-src'] ?? node.attributes['src'];
+        if (src != null && src.trim().isNotEmpty) {
+          paragraphs.add(
+            Paragraph(
+              '',
+              image: Uri.parse(
+                'https://book.sfacg.com/',
+              ).resolve(src.trim()).toString(),
+              remoteIndex: currentRow,
+            ),
+          );
+        }
+        return;
+      }
+      if (node.localName == 'br') {
+        flush(currentRow);
+        return;
+      }
+      for (final child in node.nodes) {
+        visit(child, currentRow);
+      }
+    }
+
+    visit(body, null);
+    flush(null);
     if (paragraphs.isEmpty) throw const SourceException('官网未返回可阅读正文');
     return ChapterContent(paragraphs);
   }
 
   static ChapterContent parseAppContent(String value) {
     final paragraphs = <Paragraph>[];
-    final lines = value.replaceAll('\r\n', '\n').split('\n');
-    for (var i = 0; i < lines.length; i++) {
-      final line = lines[i].trim();
-      if (line.isEmpty) continue;
-      final image = RegExp(
-        r'^\[img(?:\s*=\s*\d+\s*,\s*\d+)?\]\s*(.*?)\s*\[/img\]$|^\[img\s*=\s*([^\]]+)\](?:\[/img\])?$',
-        caseSensitive: false,
-      ).firstMatch(line);
-      if (image != null) {
-        paragraphs.add(
-          Paragraph('', image: image[1] ?? image[2], remoteIndex: i + 1),
-        );
-      } else {
-        paragraphs.add(Paragraph(line, remoteIndex: i + 1));
+    final normalized = value.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
+    final newlines = RegExp(
+      '\n',
+    ).allMatches(normalized).map((m) => m.start).toList();
+    int rowAt(int offset) {
+      var low = 0, high = newlines.length;
+      while (low < high) {
+        final mid = (low + high) ~/ 2;
+        if (newlines[mid] < offset) {
+          low = mid + 1;
+        } else {
+          high = mid;
+        }
+      }
+      return low + 1;
+    }
+
+    void appendText(int start, int end) {
+      final part = normalized.substring(start, end);
+      for (final line in RegExp(r'[^\n]+').allMatches(part)) {
+        final text = line[0]!.trim();
+        if (text.isNotEmpty) {
+          paragraphs.add(
+            Paragraph(text, remoteIndex: rowAt(start + line.start)),
+          );
+        }
       }
     }
+
+    final images = RegExp(
+      r'\[img\s*=\s*\d+\s*,\s*\d+\s*\]\s*([^\[\]\r\n]+?)\s*\[/img\s*\]|\[img\s*\]\s*([^\[\]\r\n]+?)\s*\[/img\s*\]|\[img\s*=\s*([^\]\r\n]+)\](?:\s*\[/img\s*\])?',
+      caseSensitive: false,
+    );
+    var start = 0;
+    for (final image in images.allMatches(normalized)) {
+      appendText(start, image.start);
+      paragraphs.add(
+        Paragraph(
+          '',
+          image: (image[1] ?? image[2] ?? image[3])!.trim(),
+          remoteIndex: rowAt(image.start),
+        ),
+      );
+      start = image.end;
+    }
+    appendText(start, normalized.length);
+    if (paragraphs.isEmpty) throw const SourceException('未取得可阅读正文');
     return ChapterContent(paragraphs);
   }
 

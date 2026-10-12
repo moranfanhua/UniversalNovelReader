@@ -18,19 +18,22 @@ class ReaderPage extends StatefulWidget {
   State<ReaderPage> createState() => _ReaderPageState();
 }
 
-class _ReaderPageState extends State<ReaderPage> {
+class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   late int chapter;
   late Future<ChapterContent> content;
   final scroll = ScrollController();
+  final viewport = GlobalKey();
   List<GlobalKey> keys = [];
   Timer? debounce;
   bool restoring = false;
   int loadGeneration = 0;
   int paragraph = 0;
+  bool leaving = false;
   Library get library => widget.library;
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     final saved = library.progress[widget.book.key];
     chapter = (widget.initialChapter ?? saved?.first ?? 0).clamp(
       0,
@@ -67,15 +70,7 @@ class _ReaderPageState extends State<ReaderPage> {
     debounce?.cancel();
     debounce = Timer(const Duration(milliseconds: 650), () {
       if (!mounted) return;
-      for (var i = 0; i < keys.length; i++) {
-        final box = keys[i].currentContext?.findRenderObject();
-        if (box is RenderBox &&
-            box.localToGlobal(Offset(0, box.size.height)).dy > 140) {
-          paragraph = i;
-          break;
-        }
-      }
-      library.remember(widget.book, chapter, paragraph).catchError((Object e) {
+      _savePosition().catchError((Object e) {
         if (mounted) {
           ScaffoldMessenger.of(
             context,
@@ -83,6 +78,57 @@ class _ReaderPageState extends State<ReaderPage> {
         }
       });
     });
+  }
+
+  Future<void> _savePosition() async {
+    debounce?.cancel();
+    if (!restoring) {
+      final viewBox = viewport.currentContext?.findRenderObject();
+      final top = viewBox is RenderBox
+          ? viewBox.localToGlobal(Offset.zero).dy
+          : 0.0;
+      for (var i = 0; i < keys.length; i++) {
+        final box = keys[i].currentContext?.findRenderObject();
+        if (box is RenderBox &&
+            box.localToGlobal(Offset(0, box.size.height)).dy > top) {
+          paragraph = i;
+          break;
+        }
+      }
+    }
+    await library.remember(widget.book, chapter, paragraph);
+  }
+
+  Future<void> _leave() async {
+    if (leaving) return;
+    leaving = true;
+    try {
+      await _savePosition();
+      if (mounted) Navigator.pop(context);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('阅读进度保存失败：$e')));
+      }
+    } finally {
+      leaving = false;
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed && mounted) {
+      unawaited(
+        _savePosition().catchError((Object e) {
+          if (mounted) {
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(SnackBar(content: Text('阅读进度保存失败：$e')));
+          }
+        }),
+      );
+    }
   }
 
   void _go(int index) {
@@ -152,174 +198,181 @@ class _ReaderPageState extends State<ReaderPage> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     debounce?.cancel();
     scroll.dispose();
     super.dispose();
   }
 
   @override
-  Widget build(BuildContext context) => AnimatedBuilder(
-    animation: library,
-    builder: (context, _) => Scaffold(
-      appBar: AppBar(
-        title: Text(
-          widget.book.title,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-        actions: [
-          IconButton(
-            tooltip: '目录',
-            onPressed: _directory,
-            icon: const Icon(Icons.format_list_bulleted),
+  Widget build(BuildContext context) => PopScope(
+    canPop: false,
+    onPopInvokedWithResult: (didPop, result) {
+      if (!didPop) unawaited(_leave());
+    },
+    child: AnimatedBuilder(
+      animation: library,
+      builder: (context, _) => Scaffold(
+        appBar: AppBar(
+          title: Text(
+            widget.book.title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
           ),
-          IconButton(
-            tooltip: '字号减小',
-            onPressed: () {
-              library.fontSize = (library.fontSize - 2).clamp(14, 32);
-              _preferences();
-            },
-            icon: const Icon(Icons.text_decrease),
-          ),
-          IconButton(
-            tooltip: '字号增大',
-            onPressed: () {
-              library.fontSize = (library.fontSize + 2).clamp(14, 32);
-              _preferences();
-            },
-            icon: const Icon(Icons.text_increase),
-          ),
-          IconButton(
-            tooltip: '日夜模式',
-            onPressed: () {
-              library.night = !library.night;
-              _preferences();
-            },
-            icon: Icon(
-              library.night
-                  ? Icons.light_mode_outlined
-                  : Icons.dark_mode_outlined,
+          actions: [
+            IconButton(
+              tooltip: '目录',
+              onPressed: _directory,
+              icon: const Icon(Icons.format_list_bulleted),
             ),
-          ),
-        ],
-      ),
-      body: FutureBuilder<ChapterContent>(
-        future: content,
-        builder: (context, snapshot) {
-          if (snapshot.hasError) {
-            return Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.cloud_off_outlined, size: 48),
-                    const SizedBox(height: 16),
-                    Text('${snapshot.error}', textAlign: TextAlign.center),
-                    TextButton(
-                      onPressed: () => setState(_load),
-                      child: const Text('重试'),
-                    ),
-                  ],
-                ),
+            IconButton(
+              tooltip: '字号减小',
+              onPressed: () {
+                library.fontSize = (library.fontSize - 2).clamp(14, 32);
+                _preferences();
+              },
+              icon: const Icon(Icons.text_decrease),
+            ),
+            IconButton(
+              tooltip: '字号增大',
+              onPressed: () {
+                library.fontSize = (library.fontSize + 2).clamp(14, 32);
+                _preferences();
+              },
+              icon: const Icon(Icons.text_increase),
+            ),
+            IconButton(
+              tooltip: '日夜模式',
+              onPressed: () {
+                library.night = !library.night;
+                _preferences();
+              },
+              icon: Icon(
+                library.night
+                    ? Icons.light_mode_outlined
+                    : Icons.dark_mode_outlined,
               ),
-            );
-          }
-          if (snapshot.connectionState != ConnectionState.done ||
-              !snapshot.hasData) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          final paragraphs = snapshot.data!.paragraphs;
-          return SingleChildScrollView(
-            controller: scroll,
-            child: Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 820),
+            ),
+          ],
+        ),
+        body: FutureBuilder<ChapterContent>(
+          future: content,
+          builder: (context, snapshot) {
+            if (snapshot.hasError) {
+              return Center(
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(22, 24, 16, 64),
+                  padding: const EdgeInsets.all(24),
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      Text(
-                        widget.book.chapters[chapter].title,
-                        style: Theme.of(context).textTheme.headlineSmall,
+                      const Icon(Icons.cloud_off_outlined, size: 48),
+                      const SizedBox(height: 16),
+                      Text('${snapshot.error}', textAlign: TextAlign.center),
+                      TextButton(
+                        onPressed: () => setState(_load),
+                        child: const Text('重试'),
                       ),
-                      const SizedBox(height: 32),
-                      for (var i = 0; i < paragraphs.length; i++)
-                        Padding(
-                          key: keys[i],
-                          padding: const EdgeInsets.only(bottom: 18),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Expanded(
-                                child: paragraphs[i].image != null
-                                    ? BookImage(
-                                        library: library,
-                                        book: widget.book,
-                                        url: paragraphs[i].image!,
-                                      )
-                                    : SelectableText(
-                                        '　　${paragraphs[i].text}',
-                                        style: TextStyle(
-                                          fontSize: library.fontSize,
-                                          height: 1.9,
-                                        ),
-                                      ),
-                              ),
-                              if (widget.book.source == 'sfacg' &&
-                                  paragraphs[i].remoteIndex != null)
-                                IconButton(
-                                  tooltip: '阅读本段段评',
-                                  visualDensity: VisualDensity.compact,
-                                  onPressed: () => showComments(
-                                    context,
-                                    library.source,
-                                    widget.book.chapters[chapter],
-                                    paragraphs[i],
-                                  ),
-                                  icon: const Icon(
-                                    Icons.chat_bubble_outline,
-                                    size: 18,
-                                  ),
-                                ),
-                            ],
-                          ),
-                        ),
                     ],
                   ),
                 ),
-              ),
-            ),
-          );
-        },
-      ),
-      bottomNavigationBar: SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: Row(
-            children: [
-              TextButton.icon(
-                onPressed: chapter > 0 ? () => _go(chapter - 1) : null,
-                icon: const Icon(Icons.chevron_left),
-                label: const Text('上一章'),
-              ),
-              Expanded(
-                child: Center(
-                  child: Text(
-                    '${chapter + 1} / ${widget.book.chapters.length}',
+              );
+            }
+            if (snapshot.connectionState != ConnectionState.done ||
+                !snapshot.hasData) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            final paragraphs = snapshot.data!.paragraphs;
+            return SingleChildScrollView(
+              key: viewport,
+              controller: scroll,
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 820),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(22, 24, 16, 64),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Text(
+                          widget.book.chapters[chapter].title,
+                          style: Theme.of(context).textTheme.headlineSmall,
+                        ),
+                        const SizedBox(height: 32),
+                        for (var i = 0; i < paragraphs.length; i++)
+                          Padding(
+                            key: keys[i],
+                            padding: const EdgeInsets.only(bottom: 18),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  child: paragraphs[i].image != null
+                                      ? BookImage(
+                                          library: library,
+                                          book: widget.book,
+                                          url: paragraphs[i].image!,
+                                        )
+                                      : SelectableText(
+                                          '　　${paragraphs[i].text}',
+                                          style: TextStyle(
+                                            fontSize: library.fontSize,
+                                            height: 1.9,
+                                          ),
+                                        ),
+                                ),
+                                if (widget.book.source == 'sfacg' &&
+                                    paragraphs[i].remoteIndex != null)
+                                  IconButton(
+                                    tooltip: '阅读本段段评',
+                                    visualDensity: VisualDensity.compact,
+                                    onPressed: () => showComments(
+                                      context,
+                                      library.source,
+                                      widget.book.chapters[chapter],
+                                      paragraphs[i],
+                                    ),
+                                    icon: const Icon(
+                                      Icons.chat_bubble_outline,
+                                      size: 18,
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                      ],
+                    ),
                   ),
                 ),
               ),
-              TextButton.icon(
-                onPressed: chapter + 1 < widget.book.chapters.length
-                    ? () => _go(chapter + 1)
-                    : null,
-                icon: const Icon(Icons.chevron_right),
-                label: const Text('下一章'),
-              ),
-            ],
+            );
+          },
+        ),
+        bottomNavigationBar: SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Row(
+              children: [
+                TextButton.icon(
+                  onPressed: chapter > 0 ? () => _go(chapter - 1) : null,
+                  icon: const Icon(Icons.chevron_left),
+                  label: const Text('上一章'),
+                ),
+                Expanded(
+                  child: Text(
+                    '${chapter + 1} / ${widget.book.chapters.length}',
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: chapter + 1 < widget.book.chapters.length
+                      ? () => _go(chapter + 1)
+                      : null,
+                  icon: const Icon(Icons.chevron_right),
+                  label: const Text('下一章'),
+                ),
+              ],
+            ),
           ),
         ),
       ),

@@ -7,13 +7,15 @@ import '../domain/models.dart';
 import 'sfacg_signature.dart';
 
 class SfacgApi {
-  SfacgApi({http.Client? client, String? device})
+  SfacgApi({http.Client? client, String? device, String? nonce})
     : client = client ?? http.Client(),
-      device = device ?? const Uuid().v4().toUpperCase();
+      device = device ?? const Uuid().v4().toUpperCase(),
+      nonce = nonce ?? const Uuid().v4().toUpperCase();
   final http.Client client;
   final String device;
-  String nonce = const Uuid().v4().toUpperCase();
+  String nonce;
   int clockOffset = 0;
+  String? sessionNotice;
   final Map<String, String> cookies = {};
   Future<void> Function()? onSessionChanged;
   bool get hasSession =>
@@ -75,9 +77,9 @@ class SfacgApi {
         req.headers['Content-Type'] = 'application/json; charset=utf-8';
         req.body = jsonEncode(body);
       }
-      final response = await http.Response.fromStream(
-        await client.send(req).timeout(const Duration(seconds: 25)),
-      );
+      final response = await (() async => http.Response.fromStream(
+        await client.send(req),
+      ))().timeout(const Duration(seconds: 25));
       Map<String, dynamic> doc;
       try {
         doc =
@@ -121,11 +123,25 @@ class SfacgApi {
         await Future<void>.delayed(Duration(milliseconds: 350 * (attempt + 1)));
         continue;
       }
-      if (code == 401) {
-        throw const SourceException('登录状态或章节权限无效，请检查菠萝包会话', code: 401);
+      final endpoint = uri.path == '/sessions'
+          ? '账号登录'
+          : uri.path == '/user'
+          ? '登录会话校验'
+          : uri.path.startsWith('/Chaps/')
+          ? '章节读取'
+          : '菠萝包请求';
+      var message = '${status['msg'] ?? ''}'.trim();
+      for (final secret in [
+        ...cookies.values,
+        if (body != null) ...body.values.whereType<String>(),
+      ]) {
+        if (secret.isNotEmpty) message = message.replaceAll(secret, '[已隐藏]');
       }
+      message = message
+          .replaceAll(RegExp(r'1[3-9]\d{9}'), '[手机号已隐藏]')
+          .replaceAll(RegExp(r'[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}'), '[邮箱已隐藏]');
       throw SourceException(
-        '菠萝包请求失败（状态 $code，错误码 ${status['errorCode'] ?? 0}）',
+        '$endpoint失败（HTTP ${response.statusCode}，状态 $code，错误码 ${status['errorCode'] ?? 0}）${message.isEmpty ? '' : '：$message'}',
         code: code,
       );
     }
@@ -133,12 +149,26 @@ class SfacgApi {
   }
 
   Future<void> login(String account, String password) async {
-    await request(
+    if (account.trim().isEmpty || password.isEmpty) {
+      throw const SourceException('请填写账号和密码');
+    }
+    // Authenticate independently: an expired Cookie must not be sent to the
+    // login endpoint, and failed credentials must not replace a valid session.
+    final candidate = SfacgApi(client: client, device: device)
+      ..clockOffset = clockOffset;
+    await candidate.request(
       'sessions',
-      body: {'username': account, 'password': password, 'shuMeiId': ''},
+      body: {'username': account.trim(), 'password': password, 'shuMeiId': ''},
     );
-    if (!hasSession) throw const SourceException('登录未返回完整会话，可能需要官方 App 完成验证');
-    await get('user');
+    if (!candidate.hasSession) {
+      throw const SourceException('登录接口没有返回完整 App 会话，可能需要完成平台验证');
+    }
+    await candidate.get('user');
+    cookies
+      ..clear()
+      ..addAll(candidate.cookies);
+    nonce = candidate.nonce;
+    clockOffset = candidate.clockOffset;
     await onSessionChanged?.call();
   }
 

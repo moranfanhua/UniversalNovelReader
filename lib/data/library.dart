@@ -5,6 +5,7 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:http/http.dart' as http;
+import 'package:uuid/uuid.dart';
 import '../domain/models.dart';
 import '../sources/sfacg_source.dart';
 
@@ -17,6 +18,9 @@ class Library extends ChangeNotifier {
   double fontSize = 20;
   bool night = false;
   Future<void> _writes = Future.value();
+  final Map<String, Future<ChapterContent>> _reads = {};
+  final Map<String, Future<Uint8List>> _imageReads = {};
+  final Map<String, Future<void>> _fileWrites = {};
   static String safeKey(String value) =>
       sha256.convert(utf8.encode(value)).toString();
 
@@ -45,11 +49,36 @@ class Library extends ChangeNotifier {
     return library;
   }
 
-  Future<void> _atomic(File file, List<int> bytes) async {
+  Future<void> _atomic(File file, List<int> bytes) {
+    final previous = _fileWrites[file.path] ?? Future<void>.value();
+    late final Future<void> next;
+    next = previous
+        .catchError((_) {})
+        .then((_) => _replace(file, bytes))
+        .whenComplete(() {
+          if (identical(_fileWrites[file.path], next)) {
+            _fileWrites.remove(file.path);
+          }
+        });
+    _fileWrites[file.path] = next;
+    return next;
+  }
+
+  Future<void> _replace(File file, List<int> bytes) async {
     await file.parent.create(recursive: true);
-    final tmp = File('${file.path}.tmp');
-    await tmp.writeAsBytes(bytes, flush: true);
-    await tmp.rename(file.path);
+    final tmp = File('${file.path}.${const Uuid().v4()}.tmp');
+    try {
+      await tmp.writeAsBytes(bytes, flush: true);
+      await tmp.rename(file.path);
+    } finally {
+      // A failed write must neither replace existing content nor leave a shared
+      // temporary file that another request could rename.
+      try {
+        if (await tmp.exists()) await tmp.delete();
+      } on FileSystemException {
+        // Preserve the original write/rename failure for the caller.
+      }
+    }
   }
 
   Future<void> save() {
@@ -93,7 +122,16 @@ class Library extends ChangeNotifier {
     return ChapterContent.fromJson(jsonDecode(await file.readAsString()));
   }
 
-  Future<ChapterContent> read(Book book, Chapter chapter) async {
+  Future<ChapterContent> read(Book book, Chapter chapter) {
+    final key = '${book.key}/${chapter.id}';
+    return _reads.putIfAbsent(key, () {
+      return _readChapter(book, chapter).whenComplete(() {
+        _reads.remove(key);
+      });
+    });
+  }
+
+  Future<ChapterContent> _readChapter(Book book, Chapter chapter) async {
     final saved = await cached(book, chapter);
     if (saved != null) return saved;
     if (book.source != 'sfacg') {
@@ -122,7 +160,16 @@ class Library extends ChangeNotifier {
 
   Future<void> saveImage(Book book, String key, Uint8List bytes) =>
       _atomic(imageFile(book, key), bytes);
-  Future<Uint8List> loadImage(Book book, String key) async {
+  Future<Uint8List> loadImage(Book book, String key) {
+    final requestKey = '${book.key}/$key';
+    return _imageReads.putIfAbsent(requestKey, () {
+      return _loadImage(book, key).whenComplete(() {
+        _imageReads.remove(requestKey);
+      });
+    });
+  }
+
+  Future<Uint8List> _loadImage(Book book, String key) async {
     final saved = await image(book, key);
     if (saved != null) return saved;
     if (key.startsWith('local:')) {

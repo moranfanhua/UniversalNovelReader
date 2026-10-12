@@ -114,7 +114,7 @@ class _HomePageState extends State<HomePage> {
           onPressed: () => showLicensePage(
             context: context,
             applicationName: 'UNR 阅读器',
-            applicationVersion: '0.1.0',
+            applicationVersion: '0.1.1',
             applicationLegalese: 'AGPL-3.0\n非官方阅读器，作品与段评归相应权利人所有。',
           ),
           icon: const Icon(Icons.info_outline),

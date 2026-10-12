@@ -10,22 +10,28 @@ class SfacgSession {
     final json = value == null
         ? <String, dynamic>{}
         : jsonDecode(value) as Map<String, dynamic>;
-    final api = SfacgApi(device: json['device']);
+    final api = SfacgApi(device: json['device'], nonce: json['nonce']);
     if (json['cookie'] is String) api.setCookie(json['cookie']);
     api.onSessionChanged = () async {
       if (!api.hasSession) {
         await _storage.delete(key: _key);
         return;
       }
-      await _storage.write(
-        key: _key,
-        value: jsonEncode({
-          'device': api.device,
-          'cookie': api.cookies.entries
-              .map((e) => '${e.key}=${e.value}')
-              .join('; '),
-        }),
-      );
+      try {
+        await _storage.write(
+          key: _key,
+          value: jsonEncode({
+            'device': api.device,
+            'nonce': api.nonce,
+            'cookie': api.cookies.entries
+                .map((e) => '${e.key}=${e.value}')
+                .join('; '),
+          }),
+        );
+        api.sessionNotice = null;
+      } catch (_) {
+        api.sessionNotice = '登录成功，但无法写入本机安全存储。本次会话有效，重启后需重新登录。';
+      }
     };
     return api;
   }

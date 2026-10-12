@@ -47,7 +47,9 @@ class _AccountPageState extends State<AccountPage> {
       }
       password.clear();
       cookie.clear();
-      if (mounted) setState(() => message = '菠萝包登录成功，会话已保存在本机安全存储中');
+      if (mounted) {
+        setState(() => message = api.sessionNotice ?? '菠萝包登录成功，会话已保存在本机安全存储中');
+      }
     } catch (e) {
       api.cookies
         ..clear()
