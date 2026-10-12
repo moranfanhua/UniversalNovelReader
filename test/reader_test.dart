@@ -58,7 +58,14 @@ void main() {
     await tester.tap(find.byTooltip('字号增大'));
     await tester.pumpAndSettle();
     expect(
-      tester.widget<SelectableText>(find.text('　　第二章正文')).style!.fontSize,
+      tester
+          .widget<SelectableText>(
+            find.byWidgetPredicate(
+              (widget) => widget is SelectableText && widget.data == '　　第二章正文',
+            ),
+          )
+          .style!
+          .fontSize,
       22,
     );
     library.source.api.close();
