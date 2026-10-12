@@ -17,6 +17,105 @@ http.Response ok(dynamic data) => http.Response(
 );
 
 void main() {
+  test('头像读取用户展开字段，兼容评论展开字段', () {
+    final parsed = SfacgSource.parseComment({
+      'tsukkomiId': 1,
+      'content': '[em:sfgirl:004]',
+      'postUser': {
+        'nickName': '甲',
+        'expand': {'avatar': 'https://rss.sfacg.com/a.jpg'},
+      },
+    });
+    expect(parsed.avatar, 'https://rss.sfacg.com/a.jpg');
+    expect(parsed.text, '[em:sfgirl:004]');
+    expect(
+      SfacgSource.parseComment({
+        'replyId': 2,
+        'replyUser': {'nickName': '乙'},
+        'expand': {'avatar': 'https://rss.sfacg.com/b.jpg'},
+      }, reply: true).avatar,
+      'https://rss.sfacg.com/b.jpg',
+    );
+  });
+  test('计数使用 HEAD 响应头，缓存并合并同段请求', () async {
+    var calls = 0;
+    final api = SfacgApi(
+      client: MockClient((request) async {
+        calls++;
+        expect(request.method, 'HEAD');
+        expect(request.url.queryParameters['row'], '3');
+        return http.Response('', 200, headers: {'x-total-count': '27'});
+      }),
+    );
+    final source = SfacgSource(api);
+    const chapter = Chapter(id: '1', title: '章');
+    expect(
+      await Future.wait([
+        source.commentCount(chapter, 3),
+        source.commentCount(chapter, 3),
+      ]),
+      [27, 27],
+    );
+    expect(await source.commentCount(chapter, 3), 27);
+    expect(calls, 1);
+    await source.commentCount(chapter, 3, refresh: true);
+    expect(calls, 2);
+    api.close();
+  });
+  test('计数失败不缓存为零，允许重试', () async {
+    var calls = 0;
+    final api = SfacgApi(
+      client: MockClient(
+        (_) async => http.Response(
+          '',
+          200,
+          headers: ++calls == 1 ? {} : {'x-total-count': '0'},
+        ),
+      ),
+    );
+    final source = SfacgSource(api);
+    const chapter = Chapter(id: '1', title: '章');
+    await expectLater(
+      source.commentCount(chapter, 1),
+      throwsA(isA<SourceException>()),
+    );
+    expect(await source.commentCount(chapter, 1), 0);
+    api.close();
+  });
+  test('回复跨页去重后按旧到新排序，同时间按 ID 排序', () async {
+    final pages = <String>[];
+    final api = SfacgApi(
+      client: MockClient((request) async {
+        final page = request.url.queryParameters['page']!;
+        pages.add(page);
+        return ok(
+          page == '0'
+              ? [
+                  for (var id = 25; id >= 6; id--)
+                    {
+                      'replyId': id,
+                      'content': '回复$id',
+                      'replyDate': '2026-10-12T12:00:00',
+                      'replyUser': {'nickName': '读者$id'},
+                    },
+                ]
+              : [
+                  for (final id in [6, 5, 4, 3, 2, 1])
+                    {
+                      'replyId': id,
+                      'content': '回复$id',
+                      'replyDate': '2026-10-12T12:00:00',
+                      'replyUser': {'nickName': '读者$id'},
+                    },
+                ],
+        );
+      }),
+    );
+    final result = await SfacgSource(api).allReplies('1');
+    expect(pages, ['0', '1']);
+    expect(result.map((r) => r.id), List.generate(25, (i) => '${i + 1}'));
+    api.close();
+  });
   test('登录时不发送旧 Cookie，校验后才保存新会话', () async {
     var saved = 0;
     final api = SfacgApi(

@@ -25,6 +25,11 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   final viewport = GlobalKey();
   List<GlobalKey> keys = [];
   Timer? debounce;
+  Timer? countDebounce;
+  final commentCounts = <int, int>{};
+  final countRequests = <int>{};
+  final countErrors = <int>{};
+  List<Paragraph> loadedParagraphs = [];
   bool restoring = false;
   int loadGeneration = 0;
   int paragraph = 0;
@@ -48,24 +53,32 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     final generation = ++loadGeneration;
     restoring = true;
     keys = [];
+    loadedParagraphs = [];
+    commentCounts.clear();
+    countRequests.clear();
+    countErrors.clear();
+    countDebounce?.cancel();
     final target = paragraph;
     content = library.read(widget.book, widget.book.chapters[chapter]).then((
       value,
     ) {
       if (!mounted || generation != loadGeneration) return value;
       keys = List.generate(value.paragraphs.length, (_) => GlobalKey());
+      loadedParagraphs = value.paragraphs;
       WidgetsBinding.instance.addPostFrameCallback((_) async {
         if (!mounted || generation != loadGeneration) return;
         final index = target.clamp(0, keys.length - 1);
         final ctx = keys[index].currentContext;
         if (ctx != null) await Scrollable.ensureVisible(ctx, alignment: 0);
         restoring = false;
+        _scheduleCounts();
       });
       return value;
     });
   }
 
   void _track() {
+    _scheduleCounts();
     if (restoring) return;
     debounce?.cancel();
     debounce = Timer(const Duration(milliseconds: 650), () {
@@ -78,6 +91,86 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
         }
       });
     });
+  }
+
+  void _scheduleCounts() {
+    if (widget.book.source != 'sfacg') return;
+    countDebounce?.cancel();
+    countDebounce = Timer(
+      const Duration(milliseconds: 180),
+      _loadVisibleCounts,
+    );
+  }
+
+  void _loadVisibleCounts() {
+    if (!mounted || restoring || countRequests.length >= 3) return;
+    final view = viewport.currentContext?.findRenderObject();
+    if (view is! RenderBox) return;
+    final top = view.localToGlobal(Offset.zero).dy - 150;
+    final bottom = top + view.size.height + 300;
+    final visible = <int>{};
+    for (var i = 0; i < keys.length; i++) {
+      final box = keys[i].currentContext?.findRenderObject();
+      final row = loadedParagraphs[i].remoteIndex;
+      if (row == null || box is! RenderBox) continue;
+      final y = box.localToGlobal(Offset.zero).dy;
+      if (y < bottom && y + box.size.height > top) visible.add(row);
+    }
+    final generation = loadGeneration;
+    final target = widget.book.chapters[chapter];
+    for (final row in visible) {
+      if (countRequests.length >= 3) break;
+      if (commentCounts.containsKey(row) ||
+          countErrors.contains(row) ||
+          !countRequests.add(row)) {
+        continue;
+      }
+      library.source
+          .commentCount(target, row)
+          .then((count) {
+            if (!mounted || generation != loadGeneration) return;
+            setState(() => commentCounts[row] = count);
+          })
+          .catchError((Object error) {
+            if (!mounted || generation != loadGeneration) return;
+            setState(() => countErrors.add(row));
+          })
+          .whenComplete(() {
+            if (!mounted || generation != loadGeneration) return;
+            countRequests.remove(row);
+            _scheduleCounts();
+          });
+    }
+  }
+
+  Future<void> _comments(Paragraph paragraph) async {
+    final generation = loadGeneration;
+    await showComments(
+      context,
+      library.source,
+      widget.book.chapters[chapter],
+      paragraph,
+    );
+    if (!mounted || generation != loadGeneration) return;
+    setState(() {
+      commentCounts.remove(paragraph.remoteIndex);
+      countErrors.remove(paragraph.remoteIndex);
+    });
+    // Refresh only this row when returning from the discussion.
+    try {
+      final count = await library.source.commentCount(
+        widget.book.chapters[chapter],
+        paragraph.remoteIndex!,
+        refresh: true,
+      );
+      if (mounted && generation == loadGeneration) {
+        setState(() => commentCounts[paragraph.remoteIndex!] = count);
+      }
+    } catch (_) {
+      if (mounted && generation == loadGeneration) {
+        setState(() => countErrors.add(paragraph.remoteIndex!));
+      }
+    }
   }
 
   Future<void> _savePosition() async {
@@ -198,6 +291,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    countDebounce?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     debounce?.cancel();
     scroll.dispose();
@@ -322,18 +416,37 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                                 ),
                                 if (widget.book.source == 'sfacg' &&
                                     paragraphs[i].remoteIndex != null)
-                                  IconButton(
-                                    tooltip: '阅读本段段评',
-                                    visualDensity: VisualDensity.compact,
-                                    onPressed: () => showComments(
-                                      context,
-                                      library.source,
-                                      widget.book.chapters[chapter],
-                                      paragraphs[i],
-                                    ),
-                                    icon: const Icon(
-                                      Icons.chat_bubble_outline,
-                                      size: 18,
+                                  Tooltip(
+                                    message: '阅读本段段评',
+                                    child: TextButton(
+                                      style: TextButton.styleFrom(
+                                        minimumSize: const Size(40, 40),
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 6,
+                                        ),
+                                        visualDensity: VisualDensity.compact,
+                                      ),
+                                      onPressed: () => _comments(paragraphs[i]),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          const Icon(
+                                            Icons.chat_bubble_outline,
+                                            size: 16,
+                                          ),
+                                          const SizedBox(width: 3),
+                                          Text(
+                                            commentCounts[paragraphs[i]
+                                                        .remoteIndex]
+                                                    ?.toString() ??
+                                                (countErrors.contains(
+                                                      paragraphs[i].remoteIndex,
+                                                    )
+                                                    ? '?'
+                                                    : '…'),
+                                          ),
+                                        ],
+                                      ),
                                     ),
                                   ),
                               ],

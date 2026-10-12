@@ -97,9 +97,10 @@ class ParagraphComment {
     this.replyCount = 0,
     this.date = '',
     this.paragraphText = '',
+    this.avatar = '',
     this.replies = const [],
   });
-  final String id, author, text, date, paragraphText;
+  final String id, author, text, date, paragraphText, avatar;
   final int likes, replyCount;
   final List<ParagraphComment> replies;
 }

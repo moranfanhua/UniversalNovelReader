@@ -50,6 +50,7 @@ class SfacgApi {
     String path, {
     Map<String, String>? query,
     Map<String, dynamic>? body,
+    bool head = false,
   }) async {
     final uri = Uri.https(
       'api.sfacg.com',
@@ -58,8 +59,14 @@ class SfacgApi {
     );
     for (var attempt = 0; attempt < 4; attempt++) {
       final timestamp = DateTime.now().millisecondsSinceEpoch + clockOffset;
-      final req = http.Request(body == null ? 'GET' : 'POST', uri)
-        ..followRedirects = false;
+      final req = http.Request(
+        head
+            ? 'HEAD'
+            : body == null
+            ? 'GET'
+            : 'POST',
+        uri,
+      )..followRedirects = false;
       req.headers.addAll({
         'Authorization': 'Basic YW5kcm9pZHVzZXI6MWEjJDUxLXl0Njk7KkFjdkBxeHE=',
         'Accept': 'application/vnd.sfacg.api+json;version=1',
@@ -82,8 +89,10 @@ class SfacgApi {
       ))().timeout(const Duration(seconds: 25));
       Map<String, dynamic> doc;
       try {
-        doc =
-            jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+        doc = head
+            ? {}
+            : jsonDecode(utf8.decode(response.bodyBytes))
+                  as Map<String, dynamic>;
       } catch (_) {
         throw SourceException('菠萝包返回无法识别的数据（HTTP ${response.statusCode}）');
       }
@@ -105,7 +114,7 @@ class SfacgApi {
           }
           await onSessionChanged?.call();
         }
-        return doc['data'];
+        return head ? response.headers : doc['data'];
       }
       if (attempt < 3 && (code == 417 || code == 429 || code >= 500)) {
         nonce = const Uuid().v4().toUpperCase();

@@ -11,6 +11,8 @@ class SfacgSource implements NovelSource {
   SfacgSource(this.api, {Map<String, String>? cipher}) : cipher = cipher ?? {};
   final SfacgApi api;
   final Map<String, String> cipher;
+  final Map<String, ({DateTime at, int count})> _commentCounts = {};
+  final Map<String, Future<int>> _countRequests = {};
   @override
   String get id => 'sfacg';
   @override
@@ -301,6 +303,80 @@ class SfacgSource implements NovelSource {
         .toList();
   }
 
+  Future<int> commentCount(Chapter chapter, int row, {bool refresh = false}) {
+    if (row < 1) throw ArgumentError('段落从 1 开始');
+    final key = '${chapter.id}/$row';
+    final cached = _commentCounts[key];
+    if (!refresh &&
+        cached != null &&
+        DateTime.now().difference(cached.at) < const Duration(minutes: 2)) {
+      return Future.value(cached.count);
+    }
+    return _countRequests.putIfAbsent(key, () async {
+      try {
+        final headers =
+            await api.request(
+                  'chaps/0/${chapter.id}/tsukkomis',
+                  head: true,
+                  query: {'row': '$row'},
+                )
+                as Map<String, String>;
+        final count = int.tryParse(headers['x-total-count'] ?? '');
+        if (count == null || count < 0) {
+          throw const SourceException('菠萝包未返回段评数量');
+        }
+        _commentCounts[key] = (at: DateTime.now(), count: count);
+        if (_commentCounts.length > 500) {
+          _commentCounts.remove(_commentCounts.keys.first);
+        }
+        return count;
+      } finally {
+        _countRequests.remove(key);
+      }
+    });
+  }
+
+  // Fetch every server page before displaying a chronological conversation.
+  // Sorting only the first (newest) page would put old replies after new ones.
+  Future<List<ParagraphComment>> allReplies(
+    String commentId, {
+    bool Function()? cancelled,
+  }) async {
+    final found = <String, ParagraphComment>{};
+    for (var page = 0; ; page++) {
+      if (cancelled?.call() == true) return [];
+      final batch = await replies(commentId, page: page);
+      final before = found.length;
+      for (final reply in batch) {
+        found[reply.id] = reply;
+      }
+      if (batch.length < 20) break;
+      if (before == found.length) {
+        throw const SourceException('回复分页重复，请重试');
+      }
+    }
+    return oldestFirst(found.values);
+  }
+
+  static List<ParagraphComment> oldestFirst(
+    Iterable<ParagraphComment> replies,
+  ) {
+    final ordered = replies.toList();
+    ordered.sort((a, b) {
+      final first = DateTime.tryParse(a.date),
+          second = DateTime.tryParse(b.date);
+      if (first != null && second != null) {
+        final byDate = first.compareTo(second);
+        if (byDate != 0) return byDate;
+      }
+      final firstId = int.tryParse(a.id), secondId = int.tryParse(b.id);
+      return firstId != null && secondId != null
+          ? firstId.compareTo(secondId)
+          : a.id.compareTo(b.id);
+    });
+    return ordered;
+  }
+
   static ParagraphComment parseComment(
     Map<String, dynamic> j, {
     bool reply = false,
@@ -315,6 +391,8 @@ class SfacgSource implements NovelSource {
       replyCount: j['replyNum'] as int? ?? 0,
       date: j[reply ? 'replyDate' : 'postDate'] ?? '',
       paragraphText: expand['chapterContent'] ?? '',
+      avatar:
+          '${user['expand']?['avatar'] ?? expand['avatar'] ?? user['avatar'] ?? ''}',
       replies: ((expand['replys'] as List?) ?? [])
           .map((r) => parseComment(Map<String, dynamic>.from(r), reply: true))
           .toList(),
