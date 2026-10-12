@@ -1,0 +1,156 @@
+import 'dart:convert';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
+import 'package:unr/domain/models.dart';
+import 'package:unr/sources/sfacg_api.dart';
+import 'package:unr/sources/sfacg_signature.dart';
+import 'package:unr/sources/sfacg_source.dart';
+
+http.Response ok(dynamic data) => http.Response(
+  jsonEncode({
+    'status': {'httpCode': 200},
+    'data': data,
+  }),
+  200,
+  headers: {'content-type': 'application/json; charset=utf-8'},
+);
+
+void main() {
+  test('签名与 SFacgExporter 协议向量一致', () {
+    expect(
+      sfacgSign(
+        '8BB4D95F-7BE3-40D4-BC98-E4DF0B5D4568',
+        1791777000123,
+        '910D166A-736E-3231-8B21-8D12DFD75F16',
+      ),
+      'C60655DD55198E0A9F176799E3C8206A',
+    );
+  });
+  test('作品链接不接受伪装域名', () {
+    expect(
+      SfacgSource.bookId('https://book.sfacg.com/Novel/776753/'),
+      '776753',
+    );
+    expect(SfacgSource.bookId('https://m.sfacg.com/b/776753/'), '776753');
+    expect(
+      () => SfacgSource.bookId('https://book.sfacg.com.evil.test/Novel/1/'),
+      throwsA(isA<SourceException>()),
+    );
+  });
+  test('免费正文保留空段和图片的原始 row', () {
+    final content = SfacgSource.parsePublicChapter(
+      '<div id="ChapterBody"><p>甲 &amp; 😀</p><p> </p><p><img src="https://rss.sfacg.com/图.jpg"></p><p>目标段落</p></div>',
+    );
+    expect(content.paragraphs.map((p) => p.remoteIndex), [1, 3, 4]);
+    expect(content.paragraphs.first.text, '甲 & 😀');
+    expect(content.paragraphs[1].image, contains('rss.sfacg.com'));
+  });
+  test('段评第一页为 0，row 从 1 开始；正确读取主评论及回复', () async {
+    final api = SfacgApi(
+      client: MockClient((req) async {
+        expect(req.url.path, '/chaps/0/123/tsukkomis');
+        expect(req.url.queryParameters['page'], '0');
+        expect(req.url.queryParameters['row'], '23');
+        expect(req.url.queryParameters['sort'], 'hot');
+        expect(req.followRedirects, false);
+        return ok([
+          {
+            'tsukkomiId': 10,
+            'row': 23,
+            'content': '测试段评',
+            'favNum': 2,
+            'replyNum': 2,
+            'postUser': {'nickName': '读者甲'},
+            'expand': {
+              'chapterContent': '目标段落',
+              'replys': [
+                {
+                  'replyId': 11,
+                  'content': '测试回复',
+                  'replyUser': {'nickName': '读者乙'},
+                },
+              ],
+            },
+          },
+        ]);
+      }),
+    );
+    final result = await SfacgSource(
+      api,
+    ).comments(const Chapter(id: '123', title: '章节'), 23);
+    expect(result.single.author, '读者甲');
+    expect(result.single.likes, 2);
+    expect(result.single.replyCount, 2);
+    expect(result.single.replies.single.author, '读者乙');
+    expect(result.single.paragraphText, '目标段落');
+    api.close();
+  });
+  test('分页和最新排序发送正确参数', () async {
+    final api = SfacgApi(
+      client: MockClient((req) async {
+        expect(req.url.queryParameters['page'], '1');
+        expect(req.url.queryParameters['sort'], 'date');
+        return ok([]);
+      }),
+    );
+    expect(
+      await SfacgSource(api).comments(
+        const Chapter(id: '123', title: ''),
+        1,
+        page: 1,
+        sort: CommentSort.latest,
+      ),
+      isEmpty,
+    );
+    api.close();
+  });
+  test('回复分页同样从 0 开始', () async {
+    final api = SfacgApi(
+      client: MockClient((req) async {
+        expect(req.url.path, '/tsukkomis/0/10/replys');
+        expect(req.url.queryParameters['page'], '0');
+        return ok([
+          {
+            'replyId': 11,
+            'content': '回复',
+            'replyUser': {'nickName': '乙'},
+          },
+        ]);
+      }),
+    );
+    expect((await SfacgSource(api).replies('10')).single.id, '11');
+    api.close();
+  });
+  test('已登录正文请求关闭自动购买', () async {
+    final cipher = <String, String>{
+      for (var i = 0; i < 3751; i++) '$i': '$i',
+      '宦': '啊',
+    }..remove('0');
+    final api = SfacgApi(
+      client: MockClient((req) async {
+        expect(req.url.host, 'api.sfacg.com');
+        expect(req.url.queryParameters['autoOrder'], 'false');
+        expect(req.headers['Cookie'], contains('session_APP=synthetic'));
+        return ok({
+          'content': '宦😀',
+          'expand': {'content': '\n末段'},
+        });
+      }),
+    )..setCookie('.SFCommunity=synthetic; session_APP=synthetic');
+    final result = await SfacgSource(api, cipher: cipher).readChapter(
+      const Book(id: '1', title: '', author: '', chapters: []),
+      const Chapter(id: '123', title: '', vip: true),
+    );
+    expect(result.paragraphs.first.text, '啊😀');
+    api.close();
+  });
+  test('图片 URL 不经过汉字字符替换', () {
+    final source = SfacgSource(SfacgApi(), cipher: {'宦': '啊'});
+    expect(
+      source.decode('宦[img=700,875]https://rss.sfacg.com/宦.jpg[/img]宦'),
+      '啊[img=700,875]https://rss.sfacg.com/宦.jpg[/img]啊',
+    );
+    source.api.close();
+  });
+}

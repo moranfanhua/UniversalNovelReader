@@ -1,0 +1,146 @@
+// Signature and session protocol adapted from SFacgExporter, AGPL-3.0.
+import 'dart:convert';
+import 'dart:io';
+import 'package:http/http.dart' as http;
+import 'package:uuid/uuid.dart';
+import '../domain/models.dart';
+import 'sfacg_signature.dart';
+
+class SfacgApi {
+  SfacgApi({http.Client? client, String? device})
+    : client = client ?? http.Client(),
+      device = device ?? const Uuid().v4().toUpperCase();
+  final http.Client client;
+  final String device;
+  String nonce = const Uuid().v4().toUpperCase();
+  int clockOffset = 0;
+  final Map<String, String> cookies = {};
+  Future<void> Function()? onSessionChanged;
+  bool get hasSession =>
+      cookies['.SFCommunity']?.isNotEmpty == true &&
+      cookies['session_APP']?.isNotEmpty == true;
+
+  void setCookie(String value) {
+    final parsed = <String, String>{};
+    for (final part in value.split(';')) {
+      final i = part.indexOf('=');
+      if (i < 0) continue;
+      final key = part.substring(0, i).trim();
+      if (key == '.SFCommunity' || key == 'session_APP') {
+        parsed[key] = part.substring(i + 1).trim();
+      }
+    }
+    if (parsed.length != 2 ||
+        parsed.values.any(
+          (v) => v.isEmpty || v.contains('\n') || v.contains('\r'),
+        )) {
+      throw const SourceException('需要完整的 .SFCommunity 和 session_APP 会话');
+    }
+    cookies
+      ..clear()
+      ..addAll(parsed);
+  }
+
+  Future<dynamic> get(String path, {Map<String, String>? query}) =>
+      request(path, query: query);
+
+  Future<dynamic> request(
+    String path, {
+    Map<String, String>? query,
+    Map<String, dynamic>? body,
+  }) async {
+    final uri = Uri.https(
+      'api.sfacg.com',
+      path.startsWith('/') ? path : '/$path',
+      query,
+    );
+    for (var attempt = 0; attempt < 4; attempt++) {
+      final timestamp = DateTime.now().millisecondsSinceEpoch + clockOffset;
+      final req = http.Request(body == null ? 'GET' : 'POST', uri)
+        ..followRedirects = false;
+      req.headers.addAll({
+        'Authorization': 'Basic YW5kcm9pZHVzZXI6MWEjJDUxLXl0Njk7KkFjdkBxeHE=',
+        'Accept': 'application/vnd.sfacg.api+json;version=1',
+        'Accept-Charset': 'UTF-8',
+        'User-Agent':
+            'boluobao/5.2.44(android;35)/UNR/${device.toLowerCase()}/UNR',
+        'sfsecurity':
+            'nonce=$nonce&timestamp=$timestamp&devicetoken=$device&sign=${sfacgSign(nonce, timestamp, device)}',
+        if (hasSession)
+          'Cookie': cookies.entries
+              .map((e) => '${e.key}=${e.value}')
+              .join('; '),
+      });
+      if (body != null) {
+        req.headers['Content-Type'] = 'application/json; charset=utf-8';
+        req.body = jsonEncode(body);
+      }
+      final response = await http.Response.fromStream(
+        await client.send(req).timeout(const Duration(seconds: 25)),
+      );
+      Map<String, dynamic> doc;
+      try {
+        doc =
+            jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+      } catch (_) {
+        throw SourceException('菠萝包返回无法识别的数据（HTTP ${response.statusCode}）');
+      }
+      final status = (doc['status'] as Map?) ?? {};
+      final code = status['httpCode'] as int? ?? response.statusCode;
+      if (code == 200 &&
+          response.statusCode >= 200 &&
+          response.statusCode < 300) {
+        final setCookie = response.headers['set-cookie'];
+        if (setCookie != null) {
+          for (final m in RegExp(
+            r'(?:^|,\s*)(\.SFCommunity|session_APP)=([^;,]*)',
+          ).allMatches(setCookie)) {
+            if (m[2]!.isEmpty) {
+              cookies.remove(m[1]);
+            } else {
+              cookies[m[1]!] = m[2]!;
+            }
+          }
+          await onSessionChanged?.call();
+        }
+        return doc['data'];
+      }
+      if (attempt < 3 && (code == 417 || code == 429 || code >= 500)) {
+        nonce = const Uuid().v4().toUpperCase();
+        if (code == 417 && response.headers['date'] != null) {
+          try {
+            clockOffset =
+                HttpDate.parse(
+                  response.headers['date']!,
+                ).millisecondsSinceEpoch -
+                DateTime.now().millisecondsSinceEpoch;
+          } catch (_) {
+            /* Keep the current clock for invalid server dates. */
+          }
+        }
+        await Future<void>.delayed(Duration(milliseconds: 350 * (attempt + 1)));
+        continue;
+      }
+      if (code == 401) {
+        throw const SourceException('登录状态或章节权限无效，请检查菠萝包会话', code: 401);
+      }
+      throw SourceException(
+        '菠萝包请求失败（状态 $code，错误码 ${status['errorCode'] ?? 0}）',
+        code: code,
+      );
+    }
+    throw const SourceException('菠萝包暂时无法访问');
+  }
+
+  Future<void> login(String account, String password) async {
+    await request(
+      'sessions',
+      body: {'username': account, 'password': password, 'shuMeiId': ''},
+    );
+    if (!hasSession) throw const SourceException('登录未返回完整会话，可能需要官方 App 完成验证');
+    await get('user');
+    await onSessionChanged?.call();
+  }
+
+  void close() => client.close();
+}

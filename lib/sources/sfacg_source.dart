@@ -1,0 +1,260 @@
+import 'dart:convert';
+import 'package:html/dom.dart';
+import 'package:html/parser.dart' as html;
+import '../domain/models.dart';
+import 'novel_source.dart';
+import 'sfacg_api.dart';
+
+enum CommentSort { hot, latest }
+
+class SfacgSource implements NovelSource {
+  SfacgSource(this.api, {Map<String, String>? cipher}) : cipher = cipher ?? {};
+  final SfacgApi api;
+  final Map<String, String> cipher;
+  @override
+  String get id => 'sfacg';
+  @override
+  String get name => '菠萝包轻小说';
+
+  static String bookId(String input) {
+    final value = input.trim();
+    if (RegExp(r'^\d{1,10}$').hasMatch(value)) return value;
+    final uri = Uri.tryParse(value);
+    if (uri != null &&
+        ['https', 'http'].contains(uri.scheme) &&
+        ['book.sfacg.com', 'm.sfacg.com'].contains(uri.host.toLowerCase())) {
+      final match = RegExp(
+        r'^/(?:Novel|b|i)/(\d{1,10})(?:/|$)',
+        caseSensitive: false,
+      ).firstMatch(uri.path);
+      if (match != null) return match[1]!;
+    }
+    throw const SourceException('请输入小说 ID 或菠萝包作品链接');
+  }
+
+  Future<List<Book>> search(String keyword, {int page = 0}) async {
+    if (keyword.trim().isEmpty) return [];
+    final data = await api.get(
+      'search/novels/result/new',
+      query: {'q': keyword.trim(), 'page': '$page', 'size': '20'},
+    );
+    return ((data as Map)['novels'] as List? ?? [])
+        .map(
+          (j) => Book(
+            id: '${j['novelId']}',
+            title: j['novelName'] ?? '',
+            author: j['authorName'] ?? '',
+            cover: j['novelCover'] ?? '',
+            chapters: [],
+          ),
+        )
+        .toList();
+  }
+
+  @override
+  Future<Book> getBook(String input) async {
+    final id = bookId(input);
+    final info =
+        await api.get('novels/$id', query: {'expand': 'bigNovelCover,intro'})
+            as Map;
+    final dirs =
+        await api.get(
+              'novels/$id/dirs',
+              query: {'expand': 'originNeedFireMoney'},
+            )
+            as Map;
+    final chapters = <Chapter>[];
+    final seen = <String>{};
+    for (final v in (dirs['volumeList'] as List? ?? [])) {
+      for (final c in (v['chapterList'] as List? ?? [])) {
+        final cid = '${c['chapId']}';
+        if (!RegExp(r'^\d+$').hasMatch(cid) || cid == '0' || !seen.add(cid)) {
+          throw const SourceException('菠萝包目录包含无效或重复章节');
+        }
+        final vip =
+            c['isVip'] == true || (c['originNeedFireMoney'] as num? ?? 0) > 0;
+        chapters.add(
+          Chapter(
+            id: cid,
+            title: c['title'] ?? cid,
+            volume: '${v['title'] ?? '正文'}',
+            vip: vip,
+            url: vip
+                ? 'https://book.sfacg.com/vip/c/$cid/'
+                : 'https://book.sfacg.com/Novel/$id/${v['volumeId']}/$cid/',
+          ),
+        );
+      }
+    }
+    if (chapters.isEmpty) throw const SourceException('作品没有可读取的章节目录');
+    return Book(
+      id: id,
+      title: info['novelName'] ?? id,
+      author: info['authorName'] ?? '',
+      cover: info['novelCover'] ?? '',
+      description: info['expand']?['intro'] ?? '',
+      chapters: chapters,
+    );
+  }
+
+  @override
+  Future<ChapterContent> readChapter(Book book, Chapter chapter) async {
+    if (!chapter.vip) {
+      final response = await api.client
+          .get(
+            Uri.parse(chapter.url),
+            headers: {
+              'User-Agent': 'Mozilla/5.0',
+              'Referer': 'https://book.sfacg.com/',
+            },
+          )
+          .timeout(const Duration(seconds: 25));
+      if (response.statusCode != 200) {
+        throw SourceException('官网章节暂时无法访问（HTTP ${response.statusCode}）');
+      }
+      return parsePublicChapter(utf8.decode(response.bodyBytes));
+    }
+    if (!api.hasSession) throw const SourceException('此章节需要在账号设置中登录菠萝包');
+    final data =
+        await api.get(
+              'Chaps/${chapter.id}',
+              query: {'expand': 'content,expand.content', 'autoOrder': 'false'},
+            )
+            as Map;
+    final raw = '${data['content'] ?? ''}${data['expand']?['content'] ?? ''}';
+    if (raw.trim().isEmpty) throw const SourceException('未取得正文，请检查已有章节阅读权限');
+    if (cipher.length != 3751) throw const SourceException('菠萝包正文字符表不完整');
+    return parseAppContent(decode(raw));
+  }
+
+  String decode(String raw) {
+    // Image URLs must never be passed through the Han character substitution.
+    final image = RegExp(
+      r'\[img[^\]]*\](?:[^\[]*\[/img\])?',
+      caseSensitive: false,
+    );
+    final out = StringBuffer();
+    var start = 0;
+    for (final m in image.allMatches(raw)) {
+      out.write(_decodeText(raw.substring(start, m.start)));
+      out.write(m[0]);
+      start = m.end;
+    }
+    out.write(_decodeText(raw.substring(start)));
+    return out.toString();
+  }
+
+  String _decodeText(String value) => value.runes.map((r) {
+    final s = String.fromCharCode(r);
+    return cipher[s] ?? s;
+  }).join();
+
+  static ChapterContent parsePublicChapter(String value) {
+    final body = html.parse(value).querySelector('#ChapterBody');
+    if (body == null) throw const SourceException('官网未返回完整正文');
+    final paragraphs = <Paragraph>[];
+    var row = 0;
+    for (final p in body.querySelectorAll('p')) {
+      row++;
+      // Keep the original row even when a paragraph is empty or contains an image.
+      for (final node in p.nodes) {
+        if (node is Element && node.localName == 'img') {
+          final src = node.attributes['src'];
+          if (src != null) {
+            paragraphs.add(
+              Paragraph(
+                '',
+                image: Uri.parse(
+                  'https://book.sfacg.com',
+                ).resolve(src).toString(),
+                remoteIndex: row,
+              ),
+            );
+          }
+        }
+      }
+      final text = p.text.trim();
+      if (text.isNotEmpty) paragraphs.add(Paragraph(text, remoteIndex: row));
+    }
+    if (paragraphs.isEmpty) throw const SourceException('官网未返回可阅读正文');
+    return ChapterContent(paragraphs);
+  }
+
+  static ChapterContent parseAppContent(String value) {
+    final paragraphs = <Paragraph>[];
+    final lines = value.replaceAll('\r\n', '\n').split('\n');
+    for (var i = 0; i < lines.length; i++) {
+      final line = lines[i].trim();
+      if (line.isEmpty) continue;
+      final image = RegExp(
+        r'^\[img(?:\s*=\s*\d+\s*,\s*\d+)?\]\s*(.*?)\s*\[/img\]$|^\[img\s*=\s*([^\]]+)\](?:\[/img\])?$',
+        caseSensitive: false,
+      ).firstMatch(line);
+      if (image != null) {
+        paragraphs.add(
+          Paragraph('', image: image[1] ?? image[2], remoteIndex: i + 1),
+        );
+      } else {
+        paragraphs.add(Paragraph(line, remoteIndex: i + 1));
+      }
+    }
+    return ChapterContent(paragraphs);
+  }
+
+  @override
+  Future<List<ParagraphComment>> comments(
+    Chapter chapter,
+    int paragraph, {
+    int page = 0,
+    CommentSort sort = CommentSort.hot,
+  }) async {
+    if (paragraph < 1 || page < 0) throw ArgumentError('段落从 1 开始，分页从 0 开始');
+    final data = await api.get(
+      'chaps/0/${chapter.id}/tsukkomis',
+      query: {
+        'row': '$paragraph',
+        'page': '$page',
+        'size': '20',
+        'sort': sort == CommentSort.hot ? 'hot' : 'date',
+        'expand':
+            'avatar,chapterTitle,chapterContent,replys,avatarFrame,favNum',
+      },
+    );
+    if (data is! List) throw const SourceException('菠萝包段评数据格式已变化');
+    return data.map((j) => parseComment(Map<String, dynamic>.from(j))).toList();
+  }
+
+  Future<List<ParagraphComment>> replies(
+    String commentId, {
+    int page = 0,
+  }) async {
+    final data = await api.get(
+      'tsukkomis/0/$commentId/replys',
+      query: {'page': '$page', 'size': '20', 'expand': 'avatar'},
+    );
+    if (data is! List) throw const SourceException('菠萝包回复数据格式已变化');
+    return data
+        .map((j) => parseComment(Map<String, dynamic>.from(j), reply: true))
+        .toList();
+  }
+
+  static ParagraphComment parseComment(
+    Map<String, dynamic> j, {
+    bool reply = false,
+  }) {
+    final user = (j[reply ? 'replyUser' : 'postUser'] as Map?) ?? {};
+    final expand = (j['expand'] as Map?) ?? {};
+    return ParagraphComment(
+      id: '${j[reply ? 'replyId' : 'tsukkomiId']}',
+      author: user['nickName'] ?? user['userName'] ?? '读者',
+      text: j['content'] ?? '',
+      likes: j['favNum'] as int? ?? 0,
+      replyCount: j['replyNum'] as int? ?? 0,
+      date: j[reply ? 'replyDate' : 'postDate'] ?? '',
+      paragraphText: expand['chapterContent'] ?? '',
+      replies: ((expand['replys'] as List?) ?? [])
+          .map((r) => parseComment(Map<String, dynamic>.from(r), reply: true))
+          .toList(),
+    );
+  }
+}
