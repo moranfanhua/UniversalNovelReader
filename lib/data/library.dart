@@ -72,6 +72,7 @@ class Library extends ChangeNotifier {
   double fontSize = 20;
   bool night = false;
   ReadingMode readingMode = ReadingMode.scroll;
+  bool volumeKeyPaging = true;
   final Map<String, int> pageOffsets = {};
   String readingFontId = '';
   String? readingFontFamily, fontNotice;
@@ -115,6 +116,7 @@ class Library extends ChangeNotifier {
         32,
       );
       library.night = data['night'] == true;
+      library.volumeKeyPaging = data['volumeKeyPaging'] != false;
       library.shelfSort = ShelfSort.values.firstWhere(
         (sort) => sort.name == data['shelfSort'],
         orElse: () => ShelfSort.lastActive,
@@ -208,6 +210,7 @@ class Library extends ChangeNotifier {
       'fontSize': fontSize,
       'night': night,
       'readingMode': readingMode.name,
+      'volumeKeyPaging': volumeKeyPaging,
       'pageOffsets': pageOffsets,
       'readingFontId': readingFontId,
       'horizontalMargin': horizontalMargin,
@@ -272,6 +275,7 @@ class Library extends ChangeNotifier {
     verticalMargin = 24;
     lineHeight = 1.9;
     readingMode = ReadingMode.scroll;
+    volumeKeyPaging = true;
     night = false;
     await save();
   }

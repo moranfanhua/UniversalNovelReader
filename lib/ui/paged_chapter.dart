@@ -40,10 +40,10 @@ class PagedChapter extends StatefulWidget {
   final Widget Function(String url) imageBuilder;
   final Widget Function(Paragraph paragraph) commentBuilder;
   @override
-  State<PagedChapter> createState() => _PagedChapterState();
+  State<PagedChapter> createState() => PagedChapterState();
 }
 
-class _PagedChapterState extends State<PagedChapter> {
+class PagedChapterState extends State<PagedChapter> {
   PageController? controller;
   List<List<PageFragment>> pages = [];
   Object? signature;
@@ -70,7 +70,7 @@ class _PagedChapterState extends State<PagedChapter> {
     });
   }
 
-  void _turn(int delta) {
+  Future<void> turnPage(int delta) async {
     final target = page ~/ columns + delta;
     if (controller?.hasClients != true) return;
     if (target < 0) {
@@ -81,7 +81,7 @@ class _PagedChapterState extends State<PagedChapter> {
       widget.onNextChapter?.call();
       return;
     }
-    controller!.animateToPage(
+    await controller!.animateToPage(
       target,
       duration: const Duration(milliseconds: 180),
       curve: Curves.easeOut,
@@ -194,8 +194,8 @@ class _PagedChapterState extends State<PagedChapter> {
       final pageRevision = revision;
       return CallbackShortcuts(
         bindings: {
-          const SingleActivator(LogicalKeyboardKey.pageUp): () => _turn(-1),
-          const SingleActivator(LogicalKeyboardKey.pageDown): () => _turn(1),
+          const SingleActivator(LogicalKeyboardKey.pageUp): () => turnPage(-1),
+          const SingleActivator(LogicalKeyboardKey.pageDown): () => turnPage(1),
         },
         child: Focus(
           autofocus: true,
@@ -293,7 +293,7 @@ class _PagedChapterState extends State<PagedChapter> {
                   children: [
                     TextButton(
                       onPressed: page > 0 || widget.onPreviousChapter != null
-                          ? () => _turn(-1)
+                          ? () => turnPage(-1)
                           : null,
                       child: const Text('上一页'),
                     ),
@@ -309,7 +309,7 @@ class _PagedChapterState extends State<PagedChapter> {
                       onPressed:
                           page + columns < pages.length ||
                               widget.onNextChapter != null
-                          ? () => _turn(1)
+                          ? () => turnPage(1)
                           : null,
                       child: const Text('下一页'),
                     ),

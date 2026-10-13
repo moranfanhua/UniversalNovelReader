@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../data/library.dart';
 import '../domain/models.dart';
 import '../sources/comment_source.dart';
@@ -9,6 +10,7 @@ import 'paged_chapter.dart';
 import 'reading_settings.dart';
 import 'reading_layout.dart';
 import 'boundary_scroll.dart';
+import 'volume_page_turner.dart';
 
 class ReaderPage extends StatefulWidget {
   const ReaderPage({
@@ -29,6 +31,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   late Future<ChapterContent> content;
   final scroll = ScrollController();
   final viewport = GlobalKey();
+  GlobalKey<PagedChapterState> pagedKey = GlobalKey<PagedChapterState>();
   List<GlobalKey> keys = [];
   Timer? debounce;
   Timer? countDebounce;
@@ -41,6 +44,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   int loadGeneration = 0;
   int paragraph = 0;
   bool leaving = false;
+  bool turningPage = false;
   bool settingsOpen = false;
   bool openAtEnd = false, pagedStartAtEnd = false;
   bool restoreScheduled = false, restoreAtEnd = false;
@@ -74,6 +78,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   void _load() {
     final generation = ++loadGeneration;
     restoring = true;
+    pagedKey = GlobalKey<PagedChapterState>();
     restoreScheduled = false;
     keys = [];
     pageRows = {};
@@ -330,6 +335,46 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     _go(target, atEnd: delta < 0);
   }
 
+  Future<void> _turnPage(int delta) async {
+    if (restoring ||
+        leaving ||
+        settingsOpen ||
+        turningPage ||
+        loadedParagraphs.isEmpty ||
+        ModalRoute.isCurrentOf(context) != true) {
+      return;
+    }
+    turningPage = true;
+    try {
+      if (library.readingMode == ReadingMode.paged) {
+        await pagedKey.currentState?.turnPage(delta);
+      } else if (scroll.hasClients) {
+        final position = scroll.position;
+        final atBoundary = delta < 0
+            ? position.extentBefore <= .5
+            : position.extentAfter <= .5;
+        if (atBoundary) {
+          _stepChapter(delta);
+        } else {
+          final distance =
+              (position.viewportDimension -
+                      library.fontSize * library.lineHeight)
+                  .clamp(1.0, double.infinity);
+          await scroll.animateTo(
+            (scroll.offset + distance * delta).clamp(
+              position.minScrollExtent,
+              position.maxScrollExtent,
+            ),
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOut,
+          );
+        }
+      }
+    } finally {
+      turningPage = false;
+    }
+  }
+
   void _go(int index, {bool atEnd = false}) {
     if (index < 0 || index >= widget.book.chapters.length) return;
     debounce?.cancel();
@@ -442,207 +487,241 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     },
     child: AnimatedBuilder(
       animation: library,
-      builder: (context, _) => Scaffold(
-        appBar: AppBar(
-          title: Text(
-            widget.book.title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          actions: [
-            IconButton(
-              tooltip: '目录',
-              onPressed: _directory,
-              icon: const Icon(Icons.format_list_bulleted),
-            ),
-            IconButton(
-              tooltip: '阅读设置',
-              onPressed: _settings,
-              icon: const Icon(Icons.settings_outlined),
-            ),
-            IconButton(
-              tooltip: '日夜模式',
-              onPressed: () {
-                library.night = !library.night;
-                _preferences();
-              },
-              icon: Icon(
-                library.night
-                    ? Icons.light_mode_outlined
-                    : Icons.dark_mode_outlined,
-              ),
-            ),
-          ],
-        ),
-        body: FutureBuilder<ChapterContent>(
-          future: content,
-          builder: (context, snapshot) {
-            if (snapshot.hasError) {
-              return Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.cloud_off_outlined, size: 48),
-                      const SizedBox(height: 16),
-                      Text('${snapshot.error}', textAlign: TextAlign.center),
-                      TextButton(
-                        onPressed: () => setState(_load),
-                        child: const Text('重试'),
-                      ),
-                    ],
+      builder: (context, _) => VolumePageTurner(
+        enabled: library.volumeKeyPaging,
+        onTurn: (delta) => unawaited(_turnPage(delta)),
+        child: CallbackShortcuts(
+          bindings: {
+            const SingleActivator(LogicalKeyboardKey.pageUp): () =>
+                unawaited(_turnPage(-1)),
+            const SingleActivator(LogicalKeyboardKey.pageDown): () =>
+                unawaited(_turnPage(1)),
+            const SingleActivator(LogicalKeyboardKey.arrowLeft): () =>
+                unawaited(_turnPage(-1)),
+            const SingleActivator(LogicalKeyboardKey.arrowUp): () =>
+                unawaited(_turnPage(-1)),
+            const SingleActivator(LogicalKeyboardKey.arrowRight): () =>
+                unawaited(_turnPage(1)),
+            const SingleActivator(LogicalKeyboardKey.arrowDown): () =>
+                unawaited(_turnPage(1)),
+          },
+          child: Focus(
+            autofocus: true,
+            child: Scaffold(
+              appBar: AppBar(
+                title: Text(
+                  widget.book.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                actions: [
+                  IconButton(
+                    tooltip: '目录',
+                    onPressed: _directory,
+                    icon: const Icon(Icons.format_list_bulleted),
                   ),
-                ),
-              );
-            }
-            if (snapshot.connectionState != ConnectionState.done ||
-                !snapshot.hasData) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            final paragraphs = snapshot.data!.paragraphs;
-            _restorePosition();
-            if (library.readingMode == ReadingMode.paged) {
-              return PagedChapter(
-                key: ValueKey(loadGeneration),
-                content: snapshot.data!,
-                title: widget.book.chapters[chapter].title,
-                fontSize: library.fontSize,
-                fontFamily: library.readingFontFamily,
-                horizontalMargin: library.horizontalMargin,
-                verticalMargin: library.verticalMargin,
-                lineHeight: library.lineHeight,
-                initialParagraph: paragraph,
-                initialOffset: characterOffset,
-                comments: comments != null,
-                startAtEnd: pagedStartAtEnd,
-                onPreviousChapter: chapter > 0 ? () => _stepChapter(-1) : null,
-                onNextChapter: chapter + 1 < widget.book.chapters.length
-                    ? () => _stepChapter(1)
-                    : null,
-                onPosition: (index, offset, rows) {
-                  if (settingsOpen) return;
-                  paragraph = index;
-                  characterOffset = offset;
-                  pageRows = rows;
-                  _track();
+                  IconButton(
+                    tooltip: '阅读设置',
+                    onPressed: _settings,
+                    icon: const Icon(Icons.settings_outlined),
+                  ),
+                  IconButton(
+                    tooltip: '日夜模式',
+                    onPressed: () {
+                      library.night = !library.night;
+                      _preferences();
+                    },
+                    icon: Icon(
+                      library.night
+                          ? Icons.light_mode_outlined
+                          : Icons.dark_mode_outlined,
+                    ),
+                  ),
+                ],
+              ),
+              body: FutureBuilder<ChapterContent>(
+                future: content,
+                builder: (context, snapshot) {
+                  if (snapshot.hasError) {
+                    return Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.cloud_off_outlined, size: 48),
+                            const SizedBox(height: 16),
+                            Text(
+                              '${snapshot.error}',
+                              textAlign: TextAlign.center,
+                            ),
+                            TextButton(
+                              onPressed: () => setState(_load),
+                              child: const Text('重试'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }
+                  if (snapshot.connectionState != ConnectionState.done ||
+                      !snapshot.hasData) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  final paragraphs = snapshot.data!.paragraphs;
+                  _restorePosition();
+                  if (library.readingMode == ReadingMode.paged) {
+                    return PagedChapter(
+                      key: pagedKey,
+                      content: snapshot.data!,
+                      title: widget.book.chapters[chapter].title,
+                      fontSize: library.fontSize,
+                      fontFamily: library.readingFontFamily,
+                      horizontalMargin: library.horizontalMargin,
+                      verticalMargin: library.verticalMargin,
+                      lineHeight: library.lineHeight,
+                      initialParagraph: paragraph,
+                      initialOffset: characterOffset,
+                      comments: comments != null,
+                      startAtEnd: pagedStartAtEnd,
+                      onPreviousChapter: chapter > 0
+                          ? () => _stepChapter(-1)
+                          : null,
+                      onNextChapter: chapter + 1 < widget.book.chapters.length
+                          ? () => _stepChapter(1)
+                          : null,
+                      onPosition: (index, offset, rows) {
+                        if (settingsOpen) return;
+                        paragraph = index;
+                        characterOffset = offset;
+                        pageRows = rows;
+                        _track();
+                      },
+                      imageBuilder: (url) => BookImage(
+                        library: library,
+                        book: widget.book,
+                        url: url,
+                      ),
+                      commentBuilder: _commentButton,
+                    );
+                  }
+                  return BoundaryScroll(
+                    key: ValueKey('chapter-scroll-$loadGeneration'),
+                    axis: Axis.vertical,
+                    onPrevious: chapter > 0 ? () => _stepChapter(-1) : null,
+                    onNext: chapter + 1 < widget.book.chapters.length
+                        ? () => _stepChapter(1)
+                        : null,
+                    child: SingleChildScrollView(
+                      physics: const AlwaysScrollableScrollPhysics(
+                        parent: ClampingScrollPhysics(),
+                      ),
+                      key: viewport,
+                      controller: scroll,
+                      child: Center(
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(
+                            maxWidth: ReadingLayout.singleWidth,
+                          ),
+                          child: Padding(
+                            padding: EdgeInsets.fromLTRB(
+                              library.horizontalMargin,
+                              library.verticalMargin,
+                              library.horizontalMargin,
+                              library.verticalMargin + 40,
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                Text(
+                                  widget.book.chapters[chapter].title,
+                                  style: Theme.of(
+                                    context,
+                                  ).textTheme.headlineSmall,
+                                ),
+                                const SizedBox(height: 32),
+                                for (var i = 0; i < paragraphs.length; i++)
+                                  Padding(
+                                    key: keys[i],
+                                    padding: const EdgeInsets.only(bottom: 18),
+                                    child: Row(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Expanded(
+                                          child: paragraphs[i].image != null
+                                              ? BookImage(
+                                                  library: library,
+                                                  book: widget.book,
+                                                  url: paragraphs[i].image!,
+                                                )
+                                              : SelectableText(
+                                                  '　　${paragraphs[i].text}',
+                                                  style: TextStyle(
+                                                    fontSize: library.fontSize,
+                                                    fontFamily: library
+                                                        .readingFontFamily,
+                                                    height: library.lineHeight,
+                                                  ),
+                                                ),
+                                        ),
+                                        if (comments != null &&
+                                            paragraphs[i].remoteIndex != null)
+                                          _commentButton(paragraphs[i]),
+                                      ],
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
                 },
-                imageBuilder: (url) =>
-                    BookImage(library: library, book: widget.book, url: url),
-                commentBuilder: _commentButton,
-              );
-            }
-            return BoundaryScroll(
-              key: ValueKey('chapter-scroll-$loadGeneration'),
-              axis: Axis.vertical,
-              onPrevious: chapter > 0 ? () => _stepChapter(-1) : null,
-              onNext: chapter + 1 < widget.book.chapters.length
-                  ? () => _stepChapter(1)
-                  : null,
-              child: SingleChildScrollView(
-                physics: const AlwaysScrollableScrollPhysics(
-                  parent: ClampingScrollPhysics(),
-                ),
-                key: viewport,
-                controller: scroll,
-                child: Center(
+              ),
+              bottomNavigationBar: SafeArea(
+                top: false,
+                child: Align(
+                  heightFactor: 1,
                   child: ConstrainedBox(
-                    constraints: const BoxConstraints(
-                      maxWidth: ReadingLayout.singleWidth,
+                    constraints: BoxConstraints(
+                      maxWidth: ReadingLayout.canvasWidth(
+                        MediaQuery.sizeOf(context).width,
+                        paged: library.readingMode == ReadingMode.paged,
+                      ),
                     ),
                     child: Padding(
-                      padding: EdgeInsets.fromLTRB(
-                        library.horizontalMargin,
-                        library.verticalMargin,
-                        library.horizontalMargin,
-                        library.verticalMargin + 40,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 8,
                       ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                      child: Row(
                         children: [
-                          Text(
-                            widget.book.chapters[chapter].title,
-                            style: Theme.of(context).textTheme.headlineSmall,
+                          TextButton.icon(
+                            onPressed: chapter > 0
+                                ? () => _go(chapter - 1, atEnd: true)
+                                : null,
+                            icon: const Icon(Icons.chevron_left),
+                            label: const Text('上一章'),
                           ),
-                          const SizedBox(height: 32),
-                          for (var i = 0; i < paragraphs.length; i++)
-                            Padding(
-                              key: keys[i],
-                              padding: const EdgeInsets.only(bottom: 18),
-                              child: Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Expanded(
-                                    child: paragraphs[i].image != null
-                                        ? BookImage(
-                                            library: library,
-                                            book: widget.book,
-                                            url: paragraphs[i].image!,
-                                          )
-                                        : SelectableText(
-                                            '　　${paragraphs[i].text}',
-                                            style: TextStyle(
-                                              fontSize: library.fontSize,
-                                              fontFamily:
-                                                  library.readingFontFamily,
-                                              height: library.lineHeight,
-                                            ),
-                                          ),
-                                  ),
-                                  if (comments != null &&
-                                      paragraphs[i].remoteIndex != null)
-                                    _commentButton(paragraphs[i]),
-                                ],
-                              ),
+                          Expanded(
+                            child: Text(
+                              '${chapter + 1} / ${widget.book.chapters.length}',
+                              textAlign: TextAlign.center,
                             ),
+                          ),
+                          TextButton.icon(
+                            onPressed: chapter + 1 < widget.book.chapters.length
+                                ? () => _go(chapter + 1)
+                                : null,
+                            icon: const Icon(Icons.chevron_right),
+                            label: const Text('下一章'),
+                          ),
                         ],
                       ),
                     ),
                   ),
-                ),
-              ),
-            );
-          },
-        ),
-        bottomNavigationBar: SafeArea(
-          top: false,
-          child: Align(
-            heightFactor: 1,
-            child: ConstrainedBox(
-              constraints: BoxConstraints(
-                maxWidth: ReadingLayout.canvasWidth(
-                  MediaQuery.sizeOf(context).width,
-                  paged: library.readingMode == ReadingMode.paged,
-                ),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 8,
-                ),
-                child: Row(
-                  children: [
-                    TextButton.icon(
-                      onPressed: chapter > 0
-                          ? () => _go(chapter - 1, atEnd: true)
-                          : null,
-                      icon: const Icon(Icons.chevron_left),
-                      label: const Text('上一章'),
-                    ),
-                    Expanded(
-                      child: Text(
-                        '${chapter + 1} / ${widget.book.chapters.length}',
-                        textAlign: TextAlign.center,
-                      ),
-                    ),
-                    TextButton.icon(
-                      onPressed: chapter + 1 < widget.book.chapters.length
-                          ? () => _go(chapter + 1)
-                          : null,
-                      icon: const Icon(Icons.chevron_right),
-                      label: const Text('下一章'),
-                    ),
-                  ],
                 ),
               ),
             ),

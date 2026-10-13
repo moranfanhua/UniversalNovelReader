@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../data/library.dart';
 import '../data/reader_fonts.dart';
@@ -191,6 +192,18 @@ class _ReadingSettingsState extends State<ReadingSettings> {
             },
           ),
           const SizedBox(height: 16),
+          if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android)
+            SwitchListTile(
+              key: const ValueKey('reading-volume-keys'),
+              contentPadding: EdgeInsets.zero,
+              title: const Text('音量键翻页'),
+              subtitle: const Text('音量减翻下一页，音量加翻上一页'),
+              value: library.volumeKeyPaging,
+              onChanged: (value) {
+                setState(() => library.volumeKeyPaging = value);
+                _save();
+              },
+            ),
           const Text('阅读字体'),
           DropdownButton<String>(
             key: const ValueKey('reading-font'),
