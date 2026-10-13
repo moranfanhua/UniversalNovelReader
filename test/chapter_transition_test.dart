@@ -117,6 +117,22 @@ void main() {
     testWidgets('单页和双页横向滑动到边界衔接相邻章（$width）', (tester) async {
       final library = TransitionLibrary()..readingMode = ReadingMode.paged;
       await open(tester, library, chapter: 1, width: width);
+      if (width > 1000) {
+        // Both remaining one-page chapters now share the final spread.
+        expect(find.text('　　第三章正文').hitTestable(), findsOneWidget);
+        expect(
+          tester
+              .widget<TextButton>(find.widgetWithText(TextButton, '下一页'))
+              .onPressed,
+          isNull,
+        );
+        await tester.drag(find.byType(PageView), const Offset(320, 0));
+        await settle(tester);
+        expect(find.text('1 / 3'), findsOneWidget);
+        expect(find.textContaining('上一章结尾标记').hitTestable(), findsOneWidget);
+        await tester.pumpWidget(const SizedBox.shrink());
+        return;
+      }
       await tester.drag(find.byType(PageView), const Offset(-320, 0));
       await settle(tester);
       expect(find.text('3 / 3'), findsOneWidget);

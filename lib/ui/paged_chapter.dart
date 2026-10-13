@@ -6,6 +6,26 @@ import 'text_pagination.dart';
 import 'reading_layout.dart';
 import 'boundary_scroll.dart';
 
+class ChapterPreview {
+  const ChapterPreview({
+    required this.content,
+    required this.title,
+    required this.hasFollowingChapter,
+    required this.commentBuilder,
+  });
+  final ChapterContent content;
+  final String title;
+  final bool hasFollowingChapter;
+  final Widget Function(Paragraph paragraph) commentBuilder;
+}
+
+typedef ChapterContinuation = ({
+  int paragraph,
+  int offset,
+  bool skipFirstPage,
+  bool skipChapter,
+});
+
 class PagedChapter extends StatefulWidget {
   const PagedChapter({
     super.key,
@@ -25,6 +45,10 @@ class PagedChapter extends StatefulWidget {
     this.startAtEnd = false,
     this.onPreviousChapter,
     this.onNextChapter,
+    this.loadNextChapter,
+    this.onContinueChapter,
+    this.onPreviewRows,
+    this.skipFirstPage = false,
   });
   final ChapterContent content;
   final String title;
@@ -35,6 +59,10 @@ class PagedChapter extends StatefulWidget {
   final bool comments;
   final bool startAtEnd;
   final VoidCallback? onPreviousChapter, onNextChapter;
+  final Future<ChapterPreview> Function()? loadNextChapter;
+  final ValueChanged<ChapterContinuation>? onContinueChapter;
+  final ValueChanged<Set<int>>? onPreviewRows;
+  final bool skipFirstPage;
   final void Function(int paragraph, int offset, Set<int> visibleRows)
   onPosition;
   final Widget Function(String url) imageBuilder;
@@ -46,8 +74,22 @@ class PagedChapter extends StatefulWidget {
 class PagedChapterState extends State<PagedChapter> {
   PageController? controller;
   List<List<PageFragment>> pages = [];
+  List<List<PageFragment>> previewPages = [];
+  ChapterPreview? preview;
+  Object? previewError;
+  Object? previewSignature;
+  double previewHeadingSpace = 0;
+  bool previewLoading = false, previewScheduled = false;
   Object? signature;
   int page = 0, revision = 0, columns = 1;
+  int firstPage = 0;
+  int get spreads => ((pages.length - firstPage) / columns).ceil();
+  bool get fillsRight => columns == 2 && (pages.length - firstPage).isOdd;
+  bool get hasNext =>
+      !(fillsRight &&
+          previewPages.length == 1 &&
+          preview?.hasFollowingChapter == false) &&
+      widget.onNextChapter != null;
   late int anchorParagraph = widget.initialParagraph;
   late int anchorOffset = widget.initialOffset;
   @override
@@ -68,17 +110,68 @@ class PagedChapterState extends State<PagedChapter> {
         if (widget.content.paragraphs[fragment.paragraph].remoteIndex != null)
           widget.content.paragraphs[fragment.paragraph].remoteIndex!,
     });
+    widget.onPreviewRows?.call({
+      if (fillsRight && page == pages.length - 1 && previewPages.isNotEmpty)
+        for (final fragment in previewPages.first)
+          if (preview!.content.paragraphs[fragment.paragraph].remoteIndex !=
+              null)
+            preview!.content.paragraphs[fragment.paragraph].remoteIndex!,
+    });
+  }
+
+  Future<void> _loadPreview() async {
+    final load = widget.loadNextChapter;
+    if (load == null || previewLoading || !mounted) return;
+    setState(() {
+      previewLoading = true;
+      previewError = null;
+    });
+    try {
+      final value = await load();
+      if (mounted) setState(() => preview = value);
+    } catch (error) {
+      if (mounted) setState(() => previewError = error);
+    } finally {
+      if (mounted) setState(() => previewLoading = false);
+    }
+  }
+
+  void _continue() {
+    final onContinue = widget.onContinueChapter;
+    if (fillsRight &&
+        preview != null &&
+        previewPages.isNotEmpty &&
+        onContinue != null) {
+      if (previewPages.length > 1) {
+        final start = previewPages[1].first;
+        onContinue((
+          paragraph: start.paragraph,
+          offset: start.offset,
+          skipFirstPage: true,
+          skipChapter: false,
+        ));
+      } else if (preview!.hasFollowingChapter) {
+        onContinue((
+          paragraph: 0,
+          offset: 0,
+          skipFirstPage: false,
+          skipChapter: true,
+        ));
+      }
+    } else {
+      widget.onNextChapter?.call();
+    }
   }
 
   Future<void> turnPage(int delta) async {
-    final target = page ~/ columns + delta;
+    final target = (page - firstPage) ~/ columns + delta;
     if (controller?.hasClients != true) return;
     if (target < 0) {
       widget.onPreviousChapter?.call();
       return;
     }
-    if (target >= (pages.length / columns).ceil()) {
-      widget.onNextChapter?.call();
+    if (target >= spreads) {
+      if (hasNext) _continue();
       return;
     }
     await controller!.animateToPage(
@@ -180,15 +273,68 @@ class PagedChapterState extends State<PagedChapter> {
           }
         }
         if (enterAtEnd) page = pages.length - 1;
-        page = page ~/ columns * columns;
+        firstPage =
+            widget.skipFirstPage && columns == 2 && pages.length > 1 && page > 0
+            ? 1
+            : 0;
+        page =
+            firstPage +
+            ((page - firstPage).clamp(0, pages.length) ~/ columns) * columns;
         final old = controller;
-        controller = PageController(initialPage: page ~/ columns);
+        controller = PageController(initialPage: (page - firstPage) ~/ columns);
         final generation = ++revision;
         WidgetsBinding.instance.addPostFrameCallback((_) {
           old?.dispose();
           if (mounted && generation == revision) {
             _report(preserveAnchor: !enterAtEnd);
           }
+        });
+      }
+      final next = preview;
+      if (next != null && previewSignature != (nextSignature, next)) {
+        previewSignature = (nextSignature, next);
+        final nextHeading = TextPainter(
+          text: TextSpan(text: next.title, style: headingStyle),
+          textScaler: scaler,
+          textDirection: direction,
+          maxLines: 2,
+          ellipsis: '…',
+          locale: locale,
+        )..layout(maxWidth: width);
+        final nextHeadingSpace = (nextHeading.height + 24).clamp(
+          0.0,
+          (height - minimum).clamp(0.0, double.infinity),
+        );
+        previewHeadingSpace = nextHeadingSpace;
+        nextHeading.dispose();
+        previewPages = TextPagination.paginate(
+          next.content.paragraphs,
+          width: width,
+          height: height,
+          style: style,
+          scaler: scaler,
+          direction: direction,
+          locale: locale,
+          comments: widget.comments,
+          headingSpace: nextHeadingSpace,
+        );
+        // Preview rows belong to another chapter; refresh their counts without
+        // moving the saved reading position away from the left-hand page.
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _report(preserveAnchor: true);
+        });
+      }
+      if (fillsRight &&
+          page == pages.length - 1 &&
+          widget.loadNextChapter != null &&
+          preview == null &&
+          previewError == null &&
+          !previewLoading &&
+          !previewScheduled) {
+        previewScheduled = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          previewScheduled = false;
+          if (mounted) _loadPreview();
         });
       }
       final pageRevision = revision;
@@ -213,8 +359,10 @@ class PagedChapterState extends State<PagedChapter> {
                   ),
                   child: BoundaryScroll(
                     axis: Axis.horizontal,
-                    onPrevious: widget.onPreviousChapter,
-                    onNext: widget.onNextChapter,
+                    onPrevious: widget.onPreviousChapter != null
+                        ? () => turnPage(-1)
+                        : null,
+                    onNext: hasNext ? () => turnPage(1) : null,
                     child: PageView.builder(
                       physics: const PageScrollPhysics(
                         parent: AlwaysScrollableScrollPhysics(
@@ -223,14 +371,14 @@ class PagedChapterState extends State<PagedChapter> {
                       ),
                       key: ValueKey(revision),
                       controller: controller,
-                      itemCount: (pages.length / columns).ceil(),
+                      itemCount: spreads,
                       onPageChanged: (value) {
                         if (pageRevision != revision ||
                             value < 0 ||
-                            value >= (pages.length / columns).ceil()) {
+                            value >= spreads) {
                           return;
                         }
-                        setState(() => page = value * columns);
+                        setState(() => page = firstPage + value * columns);
                         _report();
                       },
                       itemBuilder: (context, spread) => Align(
@@ -265,16 +413,24 @@ class PagedChapterState extends State<PagedChapter> {
                                     ),
                                   Expanded(
                                     child:
-                                        spread * columns + column < pages.length
+                                        firstPage + spread * columns + column <
+                                            pages.length
                                         ? _page(
                                             context,
-                                            spread * columns + column,
+                                            firstPage +
+                                                spread * columns +
+                                                column,
                                             style,
                                             headingStyle,
                                             scaler,
                                             headingSpace,
                                           )
-                                        : const SizedBox.shrink(),
+                                        : _previewPage(
+                                            context,
+                                            style,
+                                            headingStyle,
+                                            scaler,
+                                          ),
                                   ),
                                 ],
                               ],
@@ -292,7 +448,8 @@ class PagedChapterState extends State<PagedChapter> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     TextButton(
-                      onPressed: page > 0 || widget.onPreviousChapter != null
+                      onPressed:
+                          page > firstPage || widget.onPreviousChapter != null
                           ? () => turnPage(-1)
                           : null,
                       child: const Text('上一页'),
@@ -302,13 +459,11 @@ class PagedChapterState extends State<PagedChapter> {
                       child: Text(
                         columns == 2 && page + 1 < pages.length
                             ? '第 ${page + 1}–${page + 2} / ${pages.length} 页'
-                            : '第 ${page + 1} / ${pages.length} 页',
+                            : '第 ${page + 1} / ${pages.length} 页${fillsRight && preview != null ? ' · 下一章第 1 页' : ''}',
                       ),
                     ),
                     TextButton(
-                      onPressed:
-                          page + columns < pages.length ||
-                              widget.onNextChapter != null
+                      onPressed: page + columns < pages.length || hasNext
                           ? () => turnPage(1)
                           : null,
                       child: const Text('下一页'),
@@ -329,9 +484,11 @@ class PagedChapterState extends State<PagedChapter> {
     TextStyle style,
     TextStyle headingStyle,
     TextScaler scaler,
-    double headingSpace,
-  ) => SingleChildScrollView(
-    key: ValueKey('reading-page-$index'),
+    double headingSpace, {
+    ChapterPreview? next,
+    List<PageFragment>? fragments,
+  }) => SingleChildScrollView(
+    key: ValueKey('${next == null ? 'reading' : 'preview'}-page-$index'),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -339,13 +496,13 @@ class PagedChapterState extends State<PagedChapter> {
           SizedBox(
             height: headingSpace,
             child: Text(
-              widget.title,
+              next?.title ?? widget.title,
               style: headingStyle,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
             ),
           ),
-        for (final fragment in pages[index])
+        for (final fragment in fragments ?? pages[index])
           Padding(
             padding: const EdgeInsets.only(bottom: 18),
             child: SizedBox(
@@ -356,8 +513,7 @@ class PagedChapterState extends State<PagedChapter> {
                   Expanded(
                     child: fragment.image
                         ? widget.imageBuilder(
-                            widget
-                                .content
+                            (next?.content ?? widget.content)
                                 .paragraphs[fragment.paragraph]
                                 .image!,
                           )
@@ -368,15 +524,15 @@ class PagedChapterState extends State<PagedChapter> {
                           ),
                   ),
                   if (widget.comments &&
-                      widget
-                              .content
+                      (next?.content ?? widget.content)
                               .paragraphs[fragment.paragraph]
                               .remoteIndex !=
                           null)
                     SizedBox(
                       width: 56,
-                      child: widget.commentBuilder(
-                        widget.content.paragraphs[fragment.paragraph],
+                      child: (next?.commentBuilder ?? widget.commentBuilder)(
+                        (next?.content ?? widget.content).paragraphs[fragment
+                            .paragraph],
                       ),
                     ),
                 ],
@@ -386,4 +542,54 @@ class PagedChapterState extends State<PagedChapter> {
       ],
     ),
   );
+
+  Widget _previewPage(
+    BuildContext context,
+    TextStyle style,
+    TextStyle headingStyle,
+    TextScaler scaler,
+  ) {
+    final next = preview;
+    if (next != null && previewPages.isNotEmpty) {
+      return _page(
+        context,
+        0,
+        style,
+        headingStyle,
+        scaler,
+        previewHeadingSpace,
+        next: next,
+        fragments: previewPages.first,
+      );
+    }
+    if (widget.loadNextChapter == null) return const SizedBox.shrink();
+    if (previewError == null && (!previewLoading || page != pages.length - 1)) {
+      return const SizedBox.shrink();
+    }
+    return Align(
+      alignment: Alignment.topCenter,
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: previewError == null
+            ? const Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(height: 16),
+                  Text('正在加载下一章'),
+                ],
+              )
+            : Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('下一章加载失败：$previewError'),
+                  TextButton(
+                    onPressed: _loadPreview,
+                    child: const Text('重试下一章'),
+                  ),
+                ],
+              ),
+      ),
+    );
+  }
 }

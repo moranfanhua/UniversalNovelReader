@@ -36,9 +36,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   Timer? debounce;
   Timer? countDebounce;
   Timer? chapterCooldown;
-  final commentCounts = <int, int>{};
-  final countRequests = <int>{};
-  final countErrors = <int>{};
+  final commentCounts = <(int, int), int>{};
+  final countRequests = <(int, int)>{};
+  final countErrors = <(int, int)>{};
   List<Paragraph> loadedParagraphs = [];
   bool restoring = false;
   int loadGeneration = 0;
@@ -51,13 +51,18 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   int restoreParagraph = 0;
   int characterOffset = 0;
   Set<int> pageRows = {};
+  Set<int> previewRows = {};
+  ChapterContent? previewContent;
+  bool skipFirstPage = false;
+  String _entryKey(int chapter) => '${widget.book.key}:$chapter';
   Library get library => widget.library;
   CommentSource? get comments => library.commentsFor(widget.book);
-  CommentLocation _commentLocation(Paragraph paragraph) => CommentLocation(
-    book: widget.book,
-    chapter: widget.book.chapters[chapter],
-    paragraph: paragraph,
-  );
+  CommentLocation _commentLocation(Paragraph paragraph, {int? chapterIndex}) =>
+      CommentLocation(
+        book: widget.book,
+        chapter: widget.book.chapters[chapterIndex ?? chapter],
+        paragraph: paragraph,
+      );
   @override
   void initState() {
     super.initState();
@@ -71,6 +76,12 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     characterOffset = widget.initialChapter == null
         ? library.pageOffsets[widget.book.key] ?? 0
         : 0;
+    skipFirstPage =
+        widget.initialChapter == null &&
+        library.pagedChapterEntries[_entryKey(chapter)]?.firstOrNull == 1;
+    if (widget.initialChapter != null) {
+      library.pagedChapterEntries[_entryKey(chapter)] = [0];
+    }
     scroll.addListener(_track);
     _load();
   }
@@ -82,6 +93,8 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     restoreScheduled = false;
     keys = [];
     pageRows = {};
+    previewRows = {};
+    previewContent = null;
     loadedParagraphs = [];
     commentCounts.clear();
     countRequests.clear();
@@ -161,7 +174,10 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
         service?.commentCapabilities.counts != true) {
       return;
     }
-    final visible = <int>{...pageRows};
+    final visible = <(int, int)>{
+      for (final row in pageRows) (chapter, row),
+      for (final row in previewRows) (chapter + 1, row),
+    };
     if (library.readingMode == ReadingMode.scroll) {
       final view = viewport.currentContext?.findRenderObject();
       if (view is! RenderBox) return;
@@ -172,49 +188,57 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
         final row = loadedParagraphs[i].remoteIndex;
         if (row == null || box is! RenderBox) continue;
         final y = box.localToGlobal(Offset.zero).dy;
-        if (y < bottom && y + box.size.height > top) visible.add(row);
+        if (y < bottom && y + box.size.height > top) {
+          visible.add((chapter, row));
+        }
       }
     }
     final generation = loadGeneration;
-    for (final row in visible) {
+    for (final location in visible) {
       if (countRequests.length >= 3) break;
-      if (commentCounts.containsKey(row) ||
-          countErrors.contains(row) ||
-          !countRequests.add(row)) {
+      if (commentCounts.containsKey(location) ||
+          countErrors.contains(location) ||
+          !countRequests.add(location)) {
         continue;
       }
       service!
           .paragraphCommentCount(
             _commentLocation(
-              loadedParagraphs.firstWhere(
-                (paragraph) => paragraph.remoteIndex == row,
-              ),
+              (location.$1 == chapter
+                      ? loadedParagraphs
+                      : previewContent!.paragraphs)
+                  .firstWhere(
+                    (paragraph) => paragraph.remoteIndex == location.$2,
+                  ),
+              chapterIndex: location.$1,
             ),
           )
           .then((count) {
             if (!mounted || generation != loadGeneration) return;
-            setState(() => commentCounts[row] = count);
+            setState(() => commentCounts[location] = count);
           })
           .catchError((Object error) {
             if (!mounted || generation != loadGeneration) return;
-            setState(() => countErrors.add(row));
+            setState(() => countErrors.add(location));
           })
           .whenComplete(() {
             if (!mounted || generation != loadGeneration) return;
-            countRequests.remove(row);
+            countRequests.remove(location);
             _scheduleCounts();
           });
     }
   }
 
-  Future<void> _comments(Paragraph paragraph) async {
+  Future<void> _comments(Paragraph paragraph, {int? chapterIndex}) async {
+    final index = chapterIndex ?? chapter;
+    final location = (index, paragraph.remoteIndex ?? -1);
     final service = comments;
     if (service == null || paragraph.remoteIndex == null) return;
     final generation = loadGeneration;
     await showComments(
       context,
       service,
-      widget.book.chapters[chapter],
+      widget.book.chapters[index],
       paragraph,
       book: widget.book,
     );
@@ -224,26 +248,26 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       return;
     }
     setState(() {
-      commentCounts.remove(paragraph.remoteIndex);
-      countErrors.remove(paragraph.remoteIndex);
+      commentCounts.remove(location);
+      countErrors.remove(location);
     });
     // Refresh only this row when returning from the discussion.
     try {
       final count = await service.paragraphCommentCount(
-        _commentLocation(paragraph),
+        _commentLocation(paragraph, chapterIndex: index),
         refresh: true,
       );
       if (mounted && generation == loadGeneration) {
-        setState(() => commentCounts[paragraph.remoteIndex!] = count);
+        setState(() => commentCounts[location] = count);
       }
     } catch (_) {
       if (mounted && generation == loadGeneration) {
-        setState(() => countErrors.add(paragraph.remoteIndex!));
+        setState(() => countErrors.add(location));
       }
     }
   }
 
-  Widget _commentButton(Paragraph paragraph) => Tooltip(
+  Widget _commentButton(Paragraph paragraph, {int? chapterIndex}) => Tooltip(
     message: '阅读本段段评',
     child: TextButton(
       style: TextButton.styleFrom(
@@ -251,7 +275,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
         padding: const EdgeInsets.symmetric(horizontal: 6),
         visualDensity: VisualDensity.compact,
       ),
-      onPressed: () => _comments(paragraph),
+      onPressed: () => _comments(paragraph, chapterIndex: chapterIndex),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -261,8 +285,14 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
           if (comments?.commentCapabilities.counts == true)
             Flexible(
               child: Text(
-                commentCounts[paragraph.remoteIndex]?.toString() ??
-                    (countErrors.contains(paragraph.remoteIndex) ? '?' : '…'),
+                commentCounts[(chapterIndex ?? chapter, paragraph.remoteIndex)]
+                        ?.toString() ??
+                    (countErrors.contains((
+                          chapterIndex ?? chapter,
+                          paragraph.remoteIndex,
+                        ))
+                        ? '?'
+                        : '…'),
                 overflow: TextOverflow.ellipsis,
               ),
             ),
@@ -335,6 +365,61 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     _go(target, atEnd: delta < 0);
   }
 
+  Future<ChapterPreview> _previewNextChapter() async {
+    final index = chapter + 1;
+    final generation = loadGeneration;
+    final value = await library.read(widget.book, widget.book.chapters[index]);
+    if (mounted && generation == loadGeneration) previewContent = value;
+    return ChapterPreview(
+      content: value,
+      title: widget.book.chapters[index].title,
+      hasFollowingChapter: index + 1 < widget.book.chapters.length,
+      commentBuilder: (paragraph) =>
+          _commentButton(paragraph, chapterIndex: index),
+    );
+  }
+
+  void _advancePaged([ChapterContinuation? next]) {
+    if (restoring ||
+        leaving ||
+        settingsOpen ||
+        chapterCooldown?.isActive == true) {
+      return;
+    }
+    final target = chapter + (next?.skipChapter == true ? 2 : 1);
+    if (target >= widget.book.chapters.length) return;
+    chapterCooldown = Timer(const Duration(milliseconds: 400), () {});
+    library.pagedChapterEntries[_entryKey(target)] = [
+      next?.skipFirstPage == true ? 1 : 0,
+      chapter,
+      skipFirstPage ? 1 : 0,
+    ];
+    _go(
+      target,
+      initialParagraph: next?.paragraph ?? 0,
+      initialOffset: next?.offset ?? 0,
+      skipFirst: next?.skipFirstPage == true,
+      keepPagedEntry: true,
+    );
+  }
+
+  void _previousPaged() {
+    if (restoring ||
+        leaving ||
+        settingsOpen ||
+        chapterCooldown?.isActive == true) {
+      return;
+    }
+    final entry = library.pagedChapterEntries[_entryKey(chapter)];
+    final target = entry != null && entry.length >= 3 ? entry[1] : chapter - 1;
+    if (target < 0 || target >= chapter) return;
+    final skip = entry != null && entry.length >= 3
+        ? entry[2] == 1
+        : library.pagedChapterEntries[_entryKey(target)]?.firstOrNull == 1;
+    chapterCooldown = Timer(const Duration(milliseconds: 400), () {});
+    _go(target, atEnd: true, skipFirst: skip, keepPagedEntry: true);
+  }
+
   Future<void> _turnPage(int delta) async {
     if (restoring ||
         leaving ||
@@ -375,19 +460,33 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     }
   }
 
-  void _go(int index, {bool atEnd = false}) {
+  void _go(
+    int index, {
+    bool atEnd = false,
+    int initialParagraph = 0,
+    int initialOffset = 0,
+    bool skipFirst = false,
+    bool keepPagedEntry = false,
+  }) {
     if (index < 0 || index >= widget.book.chapters.length) return;
     debounce?.cancel();
     setState(() {
       chapter = index;
-      paragraph = 0;
-      characterOffset = 0;
+      paragraph = initialParagraph;
+      characterOffset = initialOffset;
+      skipFirstPage = skipFirst;
+      if (!keepPagedEntry) library.pagedChapterEntries[_entryKey(index)] = [0];
       openAtEnd = atEnd;
       library.pageOffsets.remove(widget.book.key);
+      if (initialOffset > 0) {
+        library.pageOffsets[widget.book.key] = initialOffset;
+      }
       _load();
       if (scroll.hasClients) scroll.jumpTo(0);
     });
-    library.remember(widget.book, chapter, 0).catchError((Object e) {
+    library.remember(widget.book, chapter, initialParagraph).catchError((
+      Object e,
+    ) {
       if (mounted) {
         ScaffoldMessenger.of(
           context,
@@ -584,14 +683,30 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                       initialOffset: characterOffset,
                       comments: comments != null,
                       startAtEnd: pagedStartAtEnd,
-                      onPreviousChapter: chapter > 0
-                          ? () => _stepChapter(-1)
+                      skipFirstPage: skipFirstPage,
+                      loadNextChapter: chapter + 1 < widget.book.chapters.length
+                          ? _previewNextChapter
                           : null,
+                      onContinueChapter: _advancePaged,
+                      onPreviewRows: (rows) {
+                        previewRows = rows;
+                        _scheduleCounts();
+                      },
+                      onPreviousChapter: chapter > 0 ? _previousPaged : null,
                       onNextChapter: chapter + 1 < widget.book.chapters.length
-                          ? () => _stepChapter(1)
+                          ? _advancePaged
                           : null,
                       onPosition: (index, offset, rows) {
                         if (settingsOpen) return;
+                        final pager = pagedKey.currentState;
+                        if (pager?.columns == 2) {
+                          skipFirstPage = pager!.firstPage == 1;
+                          final entry =
+                              library.pagedChapterEntries[_entryKey(chapter)];
+                          if (entry != null && entry.isNotEmpty) {
+                            entry[0] = skipFirstPage ? 1 : 0;
+                          }
+                        }
                         paragraph = index;
                         characterOffset = offset;
                         pageRows = rows;

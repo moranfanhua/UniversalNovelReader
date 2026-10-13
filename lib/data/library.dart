@@ -74,6 +74,8 @@ class Library extends ChangeNotifier {
   ReadingMode readingMode = ReadingMode.scroll;
   bool volumeKeyPaging = true;
   final Map<String, int> pageOffsets = {};
+  // Entry alignment and preceding spread origin, indexed by book and chapter.
+  final Map<String, List<int>> pagedChapterEntries = {};
   String readingFontId = '';
   String? readingFontFamily, fontNotice;
   final downloadedFonts = <String>{};
@@ -156,6 +158,13 @@ class Library extends ChangeNotifier {
           (k, v) => MapEntry('$k', (v as List).cast<int>()),
         ),
       );
+      for (final entry in (data['pagedChapterEntries'] as Map? ?? {}).entries) {
+        if (entry.value is List &&
+            (entry.value as List).every((value) => value is int)) {
+          library.pagedChapterEntries['${entry.key}'] = (entry.value as List)
+              .cast<int>();
+        }
+      }
     }
     library.downloadedFonts.addAll(await library.fonts.available());
     if (library.readingFontId.isNotEmpty) {
@@ -212,6 +221,7 @@ class Library extends ChangeNotifier {
       'readingMode': readingMode.name,
       'volumeKeyPaging': volumeKeyPaging,
       'pageOffsets': pageOffsets,
+      'pagedChapterEntries': pagedChapterEntries,
       'readingFontId': readingFontId,
       'horizontalMargin': horizontalMargin,
       'verticalMargin': verticalMargin,
