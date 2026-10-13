@@ -113,15 +113,21 @@ class _ReadingSettingsState extends State<ReadingSettings> {
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
       Row(children: [Text(label), const Spacer(), Text(display)]),
-      Slider(
-        key: ValueKey(key),
-        value: value.clamp(min, max),
-        min: min,
-        max: max,
-        divisions: divisions,
-        label: display,
-        onChanged: (value) => setState(() => update(value)),
-        onChangeEnd: (_) => _save(),
+      // Keep the value indicator's portal inside this semantics subtree.
+      // Flutter #190357: route/scroll updates can otherwise serialize orphans.
+      Overlay.wrap(
+        alwaysSizeToContent: true,
+        clipBehavior: Clip.none,
+        child: Slider(
+          key: ValueKey(key),
+          value: value.clamp(min, max),
+          min: min,
+          max: max,
+          divisions: divisions,
+          label: display,
+          onChanged: (value) => setState(() => update(value)),
+          onChangeEnd: (_) => _save(),
+        ),
       ),
     ],
   );

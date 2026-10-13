@@ -20,6 +20,14 @@ class _BookPageState extends State<BookPage> {
       .cachedContents(book);
   bool busy = false;
   String? error;
+  void _refreshCached() {
+    if (!mounted) return;
+    final next = widget.library.cachedContents(book);
+    setState(() {
+      cached = next;
+    });
+  }
+
   Future<void> _export(bool epub) async {
     setState(() {
       busy = true;
@@ -196,12 +204,7 @@ class _BookPageState extends State<BookPage> {
                                             ),
                                           ),
                                         );
-                                        if (mounted) {
-                                          setState(
-                                            () => cached = widget.library
-                                                .cachedContents(book),
-                                          );
-                                        }
+                                        _refreshCached();
                                       },
                                 icon: const Icon(Icons.menu_book),
                                 label: const Text('继续阅读'),
@@ -219,12 +222,7 @@ class _BookPageState extends State<BookPage> {
                                               book: book,
                                             ),
                                           );
-                                          if (mounted) {
-                                            setState(
-                                              () => cached = widget.library
-                                                  .cachedContents(book),
-                                            );
-                                          }
+                                          _refreshCached();
                                         },
                                   icon: const Icon(Icons.download_outlined),
                                   label: const Text('下载章节'),
@@ -280,12 +278,7 @@ class _BookPageState extends State<BookPage> {
                                     ),
                                   ),
                                 );
-                                if (mounted) {
-                                  setState(
-                                    () => cached = widget.library
-                                        .cachedContents(book),
-                                  );
-                                }
+                                _refreshCached();
                               },
                       );
                     },
