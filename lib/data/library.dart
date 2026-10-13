@@ -390,6 +390,8 @@ class Library extends ChangeNotifier {
     for (final p in content.paragraphs) {
       if (p.image != null) await loadImage(book, p.image!);
     }
+    // EPUB export also needs the cover, even if its preview was never opened.
+    if (book.cover.isNotEmpty) await loadImage(book, book.cover);
   }
 
   Future<void> import(ImportedBook data) async {

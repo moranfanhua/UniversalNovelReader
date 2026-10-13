@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:unr/data/library.dart';
 import 'package:unr/domain/models.dart';
+import 'package:unr/formats/ebook.dart';
 import 'package:unr/sources/sfacg_api.dart';
 import 'package:unr/sources/sfacg_source.dart';
 
@@ -23,6 +24,114 @@ void main() {
     url: 'https://book.sfacg.com/Novel/1/2/1/',
   );
   const book = Book(id: '1', title: '测试书', author: '测试', chapters: [chapter]);
+
+  final png = base64Decode(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aN1QAAAAASUVORK5CYII=',
+  );
+  const illustratedBook = Book(
+    id: '1',
+    title: '测试书',
+    author: '测试',
+    chapters: [chapter],
+    cover: 'https://rs.sfacg.com/cover.png',
+  );
+  const illustration = 'https://rs.sfacg.com/illustration.png';
+
+  test('下载包含封面和插图，断网重开后可阅读并导出 EPUB 和 TXT', () async {
+    final calls = <String, int>{};
+    final api = SfacgApi(
+      client: MockClient((request) async {
+        final url = request.url.toString();
+        calls[url] = (calls[url] ?? 0) + 1;
+        if (url == chapter.url) {
+          return http.Response(
+            '<div id="ChapterBody"><p>离线正文</p><p><img src="$illustration"></p></div>',
+            200,
+            headers: {'content-type': 'text/html; charset=utf-8'},
+          );
+        }
+        expect([illustratedBook.cover, illustration], contains(url));
+        return http.Response.bytes(png, 200);
+      }),
+    );
+    final library = Library(root, SfacgSource(api));
+    await library.add(illustratedBook);
+    final content = await library.read(illustratedBook, chapter);
+    await library.cacheImages(illustratedBook, content);
+    await library.cacheImages(illustratedBook, content);
+    expect(calls, {chapter.url: 1, illustration: 1, illustratedBook.cover: 1});
+    api.close();
+
+    var offlineRequests = 0;
+    final offlineApi = SfacgApi(
+      client: MockClient((_) async {
+        offlineRequests++;
+        throw const SocketException('离线');
+      }),
+    );
+    addTearDown(offlineApi.close);
+    final reopened = await Library.open(
+      SfacgSource(offlineApi),
+      directory: root,
+    );
+    final savedBook = reopened.books.single;
+    final savedContent = await reopened.read(
+      savedBook,
+      savedBook.chapters.single,
+    );
+    expect(savedContent.paragraphs.first.text, '离线正文');
+    final contents = await reopened.cachedContents(savedBook);
+    final epub = await Ebook.exportEpub(
+      savedBook,
+      contents,
+      (key) => reopened.loadImage(savedBook, key),
+    );
+    final imported = Ebook.importEpub(epub);
+    expect(imported.images[imported.book.cover], png);
+    final paragraphs = imported.contents.values.expand((c) => c.paragraphs);
+    expect(paragraphs.map((p) => p.text), contains('离线正文'));
+    final image = paragraphs.firstWhere((p) => p.image != null).image!;
+    expect(imported.images[image], png);
+    expect(utf8.decode(Ebook.exportTxt(savedBook, contents)), contains('离线正文'));
+    expect(offlineRequests, 0);
+  });
+
+  test('封面下载失败明确报错，保留已缓存正文和插图，重试只补封面', () async {
+    var coverCalls = 0, imageCalls = 0;
+    final api = SfacgApi(
+      client: MockClient((request) async {
+        if (request.url.toString() == illustratedBook.cover) {
+          coverCalls++;
+          if (coverCalls == 1) return http.Response('', 503);
+        } else {
+          expect(request.url.toString(), illustration);
+          imageCalls++;
+        }
+        return http.Response.bytes(png, 200);
+      }),
+    );
+    addTearDown(api.close);
+    final library = Library(root, SfacgSource(api));
+    const content = ChapterContent([
+      Paragraph('缓存正文'),
+      Paragraph('', image: illustration),
+    ]);
+    await library.store(illustratedBook, chapter, content);
+    await expectLater(
+      library.cacheImages(illustratedBook, content),
+      throwsA(isA<SourceException>()),
+    );
+    expect(await library.image(illustratedBook, illustratedBook.cover), isNull);
+    expect(await library.image(illustratedBook, illustration), png);
+    expect(
+      (await library.cached(illustratedBook, chapter))!.paragraphs.first.text,
+      '缓存正文',
+    );
+    await library.cacheImages(illustratedBook, content);
+    expect(coverCalls, 2);
+    expect(imageCalls, 1);
+    expect(await library.image(illustratedBook, illustratedBook.cover), png);
+  });
 
   test('同时读取同一章节只请求一次，后续可离线读取', () async {
     var calls = 0;
