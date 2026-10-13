@@ -170,12 +170,28 @@ void main() {
     await tester.pump(const Duration(milliseconds: 700));
     final offset = library.pageOffsets[book.key]!;
     expect(offset, greaterThan(0));
-    await tester.tap(find.byTooltip('字号增大'));
+    await tester.tap(find.byTooltip('阅读设置'));
+    await tester.pumpAndSettle();
+    final larger = tester.widget<Slider>(
+      find.byKey(const ValueKey('reading-font-size')),
+    );
+    larger.onChanged!(22);
+    larger.onChangeEnd!(22);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('关闭阅读设置'));
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
     await tester.tap(find.text('下一页'));
     await tester.pump(const Duration(milliseconds: 50));
-    await tester.tap(find.byTooltip('字号减小'));
+    await tester.tap(find.byTooltip('阅读设置'));
+    await tester.pumpAndSettle();
+    final smaller = tester.widget<Slider>(
+      find.byKey(const ValueKey('reading-font-size')),
+    );
+    smaller.onChanged!(20);
+    smaller.onChangeEnd!(20);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('关闭阅读设置'));
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
     await tester.pageBack();

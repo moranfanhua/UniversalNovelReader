@@ -16,10 +16,16 @@ class PagedChapter extends StatefulWidget {
     required this.imageBuilder,
     required this.commentBuilder,
     required this.comments,
+    this.fontFamily,
+    this.horizontalMargin = 22,
+    this.verticalMargin = 24,
+    this.lineHeight = 1.9,
   });
   final ChapterContent content;
   final String title;
   final double fontSize;
+  final String? fontFamily;
+  final double horizontalMargin, verticalMargin, lineHeight;
   final int initialParagraph, initialOffset;
   final bool comments;
   final void Function(int paragraph, int offset, Set<int> visibleRows)
@@ -74,18 +80,37 @@ class _PagedChapterState extends State<PagedChapter> {
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
-      final width = (constraints.maxWidth.clamp(1.0, 820.0) - 44).clamp(
-        1.0,
-        double.infinity,
+      final width =
+          (constraints.maxWidth.clamp(1.0, 820.0) - widget.horizontalMargin * 2)
+              .clamp(1.0, double.infinity);
+      final style = Theme.of(context).textTheme.bodyLarge!.copyWith(
+        fontSize: widget.fontSize,
+        fontFamily: widget.fontFamily,
+        height: widget.lineHeight,
       );
-      final height = (constraints.maxHeight - 88).clamp(60.0, double.infinity);
-      final style = Theme.of(
-        context,
-      ).textTheme.bodyLarge!.copyWith(fontSize: widget.fontSize, height: 1.9);
       final headingStyle = Theme.of(context).textTheme.headlineSmall!;
       final scaler = MediaQuery.textScalerOf(context);
       final direction = Directionality.of(context);
       final locale = Localizations.maybeLocaleOf(context);
+      final sample = TextPainter(
+        text: TextSpan(text: '国', style: style),
+        textScaler: scaler,
+        textDirection: direction,
+        locale: locale,
+      )..layout(maxWidth: width);
+      final minimum = sample.height + 18;
+      sample.dispose();
+      final verticalMargin = widget.verticalMargin.clamp(
+        0.0,
+        ((constraints.maxHeight - 48 - minimum) / 2).clamp(
+          0.0,
+          widget.verticalMargin,
+        ),
+      );
+      final height = (constraints.maxHeight - 48 - verticalMargin * 2).clamp(
+        1.0,
+        double.infinity,
+      );
       final heading = TextPainter(
         text: TextSpan(text: widget.title, style: headingStyle),
         textScaler: scaler,
@@ -94,7 +119,10 @@ class _PagedChapterState extends State<PagedChapter> {
         ellipsis: '…',
         locale: locale,
       )..layout(maxWidth: width);
-      final headingSpace = (heading.height + 24).clamp(0.0, height - 40);
+      final headingSpace = (heading.height + 24).clamp(
+        0.0,
+        (height - minimum).clamp(0.0, double.infinity),
+      );
       heading.dispose();
       final nextSignature = (
         widget.content,
@@ -118,6 +146,8 @@ class _PagedChapterState extends State<PagedChapter> {
           locale: locale,
           comments: widget.comments,
           headingSpace: headingSpace,
+          anchorParagraph: anchorParagraph,
+          anchorOffset: anchorOffset,
         );
         page = 0;
         for (var i = 0; i < pages.length; i++) {
@@ -175,63 +205,69 @@ class _PagedChapterState extends State<PagedChapter> {
                       child: SizedBox(
                         width: width,
                         child: Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 20),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              if (index == 0)
-                                SizedBox(
-                                  height: headingSpace,
-                                  child: Text(
-                                    widget.title,
-                                    style: headingStyle,
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
+                          padding: EdgeInsets.symmetric(
+                            vertical: verticalMargin,
+                          ),
+                          child: SingleChildScrollView(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                if (index == 0)
+                                  SizedBox(
+                                    height: headingSpace,
+                                    child: Text(
+                                      widget.title,
+                                      style: headingStyle,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
                                   ),
-                                ),
-                              for (final fragment in pages[index])
-                                Padding(
-                                  padding: const EdgeInsets.only(bottom: 18),
-                                  child: SizedBox(
-                                    height: fragment.height,
-                                    child: Row(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Expanded(
-                                          child: fragment.image
-                                              ? widget.imageBuilder(
-                                                  widget
+                                for (final fragment in pages[index])
+                                  Padding(
+                                    padding: const EdgeInsets.only(bottom: 18),
+                                    child: SizedBox(
+                                      height: fragment.height,
+                                      child: Row(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Expanded(
+                                            child: fragment.image
+                                                ? widget.imageBuilder(
+                                                    widget
+                                                        .content
+                                                        .paragraphs[fragment
+                                                            .paragraph]
+                                                        .image!,
+                                                  )
+                                                : SelectableText(
+                                                    fragment.text,
+                                                    style: style,
+                                                    textScaler: scaler,
+                                                  ),
+                                          ),
+                                          if (widget.comments &&
+                                              widget
                                                       .content
                                                       .paragraphs[fragment
                                                           .paragraph]
-                                                      .image!,
-                                                )
-                                              : SelectableText(
-                                                  fragment.text,
-                                                  style: style,
-                                                  textScaler: scaler,
-                                                ),
-                                        ),
-                                        if (widget.comments &&
-                                            widget
+                                                      .remoteIndex !=
+                                                  null)
+                                            SizedBox(
+                                              width: 56,
+                                              child: widget.commentBuilder(
+                                                widget
                                                     .content
                                                     .paragraphs[fragment
-                                                        .paragraph]
-                                                    .remoteIndex !=
-                                                null)
-                                          SizedBox(
-                                            width: 56,
-                                            child: widget.commentBuilder(
-                                              widget.content.paragraphs[fragment
-                                                  .paragraph],
+                                                    .paragraph],
+                                              ),
                                             ),
-                                          ),
-                                      ],
+                                        ],
+                                      ),
                                     ),
                                   ),
-                                ),
-                            ],
+                              ],
+                            ),
                           ),
                         ),
                       ),

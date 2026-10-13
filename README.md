@@ -14,6 +14,8 @@
 
 本项目采用 GNU Affero General Public License v3.0（AGPL-3.0），完整许可证见 LICENSE。
 
+云端可选字体 [Noto Sans SC](https://github.com/google/fonts/tree/main/ofl/notosanssc)、[Noto Serif SC](https://github.com/google/fonts/tree/main/ofl/notoserifsc) 使用 SIL Open Font License 1.1；由用户下载，原许可随字体保存在本机。
+
 作品、评论与插图归相应权利人所有，本项目为非官方阅读工具，与小说平台无隶属关系。
 
 本项目仅访问公开内容及用户已有阅读权限的内容，不自动购买章节。导入、下载和导出内容应遵守作品授权及平台条款；请勿未经授权传播他人作品。账号会话仅用于用户主动进行的站点访问。

@@ -124,7 +124,17 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('　　过时正文'), findsNothing);
     expect(tester.takeException(), isNull);
-    await tester.tap(find.byTooltip('字号增大'));
+    expect(find.byTooltip('字号增大'), findsNothing);
+    expect(find.byTooltip('字号减小'), findsNothing);
+    await tester.tap(find.byTooltip('阅读设置'));
+    await tester.pumpAndSettle();
+    final size = tester.widget<Slider>(
+      find.byKey(const ValueKey('reading-font-size')),
+    );
+    size.onChanged!(22);
+    size.onChangeEnd!(22);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('关闭阅读设置'));
     await tester.pumpAndSettle();
     expect(
       tester

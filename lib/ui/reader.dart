@@ -5,6 +5,7 @@ import '../domain/models.dart';
 import 'comments_sheet.dart';
 import 'image_bytes.dart';
 import 'paged_chapter.dart';
+import 'reading_settings.dart';
 
 class ReaderPage extends StatefulWidget {
   const ReaderPage({
@@ -36,6 +37,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   int loadGeneration = 0;
   int paragraph = 0;
   bool leaving = false;
+  bool settingsOpen = false;
   int characterOffset = 0;
   Set<int> pageRows = {};
   Library get library => widget.library;
@@ -86,6 +88,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   }
 
   void _track() {
+    if (settingsOpen) return;
     _scheduleCounts();
     if (restoring) return;
     debounce?.cancel();
@@ -211,7 +214,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   Future<void> _savePosition() async {
     debounce?.cancel();
-    if (!restoring && library.readingMode == ReadingMode.scroll) {
+    if (!restoring &&
+        !settingsOpen &&
+        library.readingMode == ReadingMode.scroll) {
       characterOffset = 0;
       final viewBox = viewport.currentContext?.findRenderObject();
       final top = viewBox is RenderBox
@@ -319,6 +324,32 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     if (index != null && mounted) _go(index);
   }
 
+  Future<void> _settings() async {
+    if (settingsOpen) return;
+    try {
+      final saving = _savePosition();
+      settingsOpen = true;
+      await saving;
+      if (!mounted) return;
+      final savedParagraph = paragraph, savedOffset = characterOffset;
+      await showReadingSettings(context, library);
+      if (!mounted) return;
+      setState(() {
+        paragraph = savedParagraph;
+        characterOffset = savedOffset;
+        _load();
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('阅读设置打开失败：$e')));
+      }
+    } finally {
+      settingsOpen = false;
+    }
+  }
+
   void _preferences() {
     library.save().catchError((Object e) {
       if (mounted) {
@@ -360,20 +391,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
               icon: const Icon(Icons.format_list_bulleted),
             ),
             IconButton(
-              tooltip: '字号减小',
-              onPressed: () {
-                library.fontSize = (library.fontSize - 2).clamp(14, 32);
-                _preferences();
-              },
-              icon: const Icon(Icons.text_decrease),
-            ),
-            IconButton(
-              tooltip: '字号增大',
-              onPressed: () {
-                library.fontSize = (library.fontSize + 2).clamp(14, 32);
-                _preferences();
-              },
-              icon: const Icon(Icons.text_increase),
+              tooltip: '阅读设置',
+              onPressed: _settings,
+              icon: const Icon(Icons.settings_outlined),
             ),
             IconButton(
               tooltip: '日夜模式',
@@ -422,10 +442,15 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                 content: snapshot.data!,
                 title: widget.book.chapters[chapter].title,
                 fontSize: library.fontSize,
+                fontFamily: library.readingFontFamily,
+                horizontalMargin: library.horizontalMargin,
+                verticalMargin: library.verticalMargin,
+                lineHeight: library.lineHeight,
                 initialParagraph: paragraph,
                 initialOffset: characterOffset,
                 comments: widget.book.source == 'sfacg',
                 onPosition: (index, offset, rows) {
+                  if (settingsOpen) return;
                   paragraph = index;
                   characterOffset = offset;
                   pageRows = rows;
@@ -443,7 +468,12 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 820),
                   child: Padding(
-                    padding: const EdgeInsets.fromLTRB(22, 24, 16, 64),
+                    padding: EdgeInsets.fromLTRB(
+                      library.horizontalMargin,
+                      library.verticalMargin,
+                      library.horizontalMargin,
+                      library.verticalMargin + 40,
+                    ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
@@ -470,7 +500,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                                           '　　${paragraphs[i].text}',
                                           style: TextStyle(
                                             fontSize: library.fontSize,
-                                            height: 1.9,
+                                            fontFamily:
+                                                library.readingFontFamily,
+                                            height: library.lineHeight,
                                           ),
                                         ),
                                 ),

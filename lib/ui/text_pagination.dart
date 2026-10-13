@@ -26,6 +26,8 @@ class TextPagination {
     double headingSpace = 0,
     bool comments = false,
     Locale? locale,
+    int? anchorParagraph,
+    int anchorOffset = 0,
   }) {
     final pages = <List<PageFragment>>[[]];
     var used = headingSpace;
@@ -61,8 +63,21 @@ class TextPagination {
         if (ends.isEmpty || end > ends.last) ends.add(end);
       }
       if (ends.isEmpty || ends.last != text.length) ends.add(text.length);
+      int? anchorBreak;
+      if (index == anchorParagraph && (index > 0 || anchorOffset > 0)) {
+        anchorBreak = 0;
+        final target = (anchorOffset + 2).clamp(0, text.length);
+        for (final end in ends) {
+          if (end > target) break;
+          anchorBreak = end;
+        }
+      }
       var start = 0, line = 0;
       while (start < text.length) {
+        if (start == anchorBreak && used > 0) {
+          next();
+          continue;
+        }
         final room = height - used - 18;
         if (room < painter.preferredLineHeight || (badge && room < 40)) {
           if (used > 0) {
@@ -73,6 +88,11 @@ class TextPagination {
         var best = line;
         var bestHeight = 0.0;
         for (var candidate = line; candidate < ends.length; candidate++) {
+          if (anchorBreak != null &&
+              start < anchorBreak &&
+              ends[candidate] > anchorBreak) {
+            break;
+          }
           final fragment = text.substring(start, ends[candidate]);
           final measure = TextPainter(
             text: TextSpan(text: fragment, style: style),

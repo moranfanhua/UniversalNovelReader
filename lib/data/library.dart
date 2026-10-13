@@ -8,11 +8,14 @@ import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
 import '../domain/models.dart';
 import '../sources/sfacg_source.dart';
+import 'reader_fonts.dart';
 
 enum ReadingMode { scroll, paged }
 
 class Library extends ChangeNotifier {
-  Library(this.root, this.source);
+  Library(this.root, this.source, {ReaderFonts? fonts})
+    : fonts = fonts ?? ReaderFonts(Directory('${root.path}/fonts'));
+  final ReaderFonts fonts;
   final Directory root;
   final SfacgSource source;
   final List<Book> books = [];
@@ -21,6 +24,10 @@ class Library extends ChangeNotifier {
   bool night = false;
   ReadingMode readingMode = ReadingMode.scroll;
   final Map<String, int> pageOffsets = {};
+  String readingFontId = '';
+  String? readingFontFamily, fontNotice;
+  final downloadedFonts = <String>{};
+  double horizontalMargin = 22, verticalMargin = 24, lineHeight = 1.9;
   Future<void> _writes = Future.value();
   final Map<String, Future<ChapterContent>> _reads = {};
   final Map<String, Future<Uint8List>> _imageReads = {};
@@ -31,12 +38,13 @@ class Library extends ChangeNotifier {
   static Future<Library> open(
     SfacgSource source, {
     Directory? directory,
+    ReaderFonts? fonts,
   }) async {
     final dir =
         directory ??
         Directory('${(await getApplicationSupportDirectory()).path}/library');
     await dir.create(recursive: true);
-    final library = Library(dir, source);
+    final library = Library(dir, source, fonts: fonts);
     final file = File('${dir.path}/index.json');
     if (await file.exists()) {
       final data = jsonDecode(await file.readAsString()) as Map;
@@ -45,8 +53,22 @@ class Library extends ChangeNotifier {
           (j) => Book.fromJson(Map<String, dynamic>.from(j)),
         ),
       );
-      library.fontSize = (data['fontSize'] as num? ?? 20).toDouble();
+      library.fontSize = (data['fontSize'] as num? ?? 20).toDouble().clamp(
+        14,
+        32,
+      );
       library.night = data['night'] == true;
+      library.horizontalMargin = (data['horizontalMargin'] as num? ?? 22)
+          .toDouble()
+          .clamp(8, 64);
+      library.verticalMargin = (data['verticalMargin'] as num? ?? 24)
+          .toDouble()
+          .clamp(8, 48);
+      library.lineHeight = (data['lineHeight'] as num? ?? 1.9).toDouble().clamp(
+        1.2,
+        2.6,
+      );
+      library.readingFontId = data['readingFontId'] as String? ?? '';
       library.readingMode = data['readingMode'] == 'paged'
           ? ReadingMode.paged
           : ReadingMode.scroll;
@@ -60,6 +82,17 @@ class Library extends ChangeNotifier {
           (k, v) => MapEntry('$k', (v as List).cast<int>()),
         ),
       );
+    }
+    library.downloadedFonts.addAll(await library.fonts.available());
+    if (library.readingFontId.isNotEmpty) {
+      try {
+        library.readingFontFamily = await library.fonts.load(
+          library.readingFontId,
+        );
+      } catch (_) {
+        library.downloadedFonts.remove(library.readingFontId);
+        library.fontNotice = '所选字体不可用，暂使用系统字体。可重新下载字体或选择系统字体。';
+      }
     }
     return library;
   }
@@ -104,6 +137,10 @@ class Library extends ChangeNotifier {
       'night': night,
       'readingMode': readingMode.name,
       'pageOffsets': pageOffsets,
+      'readingFontId': readingFontId,
+      'horizontalMargin': horizontalMargin,
+      'verticalMargin': verticalMargin,
+      'lineHeight': lineHeight,
     });
     // Serialize preferences writes so navigation and font changes cannot race.
     final next = _writes
@@ -118,6 +155,52 @@ class Library extends ChangeNotifier {
 
   File _chapterFile(Book book, Chapter chapter) =>
       File('${root.path}/${safeKey(book.key)}/${safeKey(chapter.id)}.json');
+
+  Future<void> selectFont(String id) async {
+    String? family;
+    try {
+      family = id.isEmpty ? null : await fonts.load(id);
+    } catch (_) {
+      downloadedFonts.remove(id);
+      notifyListeners();
+      rethrow;
+    }
+    final oldId = readingFontId, oldFamily = readingFontFamily;
+    readingFontId = id;
+    readingFontFamily = family;
+    fontNotice = null;
+    try {
+      await save();
+    } catch (_) {
+      readingFontId = oldId;
+      readingFontFamily = oldFamily;
+      notifyListeners();
+      rethrow;
+    }
+  }
+
+  Future<void> downloadFont(
+    String id, {
+    void Function(int, int?)? onProgress,
+  }) async {
+    await fonts.download(id, onProgress: onProgress);
+    downloadedFonts.add(id);
+    await selectFont(id);
+  }
+
+  Future<void> resetReadingPreferences() async {
+    readingFontId = '';
+    readingFontFamily = null;
+    fontNotice = null;
+    fontSize = 20;
+    horizontalMargin = 22;
+    verticalMargin = 24;
+    lineHeight = 1.9;
+    readingMode = ReadingMode.scroll;
+    night = false;
+    await save();
+  }
+
   Future<void> add(Book book) async {
     final index = books.indexWhere((b) => b.key == book.key);
     if (index < 0) {
