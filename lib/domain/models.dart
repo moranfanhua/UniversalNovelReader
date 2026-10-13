@@ -103,10 +103,24 @@ class ParagraphComment {
     this.paragraphText = '',
     this.avatar = '',
     this.replies = const [],
+    this.isReply = false,
   });
   final String id, author, text, date, paragraphText, avatar;
   final int likes, replyCount;
   final List<ParagraphComment> replies;
+  final bool isReply;
+}
+
+class CommentLikeStatus {
+  const CommentLikeStatus({
+    required this.count,
+    this.liked = false,
+    this.sending = false,
+    this.message,
+  });
+  final int count;
+  final bool liked, sending;
+  final String? message;
 }
 
 class ImportedBook {

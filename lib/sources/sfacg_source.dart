@@ -1,5 +1,7 @@
 import 'dart:convert';
 import 'dart:async';
+import 'package:crypto/crypto.dart';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:html/dom.dart';
 import 'package:html/parser.dart' as html;
@@ -16,6 +18,10 @@ class SfacgSource implements NovelSource {
   final Map<String, ({DateTime at, int count})> _commentCounts = {};
   final Map<String, Future<int>> _countRequests = {};
   final Map<String, int> _countEpochs = {};
+  final Map<String, ValueNotifier<CommentLikeStatus>> _likes = {};
+  final Map<String, Future<void>> _likeRequests = {};
+  final Map<String, int> _likeVersions = {};
+  int _likeEpoch = 0;
   @override
   String get id => 'sfacg';
   @override
@@ -290,6 +296,7 @@ class SfacgSource implements NovelSource {
     CommentSort sort = CommentSort.hot,
   }) async {
     if (paragraph < 1 || page < 0) throw ArgumentError('段落从 1 开始，分页从 0 开始');
+    final snapshot = _likeEpoch;
     final data = await api.get(
       'chaps/0/${chapter.id}/tsukkomis',
       query: {
@@ -302,7 +309,111 @@ class SfacgSource implements NovelSource {
       },
     );
     if (data is! List) throw const SourceException('菠萝包段评数据格式已变化');
-    return data.map((j) => parseComment(Map<String, dynamic>.from(j))).toList();
+    final comments = data
+        .map((j) => parseComment(Map<String, dynamic>.from(j)))
+        .toList();
+    for (final comment in comments) {
+      final key = _likeKey(comment);
+      final state = _likes[key];
+      if (state != null &&
+          !state.value.sending &&
+          (_likeVersions[key] ?? 0) <= snapshot) {
+        state.value = CommentLikeStatus(
+          count: comment.likes,
+          liked: state.value.liked,
+        );
+      }
+    }
+    return comments;
+  }
+
+  String _likeKey(ParagraphComment comment) {
+    final session = sha256.convert(
+      utf8.encode(
+        '${api.cookies['.SFCommunity'] ?? ''}\n${api.cookies['session_APP'] ?? ''}',
+      ),
+    );
+    return '$session/${comment.isReply ? 'reply' : 'comment'}/${comment.id}';
+  }
+
+  ValueNotifier<CommentLikeStatus> likeStatus(ParagraphComment comment) =>
+      _likes.putIfAbsent(
+        _likeKey(comment),
+        () => ValueNotifier(CommentLikeStatus(count: comment.likes)),
+      );
+
+  Future<void> likeComment(ParagraphComment comment) {
+    final state = likeStatus(comment);
+    String? invalid;
+    if (!api.hasSession) {
+      invalid = '请先在“账号”页面登录菠萝包后点赞';
+    } else if (comment.isReply || !RegExp(r'^\d+$').hasMatch(comment.id)) {
+      invalid = '当前评论不支持点赞';
+    }
+    if (invalid != null) {
+      state.value = CommentLikeStatus(
+        count: state.value.count,
+        message: invalid,
+      );
+      return Future.error(SourceException(invalid));
+    }
+    if (state.value.liked) return Future.value();
+    final key = _likeKey(comment);
+    return _likeRequests.putIfAbsent(
+      key,
+      () => _likeComment(comment, state).whenComplete(() {
+        _likeRequests.remove(key);
+      }),
+    );
+  }
+
+  Future<void> _likeComment(
+    ParagraphComment comment,
+    ValueNotifier<CommentLikeStatus> state,
+  ) async {
+    final key = _likeKey(comment);
+    _likeVersions[key] = ++_likeEpoch;
+    final before = state.value.count;
+    state.value = CommentLikeStatus(count: before, sending: true);
+    dynamic result;
+    try {
+      result = await api.request(
+        'tsukkomis/0/${comment.id}/favs',
+        method: 'POST',
+        retry: false,
+      );
+    } catch (e) {
+      final uncertain =
+          e is TimeoutException ||
+          e is http.ClientException ||
+          e is SourceException &&
+              (e.code >= 500 || e.message.startsWith('菠萝包返回无法识别的数据'));
+      final message = uncertain ? '点赞结果未确认，请先刷新评论检查，再决定是否重试' : '$e';
+      _likeVersions[key] = ++_likeEpoch;
+      state.value = CommentLikeStatus(count: before, message: message);
+      throw SourceException(message);
+    }
+    // The POST acknowledges a like, not necessarily a new like. Read the
+    // server's count instead of blindly adding one after an idempotent response.
+    try {
+      if (result is! Map || result['favNum'] is! int) {
+        result = await api.get(
+          'tsukkomis/0/${comment.id}',
+          query: {'expand': 'favNum'},
+        );
+      }
+      final count = result is Map ? result['favNum'] : null;
+      if (count is! int || count < 0) throw const SourceException('未取得点赞数量');
+      _likeVersions[key] = ++_likeEpoch;
+      state.value = CommentLikeStatus(count: count, liked: true);
+    } catch (_) {
+      _likeVersions[key] = ++_likeEpoch;
+      state.value = CommentLikeStatus(
+        count: before,
+        liked: true,
+        message: '已点赞，赞数暂未更新，请刷新评论列表',
+      );
+    }
   }
 
   Future<List<ParagraphComment>> replies(
@@ -449,6 +560,7 @@ class SfacgSource implements NovelSource {
       replies: ((expand['replys'] as List?) ?? [])
           .map((r) => parseComment(Map<String, dynamic>.from(r), reply: true))
           .toList(),
+      isReply: reply,
     );
   }
 }

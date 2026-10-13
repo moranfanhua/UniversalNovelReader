@@ -214,7 +214,7 @@ class _CommentsSheetState extends State<CommentsSheet> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    CommentCard(comment: item),
+                    CommentCard(comment: item, source: widget.source),
                     if (item.replies.isNotEmpty)
                       Container(
                         margin: const EdgeInsets.only(left: 20, top: 10),
@@ -239,7 +239,10 @@ class _CommentsSheetState extends State<CommentsSheet> {
                             ).take(3))
                               Padding(
                                 padding: const EdgeInsets.only(bottom: 10),
-                                child: CommentCard(comment: reply),
+                                child: CommentCard(
+                                  comment: reply,
+                                  source: widget.source,
+                                ),
                               ),
                           ],
                         ),
@@ -378,7 +381,11 @@ class _RepliesSheetState extends State<RepliesSheet> {
             if (index == 0) {
               return Padding(
                 padding: const EdgeInsets.only(bottom: 24),
-                child: CommentCard(comment: widget.comment, label: '原段评'),
+                child: CommentCard(
+                  comment: widget.comment,
+                  label: '原段评',
+                  source: widget.source,
+                ),
               );
             }
             if (index == items.length + 1) {
@@ -393,7 +400,11 @@ class _RepliesSheetState extends State<RepliesSheet> {
             }
             return Padding(
               padding: const EdgeInsets.only(left: 12, bottom: 14),
-              child: CommentCard(comment: items[index - 1], label: '回复 $index'),
+              child: CommentCard(
+                comment: items[index - 1],
+                label: '回复 $index',
+                source: widget.source,
+              ),
             );
           },
         ),

@@ -52,6 +52,7 @@ class SfacgApi {
     Map<String, dynamic>? body,
     bool head = false,
     bool retry = true,
+    String? method,
   }) async {
     final uri = Uri.https(
       'api.sfacg.com',
@@ -61,11 +62,12 @@ class SfacgApi {
     for (var attempt = 0; attempt < 4; attempt++) {
       final timestamp = DateTime.now().millisecondsSinceEpoch + clockOffset;
       final req = http.Request(
-        head
-            ? 'HEAD'
-            : body == null
-            ? 'GET'
-            : 'POST',
+        method ??
+            (head
+                ? 'HEAD'
+                : body == null
+                ? 'GET'
+                : 'POST'),
         uri,
       )..followRedirects = false;
       req.headers.addAll({
@@ -142,6 +144,8 @@ class SfacgApi {
           ? '章节读取'
           : body != null && uri.path.endsWith('/tsukkomis')
           ? '段评发送'
+          : req.method == 'POST' && uri.path.endsWith('/favs')
+          ? '段评点赞'
           : '菠萝包请求';
       var message = '${status['msg'] ?? ''}'.trim();
       for (final secret in [

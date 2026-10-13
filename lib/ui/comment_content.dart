@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../domain/models.dart';
 import '../sources/sfacg_markup.dart';
+import '../sources/sfacg_source.dart';
 
 class CommentText extends StatelessWidget {
   const CommentText(this.text, {super.key});
@@ -47,11 +48,26 @@ class CommentText extends StatelessWidget {
 }
 
 class CommentCard extends StatelessWidget {
-  const CommentCard({super.key, required this.comment, this.label});
+  const CommentCard({
+    super.key,
+    required this.comment,
+    this.label,
+    this.source,
+  });
   final ParagraphComment comment;
   final String? label;
+  final SfacgSource? source;
   @override
   Widget build(BuildContext context) {
+    final sf = source;
+    if (sf == null || comment.isReply) return _card(context);
+    return ValueListenableBuilder<CommentLikeStatus>(
+      valueListenable: sf.likeStatus(comment),
+      builder: (context, status, _) => _card(context, status: status),
+    );
+  }
+
+  Widget _card(BuildContext context, {CommentLikeStatus? status}) {
     final avatar = SfacgMarkup.imageAddress(comment.avatar);
     return Container(
       padding: const EdgeInsets.all(16),
@@ -101,11 +117,49 @@ class CommentCard extends StatelessWidget {
                   ],
                 ),
               ),
-              if (comment.likes > 0) Text('♡ ${comment.likes}'),
+              if (status != null)
+                Semantics(
+                  label: status.liked ? '已点赞' : '点赞',
+                  child: TextButton.icon(
+                    key: ValueKey('like-comment-${comment.id}'),
+                    onPressed: status.sending || status.liked
+                        ? null
+                        : () async {
+                            try {
+                              await source!.likeComment(comment);
+                            } catch (_) {
+                              // The shared status displays the error in this card.
+                            }
+                          },
+                    icon: status.sending
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : Icon(
+                            status.liked
+                                ? Icons.thumb_up
+                                : Icons.thumb_up_outlined,
+                            size: 18,
+                          ),
+                    label: Text('${status.count}'),
+                  ),
+                )
+              else if (!comment.isReply || comment.likes > 0)
+                Text('♡ ${comment.likes}'),
             ],
           ),
           const SizedBox(height: 12),
           CommentText(comment.text),
+          if (status?.message != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                status!.message!,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
         ],
       ),
     );
