@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../data/library.dart';
 import '../domain/models.dart';
+import '../sources/comment_source.dart';
 import 'comments_sheet.dart';
 import 'image_bytes.dart';
 import 'paged_chapter.dart';
@@ -47,6 +48,12 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   int characterOffset = 0;
   Set<int> pageRows = {};
   Library get library => widget.library;
+  CommentSource? get comments => library.commentsFor(widget.book);
+  CommentLocation _commentLocation(Paragraph paragraph) => CommentLocation(
+    book: widget.book,
+    chapter: widget.book.chapters[chapter],
+    paragraph: paragraph,
+  );
   @override
   void initState() {
     super.initState();
@@ -133,7 +140,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   }
 
   void _scheduleCounts() {
-    if (widget.book.source != 'sfacg') return;
+    if (comments?.commentCapabilities.counts != true) return;
     countDebounce?.cancel();
     countDebounce = Timer(
       const Duration(milliseconds: 180),
@@ -142,7 +149,13 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   }
 
   void _loadVisibleCounts() {
-    if (!mounted || restoring || countRequests.length >= 3) return;
+    final service = comments;
+    if (!mounted ||
+        restoring ||
+        countRequests.length >= 3 ||
+        service?.commentCapabilities.counts != true) {
+      return;
+    }
     final visible = <int>{...pageRows};
     if (library.readingMode == ReadingMode.scroll) {
       final view = viewport.currentContext?.findRenderObject();
@@ -158,7 +171,6 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       }
     }
     final generation = loadGeneration;
-    final target = widget.book.chapters[chapter];
     for (final row in visible) {
       if (countRequests.length >= 3) break;
       if (commentCounts.containsKey(row) ||
@@ -166,8 +178,14 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
           !countRequests.add(row)) {
         continue;
       }
-      library.source
-          .commentCount(target, row)
+      service!
+          .paragraphCommentCount(
+            _commentLocation(
+              loadedParagraphs.firstWhere(
+                (paragraph) => paragraph.remoteIndex == row,
+              ),
+            ),
+          )
           .then((count) {
             if (!mounted || generation != loadGeneration) return;
             setState(() => commentCounts[row] = count);
@@ -185,23 +203,29 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   }
 
   Future<void> _comments(Paragraph paragraph) async {
+    final service = comments;
+    if (service == null || paragraph.remoteIndex == null) return;
     final generation = loadGeneration;
     await showComments(
       context,
-      library.source,
+      service,
       widget.book.chapters[chapter],
       paragraph,
+      book: widget.book,
     );
-    if (!mounted || generation != loadGeneration) return;
+    if (!mounted ||
+        generation != loadGeneration ||
+        !service.commentCapabilities.counts) {
+      return;
+    }
     setState(() {
       commentCounts.remove(paragraph.remoteIndex);
       countErrors.remove(paragraph.remoteIndex);
     });
     // Refresh only this row when returning from the discussion.
     try {
-      final count = await library.source.commentCount(
-        widget.book.chapters[chapter],
-        paragraph.remoteIndex!,
+      final count = await service.paragraphCommentCount(
+        _commentLocation(paragraph),
         refresh: true,
       );
       if (mounted && generation == loadGeneration) {
@@ -227,14 +251,16 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
         mainAxisSize: MainAxisSize.min,
         children: [
           const Icon(Icons.chat_bubble_outline, size: 16),
-          const SizedBox(width: 3),
-          Flexible(
-            child: Text(
-              commentCounts[paragraph.remoteIndex]?.toString() ??
-                  (countErrors.contains(paragraph.remoteIndex) ? '?' : '…'),
-              overflow: TextOverflow.ellipsis,
+          if (comments?.commentCapabilities.counts == true)
+            const SizedBox(width: 3),
+          if (comments?.commentCapabilities.counts == true)
+            Flexible(
+              child: Text(
+                commentCounts[paragraph.remoteIndex]?.toString() ??
+                    (countErrors.contains(paragraph.remoteIndex) ? '?' : '…'),
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
-          ),
         ],
       ),
     ),
@@ -488,7 +514,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                 lineHeight: library.lineHeight,
                 initialParagraph: paragraph,
                 initialOffset: characterOffset,
-                comments: widget.book.source == 'sfacg',
+                comments: comments != null,
                 startAtEnd: pagedStartAtEnd,
                 onPreviousChapter: chapter > 0 ? () => _stepChapter(-1) : null,
                 onNextChapter: chapter + 1 < widget.book.chapters.length
@@ -563,43 +589,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                                             ),
                                           ),
                                   ),
-                                  if (widget.book.source == 'sfacg' &&
+                                  if (comments != null &&
                                       paragraphs[i].remoteIndex != null)
-                                    Tooltip(
-                                      message: '阅读本段段评',
-                                      child: TextButton(
-                                        style: TextButton.styleFrom(
-                                          minimumSize: const Size(40, 40),
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 6,
-                                          ),
-                                          visualDensity: VisualDensity.compact,
-                                        ),
-                                        onPressed: () =>
-                                            _comments(paragraphs[i]),
-                                        child: Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            const Icon(
-                                              Icons.chat_bubble_outline,
-                                              size: 16,
-                                            ),
-                                            const SizedBox(width: 3),
-                                            Text(
-                                              commentCounts[paragraphs[i]
-                                                          .remoteIndex]
-                                                      ?.toString() ??
-                                                  (countErrors.contains(
-                                                        paragraphs[i]
-                                                            .remoteIndex,
-                                                      )
-                                                      ? '?'
-                                                      : '…'),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ),
+                                    _commentButton(paragraphs[i]),
                                 ],
                               ),
                             ),

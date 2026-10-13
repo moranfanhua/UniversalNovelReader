@@ -8,10 +8,12 @@ import 'package:html/parser.dart' as html;
 import '../domain/models.dart';
 import 'novel_source.dart';
 import 'sfacg_api.dart';
+import 'sfacg_markup.dart';
+import 'comment_source.dart';
 
-enum CommentSort { hot, latest }
+export 'comment_source.dart' show CommentSort;
 
-class SfacgSource implements NovelSource {
+class SfacgSource extends CommentSource implements NovelSource {
   SfacgSource(this.api, {Map<String, String>? cipher}) : cipher = cipher ?? {};
   final SfacgApi api;
   final Map<String, String> cipher;
@@ -26,6 +28,41 @@ class SfacgSource implements NovelSource {
   String get id => 'sfacg';
   @override
   String get name => '菠萝包轻小说';
+  @override
+  bool get hasSession => api.hasSession;
+  @override
+  CommentCapabilities get commentCapabilities => const CommentCapabilities(
+    counts: true,
+    post: true,
+    replies: true,
+    reply: true,
+    replyToReply: true,
+    likes: true,
+    sorts: {CommentSort.hot, CommentSort.latest},
+  );
+  @override
+  String? avatarAddress(String address) => SfacgMarkup.imageAddress(address);
+  @override
+  List<CommentPart> commentContent(String text) {
+    final parts = <CommentPart>[];
+    var start = 0;
+    for (final tag in SfacgMarkup.tags.allMatches(text)) {
+      parts.add(CommentPart.text(text.substring(start, tag.start)));
+      final image = SfacgMarkup.imageUrl(tag);
+      parts.add(
+        image == null
+            ? CommentPart.text(tag[0]!)
+            : CommentPart.image(image, text: tag[0]!),
+      );
+      start = tag.end;
+    }
+    parts.add(CommentPart.text(text.substring(start)));
+    return parts;
+  }
+
+  @override
+  List<ParagraphComment> orderedReplies(Iterable<ParagraphComment> comments) =>
+      oldestFirst(comments);
 
   static String bookId(String input) {
     final value = input.trim();
@@ -288,7 +325,6 @@ class SfacgSource implements NovelSource {
     return ChapterContent(paragraphs);
   }
 
-  @override
   Future<List<ParagraphComment>> comments(
     Chapter chapter,
     int paragraph, {
@@ -327,6 +363,44 @@ class SfacgSource implements NovelSource {
     return comments;
   }
 
+  @override
+  Future<CommentPage> commentPage(
+    CommentLocation location, {
+    String? cursor,
+    CommentSort sort = CommentSort.latest,
+  }) async {
+    final page = cursor == null ? 0 : int.parse(cursor);
+    final items = await comments(
+      location.chapter,
+      location.paragraph.remoteIndex ?? 0,
+      page: page,
+      sort: sort,
+    );
+    return CommentPage(
+      items,
+      nextCursor: items.length == 20 ? '${page + 1}' : null,
+    );
+  }
+
+  @override
+  Future<int> paragraphCommentCount(
+    CommentLocation location, {
+    bool refresh = false,
+  }) => commentCount(
+    location.chapter,
+    location.paragraph.remoteIndex ?? 0,
+    refresh: refresh,
+  );
+  @override
+  Future<List<ParagraphComment>> repliesFor(
+    CommentLocation location,
+    ParagraphComment root, {
+    bool Function()? cancelled,
+  }) => allReplies(root.id, cancelled: cancelled);
+  @override
+  Future<void> publishComment(CommentLocation location, String text) =>
+      postComment(location.chapter, location.paragraph.remoteIndex ?? 0, text);
+
   String _likeKey(ParagraphComment comment) {
     final session = sha256.convert(
       utf8.encode(
@@ -336,13 +410,22 @@ class SfacgSource implements NovelSource {
     return '$session/${comment.isReply ? 'reply' : 'comment'}/${comment.id}';
   }
 
-  ValueNotifier<CommentLikeStatus> likeStatus(ParagraphComment comment) =>
-      _likes.putIfAbsent(
-        _likeKey(comment),
-        () => ValueNotifier(CommentLikeStatus(count: comment.likes)),
-      );
+  @override
+  ValueNotifier<CommentLikeStatus> likeStatus(
+    ParagraphComment comment, {
+    CommentLocation? location,
+    ParagraphComment? root,
+  }) => _likes.putIfAbsent(
+    _likeKey(comment),
+    () => ValueNotifier(CommentLikeStatus(count: comment.likes)),
+  );
 
-  Future<void> likeComment(ParagraphComment comment) {
+  @override
+  Future<void> likeComment(
+    ParagraphComment comment, {
+    CommentLocation? location,
+    ParagraphComment? root,
+  }) {
     final state = likeStatus(comment);
     String? invalid;
     if (!api.hasSession) {
@@ -463,20 +546,30 @@ class SfacgSource implements NovelSource {
     }
   }
 
-  Future<void> postReply(ParagraphComment comment, String text) async {
+  @override
+  Future<void> postReply(
+    ParagraphComment root,
+    String text, {
+    ParagraphComment? target,
+    CommentLocation? location,
+  }) async {
     if (!api.hasSession) {
       throw const SourceException('请先在“账号”页面登录菠萝包后回复评论');
     }
     // This endpoint accepts a root tsukkomiId, never a replyId.
-    if (comment.isReply || !RegExp(r'^[1-9]\d*$').hasMatch(comment.id)) {
+    if (root.isReply || !RegExp(r'^[1-9]\d*$').hasMatch(root.id)) {
       throw const SourceException('原段评信息无效，无法发送回复');
     }
-    final content = text.trim();
-    if (content.isEmpty) throw const SourceException('请输入回复内容');
+    final draft = text.trim();
+    if (draft.isEmpty) throw const SourceException('请输入回复内容');
+    // SFACG targets a root tsukkomi; replies within it use a visible mention.
+    final content = target?.isReply == true
+        ? '回复@${target!.author} $draft'
+        : draft;
     const uncertain = SourceException('发送结果未确认，请先刷新回复检查是否已发布，再决定是否重试');
     try {
       await api.request(
-        'tsukkomis/0/${comment.id}/replys',
+        'tsukkomis/0/${root.id}/replys',
         body: {'content': content},
         retry: false,
       );
@@ -579,6 +672,7 @@ class SfacgSource implements NovelSource {
     return ParagraphComment(
       id: '${j[reply ? 'replyId' : 'tsukkomiId']}',
       author: user['nickName'] ?? user['userName'] ?? '读者',
+      authorId: '${user['accountId'] ?? user['userId'] ?? ''}',
       text: j['content'] ?? '',
       likes: j['favNum'] as int? ?? 0,
       replyCount: j['replyNum'] as int? ?? 0,

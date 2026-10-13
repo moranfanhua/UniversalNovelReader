@@ -1,14 +1,15 @@
 import 'package:flutter/material.dart';
 import '../domain/models.dart';
-import '../sources/sfacg_source.dart';
+import '../sources/comment_source.dart';
 import 'comment_content.dart';
 
 Future<void> showComments(
   BuildContext context,
-  SfacgSource source,
+  CommentSource source,
   Chapter chapter,
-  Paragraph paragraph,
-) => showModalBottomSheet<void>(
+  Paragraph paragraph, {
+  Book? book,
+}) => showModalBottomSheet<void>(
   context: context,
   isScrollControlled: true,
   showDragHandle: true,
@@ -20,6 +21,7 @@ Future<void> showComments(
         source: source,
         chapter: chapter,
         paragraph: paragraph,
+        book: book,
       ),
     ),
   ),
@@ -31,18 +33,25 @@ class CommentsSheet extends StatefulWidget {
     required this.source,
     required this.chapter,
     required this.paragraph,
+    this.book,
   });
-  final SfacgSource source;
+  final CommentSource source;
   final Chapter chapter;
   final Paragraph paragraph;
+  final Book? book;
   @override
   State<CommentsSheet> createState() => _CommentsSheetState();
 }
 
 class _CommentsSheetState extends State<CommentsSheet> {
+  CommentLocation get location => CommentLocation(
+    book: widget.book,
+    chapter: widget.chapter,
+    paragraph: widget.paragraph,
+  );
   final items = <ParagraphComment>[];
   CommentSort sort = CommentSort.hot;
-  int page = 0;
+  String? cursor;
   bool loading = false, more = true;
   String? error;
   final draft = TextEditingController();
@@ -57,6 +66,8 @@ class _CommentsSheetState extends State<CommentsSheet> {
   @override
   void initState() {
     super.initState();
+    final supportedSorts = widget.source.commentCapabilities.sorts;
+    sort = supportedSorts.isEmpty ? CommentSort.latest : supportedSorts.first;
     _load();
   }
 
@@ -67,18 +78,17 @@ class _CommentsSheetState extends State<CommentsSheet> {
       error = null;
     });
     try {
-      final result = await widget.source.comments(
-        widget.chapter,
-        widget.paragraph.remoteIndex!,
-        page: page,
+      final result = await widget.source.commentPage(
+        location,
+        cursor: cursor,
         sort: sort,
       );
       if (!mounted) return;
       setState(() {
         final known = items.map((item) => item.id).toSet();
-        items.addAll(result.where((item) => known.add(item.id)));
-        page++;
-        more = result.length == 20;
+        items.addAll(result.items.where((item) => known.add(item.id)));
+        cursor = result.nextCursor;
+        more = cursor != null;
       });
     } catch (e) {
       if (mounted) setState(() => error = '$e');
@@ -90,9 +100,14 @@ class _CommentsSheetState extends State<CommentsSheet> {
   Future<void> _refresh({bool latest = false}) async {
     if (loading) return;
     setState(() {
-      if (latest) sort = CommentSort.latest;
+      if (latest &&
+          widget.source.commentCapabilities.sorts.contains(
+            CommentSort.latest,
+          )) {
+        sort = CommentSort.latest;
+      }
       items.clear();
-      page = 0;
+      cursor = null;
       more = true;
     });
     await _load();
@@ -109,11 +124,7 @@ class _CommentsSheetState extends State<CommentsSheet> {
       sendMessage = null;
     });
     try {
-      await widget.source.postComment(
-        widget.chapter,
-        widget.paragraph.remoteIndex ?? 0,
-        draft.text,
-      );
+      await widget.source.publishComment(location, draft.text);
       if (!mounted) return;
       draft.clear();
       setState(() => sendMessage = '段评已发送');
@@ -147,6 +158,7 @@ class _CommentsSheetState extends State<CommentsSheet> {
             comment: comment,
             compose: compose,
             target: target,
+            location: location,
             onSent: () => changed = true,
           ),
         ),
@@ -167,11 +179,14 @@ class _CommentsSheetState extends State<CommentsSheet> {
             children: [
               Row(
                 children: [
-                  Text(
-                    '菠萝包 · 段评',
-                    style: Theme.of(context).textTheme.titleLarge,
+                  Expanded(
+                    child: Text(
+                      '${widget.source.name} · 段评',
+                      style: Theme.of(context).textTheme.titleLarge,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
-                  const Spacer(),
                   IconButton(
                     tooltip: '刷新段评',
                     onPressed: loading || sending ? null : () => _refresh(),
@@ -190,24 +205,29 @@ class _CommentsSheetState extends State<CommentsSheet> {
                 overflow: TextOverflow.ellipsis,
               ),
               const SizedBox(height: 14),
-              SegmentedButton<CommentSort>(
-                segments: const [
-                  ButtonSegment(value: CommentSort.hot, label: Text('最热')),
-                  ButtonSegment(value: CommentSort.latest, label: Text('最新')),
-                ],
-                selected: {sort},
-                onSelectionChanged: loading || sending
-                    ? null
-                    : (value) {
-                        setState(() {
-                          sort = value.single;
-                          items.clear();
-                          page = 0;
-                          more = true;
-                        });
-                        _load();
-                      },
-              ),
+              if (widget.source.commentCapabilities.sorts.length > 1)
+                SegmentedButton<CommentSort>(
+                  segments: [
+                    for (final option
+                        in widget.source.commentCapabilities.sorts)
+                      ButtonSegment(
+                        value: option,
+                        label: Text(option == CommentSort.hot ? '最热' : '最新'),
+                      ),
+                  ],
+                  selected: {sort},
+                  onSelectionChanged: loading || sending
+                      ? null
+                      : (value) {
+                          setState(() {
+                            sort = value.single;
+                            items.clear();
+                            cursor = null;
+                            more = true;
+                          });
+                          _load();
+                        },
+                ),
             ],
           ),
         ),
@@ -236,11 +256,16 @@ class _CommentsSheetState extends State<CommentsSheet> {
                     CommentCard(
                       comment: item,
                       source: widget.source,
-                      onReply: sending
+                      location: location,
+                      root: item,
+                      onReply:
+                          sending ||
+                              !widget.source.commentCapabilities.canReply(item)
                           ? null
                           : () => _replies(item, compose: true),
                     ),
-                    if (item.replies.isNotEmpty)
+                    if (widget.source.commentCapabilities.replies &&
+                        item.replies.isNotEmpty)
                       Container(
                         margin: const EdgeInsets.only(left: 20, top: 10),
                         padding: const EdgeInsets.only(left: 12),
@@ -259,15 +284,21 @@ class _CommentsSheetState extends State<CommentsSheet> {
                           children: [
                             const Text('回复预览'),
                             const SizedBox(height: 8),
-                            for (final reply in SfacgSource.oldestFirst(
-                              item.replies,
-                            ).take(3))
+                            for (final reply
+                                in widget.source
+                                    .orderedReplies(item.replies)
+                                    .take(3))
                               Padding(
                                 padding: const EdgeInsets.only(bottom: 10),
                                 child: CommentCard(
                                   comment: reply,
                                   source: widget.source,
-                                  onReply: sending
+                                  location: location,
+                                  root: item,
+                                  onReply:
+                                      sending ||
+                                          !widget.source.commentCapabilities
+                                              .canReply(reply)
                                       ? null
                                       : () => _replies(
                                           item,
@@ -279,7 +310,8 @@ class _CommentsSheetState extends State<CommentsSheet> {
                           ],
                         ),
                       ),
-                    if (item.replyCount > 0 || item.replies.isNotEmpty)
+                    if (widget.source.commentCapabilities.replies &&
+                        (item.replyCount > 0 || item.replies.isNotEmpty))
                       Align(
                         alignment: Alignment.centerRight,
                         child: TextButton(
@@ -293,51 +325,52 @@ class _CommentsSheetState extends State<CommentsSheet> {
             },
           ),
         ),
-        const Divider(height: 1),
-        SafeArea(
-          top: false,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                if (widget.source.api.hasSession)
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          key: const ValueKey('paragraph-comment-draft'),
-                          controller: draft,
-                          enabled: !sending,
-                          minLines: 1,
-                          maxLines: 3,
-                          textInputAction: TextInputAction.newline,
-                          decoration: const InputDecoration(
-                            hintText: '写下对这一段的评论…',
-                            border: OutlineInputBorder(),
-                            isDense: true,
+        if (widget.source.commentCapabilities.post) const Divider(height: 1),
+        if (widget.source.commentCapabilities.post)
+          SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (widget.source.hasSession)
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            key: const ValueKey('paragraph-comment-draft'),
+                            controller: draft,
+                            enabled: !sending,
+                            minLines: 1,
+                            maxLines: 3,
+                            textInputAction: TextInputAction.newline,
+                            decoration: const InputDecoration(
+                              hintText: '写下对这一段的评论…',
+                              border: OutlineInputBorder(),
+                              isDense: true,
+                            ),
                           ),
                         ),
-                      ),
-                      const SizedBox(width: 12),
-                      FilledButton(
-                        onPressed: sending || loading ? null : _send,
-                        child: Text(sending ? '发送中…' : '发送'),
-                      ),
-                    ],
-                  )
-                else
-                  const Text('请先在“账号”页面登录菠萝包后发表评论'),
-                if (sendMessage != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 8),
-                    child: Text(sendMessage!),
-                  ),
-              ],
+                        const SizedBox(width: 12),
+                        FilledButton(
+                          onPressed: sending || loading ? null : _send,
+                          child: Text(sending ? '发送中…' : '发送'),
+                        ),
+                      ],
+                    )
+                  else
+                    Text('请先在“账号”页面登录${widget.source.name}后发表评论'),
+                  if (sendMessage != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text(sendMessage!),
+                    ),
+                ],
+              ),
             ),
           ),
-        ),
       ],
     ),
   );
@@ -351,17 +384,20 @@ class RepliesSheet extends StatefulWidget {
     this.compose = false,
     this.target,
     this.onSent,
+    required this.location,
   });
-  final SfacgSource source;
+  final CommentSource source;
   final ParagraphComment comment;
   final bool compose;
   final ParagraphComment? target;
   final VoidCallback? onSent;
+  final CommentLocation location;
   @override
   State<RepliesSheet> createState() => _RepliesSheetState();
 }
 
 class _RepliesSheetState extends State<RepliesSheet> {
+  CommentLocation get location => widget.location;
   List<ParagraphComment> items = [];
   bool loading = false;
   String? error;
@@ -405,11 +441,11 @@ class _RepliesSheetState extends State<RepliesSheet> {
       sendMessage = null;
     });
     try {
-      // Replies stay in the original conversation. A reply to another reply
-      // includes a visible author mention instead of using its ID as a thread.
       await widget.source.postReply(
         widget.comment,
-        target.isReply ? '回复@${target.author} $content' : content,
+        content,
+        target: target,
+        location: location,
       );
       widget.onSent?.call();
       if (!mounted) return;
@@ -436,11 +472,12 @@ class _RepliesSheetState extends State<RepliesSheet> {
       error = null;
     });
     try {
-      final result = await widget.source.allReplies(
-        widget.comment.id,
+      final result = await widget.source.repliesFor(
+        location,
+        widget.comment,
         cancelled: () => !mounted,
       );
-      if (mounted) setState(() => items = result);
+      if (mounted) setState(() => items = widget.source.orderedReplies(result));
     } catch (e) {
       if (mounted) setState(() => error = '$e');
     } finally {
@@ -493,7 +530,15 @@ class _RepliesSheetState extends State<RepliesSheet> {
                     comment: widget.comment,
                     label: '原段评',
                     source: widget.source,
-                    onReply: sending ? null : () => _replyTo(widget.comment),
+                    location: location,
+                    root: widget.comment,
+                    onReply:
+                        sending ||
+                            !widget.source.commentCapabilities.canReply(
+                              widget.comment,
+                            )
+                        ? null
+                        : () => _replyTo(widget.comment),
                   ),
                 );
               }
@@ -513,65 +558,74 @@ class _RepliesSheetState extends State<RepliesSheet> {
                   comment: items[index - 1],
                   label: '回复 $index',
                   source: widget.source,
-                  onReply: sending ? null : () => _replyTo(items[index - 1]),
+                  location: location,
+                  root: widget.comment,
+                  onReply:
+                      sending ||
+                          !widget.source.commentCapabilities.canReply(
+                            items[index - 1],
+                          )
+                      ? null
+                      : () => _replyTo(items[index - 1]),
                 ),
               );
             },
           ),
         ),
-        const Divider(height: 1),
-        SafeArea(
-          top: false,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                if (widget.source.api.hasSession) ...[
-                  Text(
-                    '回复 @${target.author}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 6),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          key: const ValueKey('comment-reply-draft'),
-                          controller: draft,
-                          focusNode: focus,
-                          autofocus: widget.compose,
-                          enabled: !sending,
-                          minLines: 1,
-                          maxLines: 3,
-                          textInputAction: TextInputAction.newline,
-                          decoration: const InputDecoration(
-                            hintText: '写下回复…',
-                            border: OutlineInputBorder(),
-                            isDense: true,
+        if (widget.source.commentCapabilities.reply) const Divider(height: 1),
+        if (widget.source.commentCapabilities.reply)
+          SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (widget.source.hasSession) ...[
+                    Text(
+                      '回复 @${target.author}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 6),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            key: const ValueKey('comment-reply-draft'),
+                            controller: draft,
+                            focusNode: focus,
+                            autofocus: widget.compose,
+                            enabled: !sending,
+                            minLines: 1,
+                            maxLines: 3,
+                            textInputAction: TextInputAction.newline,
+                            decoration: const InputDecoration(
+                              hintText: '写下回复…',
+                              border: OutlineInputBorder(),
+                              isDense: true,
+                            ),
                           ),
                         ),
-                      ),
-                      const SizedBox(width: 12),
-                      FilledButton(
-                        onPressed: sending || loading ? null : _send,
-                        child: Text(sending ? '发送中…' : '发送回复'),
-                      ),
-                    ],
-                  ),
-                ] else
-                  const Text('请先在“账号”页面登录菠萝包后回复评论'),
-                if (sendMessage != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 8),
-                    child: Text(sendMessage!),
-                  ),
-              ],
+                        const SizedBox(width: 12),
+                        FilledButton(
+                          onPressed: sending || loading ? null : _send,
+                          child: Text(sending ? '发送中…' : '发送回复'),
+                        ),
+                      ],
+                    ),
+                  ] else
+                    Text('请先在“账号”页面登录${widget.source.name}后回复评论'),
+                  if (sendMessage != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text(sendMessage!),
+                    ),
+                ],
+              ),
             ),
           ),
-        ),
       ],
     ),
   );

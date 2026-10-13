@@ -1,22 +1,21 @@
 import 'package:flutter/material.dart';
 import '../domain/models.dart';
-import '../sources/sfacg_markup.dart';
-import '../sources/sfacg_source.dart';
+import '../sources/comment_source.dart';
 
 class CommentText extends StatelessWidget {
-  const CommentText(this.text, {super.key});
+  const CommentText(this.text, {super.key, this.source});
   final String text;
+  final CommentSource? source;
 
   @override
   Widget build(BuildContext context) {
     final spans = <InlineSpan>[];
-    var start = 0;
-    for (final tag in SfacgMarkup.tags.allMatches(text)) {
-      spans.add(TextSpan(text: text.substring(start, tag.start)));
-      final url = SfacgMarkup.imageUrl(tag);
+    for (final part
+        in source?.commentContent(text) ?? [CommentPart.text(text)]) {
+      final url = part.image == null ? null : commentImageAddress(part.image!);
       spans.add(
         url == null
-            ? TextSpan(text: tag[0])
+            ? TextSpan(text: part.text)
             : WidgetSpan(
                 alignment: PlaceholderAlignment.middle,
                 child: Padding(
@@ -26,18 +25,16 @@ class CommentText extends StatelessWidget {
                     width: 32,
                     height: 32,
                     fit: BoxFit.contain,
-                    semanticLabel: '表情 ${tag[2]} ${tag[3]}',
+                    semanticLabel: part.text.isEmpty ? '评论图片' : part.text,
                     errorBuilder: (_, error, stack) => Tooltip(
-                      message: tag[0]!,
+                      message: part.text,
                       child: const Icon(Icons.broken_image_outlined, size: 24),
                     ),
                   ),
                 ),
               ),
       );
-      start = tag.end;
     }
-    spans.add(TextSpan(text: text.substring(start)));
     return SelectionArea(
       child: Text.rich(
         TextSpan(children: spans),
@@ -54,23 +51,35 @@ class CommentCard extends StatelessWidget {
     this.label,
     this.source,
     this.onReply,
+    this.location,
+    this.root,
   });
   final ParagraphComment comment;
   final String? label;
-  final SfacgSource? source;
+  final CommentSource? source;
   final VoidCallback? onReply;
+  final CommentLocation? location;
+  final ParagraphComment? root;
   @override
   Widget build(BuildContext context) {
-    final sf = source;
-    if (sf == null || comment.isReply) return _card(context);
+    final service = source;
+    if (service == null || !service.commentCapabilities.canLike(comment)) {
+      return _card(context);
+    }
     return ValueListenableBuilder<CommentLikeStatus>(
-      valueListenable: sf.likeStatus(comment),
+      valueListenable: service.likeStatus(
+        comment,
+        location: location,
+        root: root,
+      ),
       builder: (context, status, _) => _card(context, status: status),
     );
   }
 
   Widget _card(BuildContext context, {CommentLikeStatus? status}) {
-    final avatar = SfacgMarkup.imageAddress(comment.avatar);
+    final avatar = source == null
+        ? commentImageAddress(comment.avatar)
+        : source!.avatarAddress(comment.avatar);
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -128,7 +137,11 @@ class CommentCard extends StatelessWidget {
                         ? null
                         : () async {
                             try {
-                              await source!.likeComment(comment);
+                              await source!.likeComment(
+                                comment,
+                                location: location,
+                                root: root,
+                              );
                             } catch (_) {
                               // The shared status displays the error in this card.
                             }
@@ -153,7 +166,7 @@ class CommentCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          CommentText(comment.text),
+          CommentText(comment.text, source: source),
           if (onReply != null)
             Align(
               alignment: Alignment.centerRight,

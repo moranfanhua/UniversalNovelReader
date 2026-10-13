@@ -66,17 +66,23 @@ class Book {
 }
 
 class Paragraph {
-  const Paragraph(this.text, {this.image, this.remoteIndex});
+  const Paragraph(this.text, {this.image, this.remoteIndex, this.remoteId});
   final String text;
   final String? image;
   final int? remoteIndex;
+  final String? remoteId;
   Map<String, dynamic> toJson() => {
     'text': text,
     'image': image,
     'remoteIndex': remoteIndex,
+    if (remoteId != null) 'remoteId': remoteId,
   };
-  factory Paragraph.fromJson(Map<String, dynamic> j) =>
-      Paragraph(j['text'], image: j['image'], remoteIndex: j['remoteIndex']);
+  factory Paragraph.fromJson(Map<String, dynamic> j) => Paragraph(
+    j['text'],
+    image: j['image'],
+    remoteIndex: j['remoteIndex'],
+    remoteId: j['remoteId'],
+  );
 }
 
 class ChapterContent {
@@ -104,11 +110,13 @@ class ParagraphComment {
     this.avatar = '',
     this.replies = const [],
     this.isReply = false,
+    this.authorId = '',
   });
   final String id, author, text, date, paragraphText, avatar;
   final int likes, replyCount;
   final List<ParagraphComment> replies;
   final bool isReply;
+  final String authorId;
 }
 
 class CommentLikeStatus {

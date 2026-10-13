@@ -8,6 +8,7 @@ import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
 import '../domain/models.dart';
 import '../sources/sfacg_source.dart';
+import '../sources/comment_source.dart';
 import 'reader_fonts.dart';
 
 enum ReadingMode { scroll, paged }
@@ -28,8 +29,15 @@ class Library extends ChangeNotifier {
     this.source, {
     ReaderFonts? fonts,
     DateTime Function()? clock,
+    Iterable<CommentSource> commentSources = const [],
   }) : fonts = fonts ?? ReaderFonts(Directory('${root.path}/fonts')),
-       clock = clock ?? DateTime.now;
+       clock = clock ?? DateTime.now,
+       _commentSources = {
+         source.id: source,
+         for (final service in commentSources) service.id: service,
+       };
+  final Map<String, CommentSource> _commentSources;
+  CommentSource? commentsFor(Book book) => _commentSources[book.source];
   final DateTime Function() clock;
   final ReaderFonts fonts;
   final Directory root;
@@ -81,12 +89,19 @@ class Library extends ChangeNotifier {
     Directory? directory,
     ReaderFonts? fonts,
     DateTime Function()? clock,
+    Iterable<CommentSource> commentSources = const [],
   }) async {
     final dir =
         directory ??
         Directory('${(await getApplicationSupportDirectory()).path}/library');
     await dir.create(recursive: true);
-    final library = Library(dir, source, fonts: fonts, clock: clock);
+    final library = Library(
+      dir,
+      source,
+      fonts: fonts,
+      clock: clock,
+      commentSources: commentSources,
+    );
     final file = File('${dir.path}/index.json');
     if (await file.exists()) {
       final data = jsonDecode(await file.readAsString()) as Map;

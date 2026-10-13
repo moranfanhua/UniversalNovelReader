@@ -9,6 +9,7 @@ import 'package:unr/domain/models.dart';
 import 'package:unr/sources/sfacg_api.dart';
 import 'package:unr/sources/sfacg_markup.dart';
 import 'package:unr/sources/sfacg_source.dart';
+import 'package:unr/sources/comment_source.dart';
 import 'package:unr/ui/comment_content.dart';
 import 'package:unr/ui/comments_sheet.dart';
 import 'package:unr/ui/reader.dart';
@@ -50,9 +51,13 @@ void main() {
       avatar: 'http://rss.sfacg.com/avatar.jpg',
       text: '前文[em:sfgirl:004]后文[dsfem:pack:abc]',
     );
+    final api = SfacgApi();
+    addTearDown(api.close);
     await tester.pumpWidget(
-      const MaterialApp(
-        home: Scaffold(body: CommentCard(comment: comment)),
+      MaterialApp(
+        home: Scaffold(
+          body: CommentCard(comment: comment, source: SfacgSource(api)),
+        ),
       ),
     );
     final images = tester.widgetList<Image>(find.byType(Image));
@@ -85,8 +90,8 @@ void main() {
               },
             ],
           }),
-            200,
-            headers: {'content-type': 'application/json; charset=utf-8'},
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
         ),
       ),
     );
@@ -94,6 +99,10 @@ void main() {
       MaterialApp(
         home: Scaffold(
           body: RepliesSheet(
+            location: const CommentLocation(
+              chapter: Chapter(id: '1', title: '第一章'),
+              paragraph: Paragraph('原文', remoteIndex: 1),
+            ),
             source: SfacgSource(api),
             comment: const ParagraphComment(id: '10', author: '楼主', text: '原文'),
           ),

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:unr/domain/models.dart';
+import 'package:unr/sources/comment_source.dart';
 import 'package:unr/ui/comment_content.dart';
 import 'package:unr/ui/comments_sheet.dart';
 import 'comment_post_test.dart' as fixture;
@@ -180,7 +181,14 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
-          body: RepliesSheet(source: sf, comment: root),
+          body: RepliesSheet(
+            source: sf,
+            comment: root,
+            location: const CommentLocation(
+              chapter: fixture.chapter,
+              paragraph: fixture.paragraph,
+            ),
+          ),
         ),
       ),
     );
@@ -223,7 +231,14 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
-          body: RepliesSheet(source: sf, comment: root),
+          body: RepliesSheet(
+            source: sf,
+            comment: root,
+            location: const CommentLocation(
+              chapter: fixture.chapter,
+              paragraph: fixture.paragraph,
+            ),
+          ),
         ),
       ),
     );
@@ -279,7 +294,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('reply-comment-9')));
     await tester.pumpAndSettle();
     expect(find.byKey(replyDraft), findsNothing);
-    expect(find.text('请先在“账号”页面登录菠萝包后回复评论'), findsOneWidget);
+    expect(find.text('请先在“账号”页面登录菠萝包轻小说后回复评论'), findsOneWidget);
     await tester.tap(find.byTooltip('关闭回复'));
     await tester.pumpAndSettle();
     sf.api.setCookie('.SFCommunity=synthetic; session_APP=synthetic-app');
