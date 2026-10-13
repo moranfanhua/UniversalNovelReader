@@ -95,7 +95,9 @@ class _BookPageState extends State<BookPage> {
       error = null;
     });
     try {
-      final next = await widget.library.source.getBook(book.id);
+      final service = widget.library.sourceFor(book);
+      if (service == null) throw const SourceException('当前作品的书源不可用');
+      final next = await service.getBook(book.id);
       await widget.library.add(next);
       if (mounted) {
         setState(() {
@@ -115,7 +117,7 @@ class _BookPageState extends State<BookPage> {
     appBar: AppBar(
       title: const Text('作品详情'),
       actions: [
-        if (book.source == 'sfacg')
+        if (widget.library.sourceFor(book) != null)
           IconButton(
             tooltip: '刷新目录',
             onPressed: busy ? null : _refresh,
@@ -174,7 +176,7 @@ class _BookPageState extends State<BookPage> {
                                     Text(book.author),
                                     const SizedBox(height: 8),
                                     Text(
-                                      '${book.chapters.length} 章 · ${book.source == 'sfacg' ? '菠萝包轻小说' : '本地小说'}',
+                                      '${book.chapters.length} 章 · ${widget.library.sourceName(book)}',
                                     ),
                                   ],
                                 ),
@@ -209,7 +211,7 @@ class _BookPageState extends State<BookPage> {
                                 icon: const Icon(Icons.menu_book),
                                 label: const Text('继续阅读'),
                               ),
-                              if (book.source == 'sfacg')
+                              if (widget.library.sourceFor(book) != null)
                                 OutlinedButton.icon(
                                   onPressed: busy
                                       ? null

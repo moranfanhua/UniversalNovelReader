@@ -13,7 +13,7 @@ import '../comment_source.dart';
 
 export '../comment_source.dart' show CommentSort;
 
-class SfacgSource extends CommentSource implements NovelSource {
+class SfacgSource extends CommentSource implements SearchableNovelSource {
   SfacgSource(this.api, {Map<String, String>? cipher}) : cipher = cipher ?? {};
   final SfacgApi api;
   final Map<String, String> cipher;
@@ -80,6 +80,7 @@ class SfacgSource extends CommentSource implements NovelSource {
     throw const SourceException('请输入小说 ID 或菠萝包作品链接');
   }
 
+  @override
   Future<List<Book>> search(String keyword, {int page = 0}) async {
     if (keyword.trim().isEmpty) return [];
     final data = await api.get(

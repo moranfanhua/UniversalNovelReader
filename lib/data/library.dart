@@ -9,6 +9,7 @@ import 'package:uuid/uuid.dart';
 import '../domain/models.dart';
 import '../sources/sfacg/sfacg_source.dart';
 import '../sources/comment_source.dart';
+import '../sources/novel_source.dart';
 import 'reader_fonts.dart';
 
 enum ReadingMode { scroll, paged }
@@ -30,12 +31,25 @@ class Library extends ChangeNotifier {
     ReaderFonts? fonts,
     DateTime Function()? clock,
     Iterable<CommentSource> commentSources = const [],
+    Iterable<NovelSource> novelSources = const [],
   }) : fonts = fonts ?? ReaderFonts(Directory('${root.path}/fonts')),
        clock = clock ?? DateTime.now,
+       _novelSources = {
+         source.id: source,
+         for (final service in novelSources) service.id: service,
+       },
        _commentSources = {
          source.id: source,
+         for (final service in novelSources.whereType<CommentSource>())
+           service.id: service,
          for (final service in commentSources) service.id: service,
        };
+  final Map<String, NovelSource> _novelSources;
+  NovelSource? sourceFor(Book book) => _novelSources[book.source];
+  List<SearchableNovelSource> get searchSources =>
+      _novelSources.values.whereType<SearchableNovelSource>().toList();
+  String sourceName(Book book) =>
+      sourceFor(book)?.name ?? (book.source == 'local' ? '本地小说' : '未知书源');
   final Map<String, CommentSource> _commentSources;
   CommentSource? commentsFor(Book book) => _commentSources[book.source];
   final DateTime Function() clock;
@@ -93,6 +107,7 @@ class Library extends ChangeNotifier {
     ReaderFonts? fonts,
     DateTime Function()? clock,
     Iterable<CommentSource> commentSources = const [],
+    Iterable<NovelSource> novelSources = const [],
   }) async {
     final dir =
         directory ??
@@ -104,6 +119,7 @@ class Library extends ChangeNotifier {
       fonts: fonts,
       clock: clock,
       commentSources: commentSources,
+      novelSources: novelSources,
     );
     final file = File('${dir.path}/index.json');
     if (await file.exists()) {
@@ -349,10 +365,13 @@ class Library extends ChangeNotifier {
   Future<ChapterContent> _readChapter(Book book, Chapter chapter) async {
     final saved = await cached(book, chapter);
     if (saved != null) return saved;
-    if (book.source != 'sfacg') {
-      throw const SourceException('本地章节缓存缺失，请重新导入原文件');
+    final service = sourceFor(book);
+    if (service == null) {
+      throw SourceException(
+        book.source == 'local' ? '本地章节缓存缺失，请重新导入原文件' : '当前书源不可用，已缓存章节仍可阅读',
+      );
     }
-    final content = await source.readChapter(book, chapter);
+    final content = await service.readChapter(book, chapter);
     await store(book, chapter, content);
     return content;
   }
