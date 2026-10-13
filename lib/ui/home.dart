@@ -7,6 +7,7 @@ import '../formats/ebook.dart';
 import 'account.dart';
 import 'book_page.dart';
 import 'image_bytes.dart';
+import 'settings.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key, required this.library});
@@ -108,7 +109,7 @@ class _HomePageState extends State<HomePage> {
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
-      title: Text(['我的书库', '菠萝包轻小说', '账号与阅读'][tab]),
+      title: Text(['我的书库', '菠萝包轻小说', '账号', '设置'][tab]),
       actions: [
         IconButton(
           tooltip: '开源许可',
@@ -293,7 +294,8 @@ class _HomePageState extends State<HomePage> {
                   ),
                 ),
               ),
-              AccountPage(
+              AccountPage(library: library),
+              SettingsPage(
                 library: library,
                 gbk: gbk,
                 onEncodingChanged: (value) => setState(() => gbk = value),
@@ -313,6 +315,11 @@ class _HomePageState extends State<HomePage> {
           label: '书库',
         ),
         NavigationDestination(icon: Icon(Icons.travel_explore), label: '书源'),
+        NavigationDestination(
+          icon: Icon(Icons.person_outline),
+          selectedIcon: Icon(Icons.person),
+          label: '账号',
+        ),
         NavigationDestination(icon: Icon(Icons.tune), label: '设置'),
       ],
     ),

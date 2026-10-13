@@ -7,7 +7,7 @@ import 'package:unr/data/library.dart';
 import 'package:unr/domain/models.dart';
 import 'package:unr/sources/sfacg_api.dart';
 import 'package:unr/sources/sfacg_source.dart';
-import 'package:unr/ui/account.dart';
+import 'package:unr/ui/settings.dart';
 import 'package:unr/ui/paged_chapter.dart';
 import 'package:unr/ui/reader.dart';
 import 'package:unr/ui/text_pagination.dart';
@@ -100,7 +100,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
-          body: AccountPage(
+          body: SettingsPage(
             library: library,
             gbk: false,
             onEncodingChanged: (_) {},
