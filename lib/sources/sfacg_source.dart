@@ -1,4 +1,6 @@
 import 'dart:convert';
+import 'dart:async';
+import 'package:http/http.dart' as http;
 import 'package:html/dom.dart';
 import 'package:html/parser.dart' as html;
 import '../domain/models.dart';
@@ -13,6 +15,7 @@ class SfacgSource implements NovelSource {
   final Map<String, String> cipher;
   final Map<String, ({DateTime at, int count})> _commentCounts = {};
   final Map<String, Future<int>> _countRequests = {};
+  final Map<String, int> _countEpochs = {};
   @override
   String get id => 'sfacg';
   @override
@@ -316,6 +319,39 @@ class SfacgSource implements NovelSource {
         .toList();
   }
 
+  Future<void> postComment(Chapter chapter, int row, String text) async {
+    if (!api.hasSession) {
+      throw const SourceException('请先在“账号”页面登录菠萝包后发表评论');
+    }
+    if (row < 1 || !RegExp(r'^\d+$').hasMatch(chapter.id)) {
+      throw const SourceException('当前段落信息无效，无法发送段评');
+    }
+    final content = text.trim();
+    if (content.isEmpty) throw const SourceException('请输入评论内容');
+    const uncertain = SourceException('发送结果未确认，请先刷新段评检查是否已发布，再决定是否重试');
+    try {
+      await api.request(
+        'chaps/0/${chapter.id}/tsukkomis',
+        body: {'content': content, 'row': row},
+        retry: false,
+      );
+    } on TimeoutException {
+      throw uncertain;
+    } on http.ClientException {
+      throw uncertain;
+    } on SourceException catch (e) {
+      if (e.code >= 500 || e.message.startsWith('菠萝包返回无法识别的数据')) {
+        throw uncertain;
+      }
+      rethrow;
+    } finally {
+      // A response can be lost after the server accepted a write.
+      final key = '${chapter.id}/$row';
+      _commentCounts.remove(key);
+      _countEpochs[key] = (_countEpochs[key] ?? 0) + 1;
+    }
+  }
+
   Future<int> commentCount(Chapter chapter, int row, {bool refresh = false}) {
     if (row < 1) throw ArgumentError('段落从 1 开始');
     final key = '${chapter.id}/$row';
@@ -325,7 +361,9 @@ class SfacgSource implements NovelSource {
         DateTime.now().difference(cached.at) < const Duration(minutes: 2)) {
       return Future.value(cached.count);
     }
-    return _countRequests.putIfAbsent(key, () async {
+    final epoch = _countEpochs[key] ?? 0;
+    final requestKey = '$key:$epoch';
+    return _countRequests.putIfAbsent(requestKey, () async {
       try {
         final headers =
             await api.request(
@@ -338,13 +376,15 @@ class SfacgSource implements NovelSource {
         if (count == null || count < 0) {
           throw const SourceException('菠萝包未返回段评数量');
         }
-        _commentCounts[key] = (at: DateTime.now(), count: count);
+        if ((_countEpochs[key] ?? 0) == epoch) {
+          _commentCounts[key] = (at: DateTime.now(), count: count);
+        }
         if (_commentCounts.length > 500) {
           _commentCounts.remove(_commentCounts.keys.first);
         }
         return count;
       } finally {
-        _countRequests.remove(key);
+        _countRequests.remove(requestKey);
       }
     });
   }

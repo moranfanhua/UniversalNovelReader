@@ -51,6 +51,7 @@ class SfacgApi {
     Map<String, String>? query,
     Map<String, dynamic>? body,
     bool head = false,
+    bool retry = true,
   }) async {
     final uri = Uri.https(
       'api.sfacg.com',
@@ -89,7 +90,7 @@ class SfacgApi {
       ))().timeout(const Duration(seconds: 25));
       Map<String, dynamic> doc;
       try {
-        doc = head
+        doc = head || response.statusCode == 204 && response.bodyBytes.isEmpty
             ? {}
             : jsonDecode(utf8.decode(response.bodyBytes))
                   as Map<String, dynamic>;
@@ -98,7 +99,8 @@ class SfacgApi {
       }
       final status = (doc['status'] as Map?) ?? {};
       final code = status['httpCode'] as int? ?? response.statusCode;
-      if (code == 200 &&
+      if (code >= 200 &&
+          code < 300 &&
           response.statusCode >= 200 &&
           response.statusCode < 300) {
         final setCookie = response.headers['set-cookie'];
@@ -116,7 +118,7 @@ class SfacgApi {
         }
         return head ? response.headers : doc['data'];
       }
-      if (attempt < 3 && (code == 417 || code == 429 || code >= 500)) {
+      if (retry && attempt < 3 && (code == 417 || code == 429 || code >= 500)) {
         nonce = const Uuid().v4().toUpperCase();
         if (code == 417 && response.headers['date'] != null) {
           try {
@@ -138,6 +140,8 @@ class SfacgApi {
           ? '登录会话校验'
           : uri.path.startsWith('/Chaps/')
           ? '章节读取'
+          : body != null && uri.path.endsWith('/tsukkomis')
+          ? '段评发送'
           : '菠萝包请求';
       var message = '${status['msg'] ?? ''}'.trim();
       for (final secret in [

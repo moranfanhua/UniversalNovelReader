@@ -12,12 +12,15 @@ Future<void> showComments(
   context: context,
   isScrollControlled: true,
   showDragHandle: true,
-  builder: (_) => FractionallySizedBox(
-    heightFactor: .85,
-    child: CommentsSheet(
-      source: source,
-      chapter: chapter,
-      paragraph: paragraph,
+  builder: (context) => Padding(
+    padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+    child: FractionallySizedBox(
+      heightFactor: .85,
+      child: CommentsSheet(
+        source: source,
+        chapter: chapter,
+        paragraph: paragraph,
+      ),
     ),
   ),
 );
@@ -42,6 +45,15 @@ class _CommentsSheetState extends State<CommentsSheet> {
   int page = 0;
   bool loading = false, more = true;
   String? error;
+  final draft = TextEditingController();
+  bool sending = false;
+  String? sendMessage;
+  @override
+  void dispose() {
+    draft.dispose();
+    super.dispose();
+  }
+
   @override
   void initState() {
     super.initState();
@@ -75,6 +87,45 @@ class _CommentsSheetState extends State<CommentsSheet> {
     }
   }
 
+  Future<void> _refresh({bool latest = false}) async {
+    if (loading) return;
+    setState(() {
+      if (latest) sort = CommentSort.latest;
+      items.clear();
+      page = 0;
+      more = true;
+    });
+    await _load();
+  }
+
+  Future<void> _send() async {
+    if (sending || loading) return;
+    if (draft.text.trim().isEmpty) {
+      setState(() => sendMessage = '请输入评论内容');
+      return;
+    }
+    setState(() {
+      sending = true;
+      sendMessage = null;
+    });
+    try {
+      await widget.source.postComment(
+        widget.chapter,
+        widget.paragraph.remoteIndex ?? 0,
+        draft.text,
+      );
+      if (!mounted) return;
+      draft.clear();
+      setState(() => sendMessage = '段评已发送');
+      // Refresh failure must not turn an acknowledged send into a failed send.
+      await _refresh(latest: true);
+    } catch (e) {
+      if (mounted) setState(() => sendMessage = '$e');
+    } finally {
+      if (mounted) setState(() => sending = false);
+    }
+  }
+
   void _replies(ParagraphComment comment) => showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
@@ -86,116 +137,174 @@ class _CommentsSheetState extends State<CommentsSheet> {
   );
 
   @override
-  Widget build(BuildContext context) => Column(
-    children: [
-      Padding(
-        padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Text('菠萝包 · 段评', style: Theme.of(context).textTheme.titleLarge),
-                const Spacer(),
-                IconButton(
-                  tooltip: '关闭段评',
-                  onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.close),
-                ),
-              ],
-            ),
-            Text(
-              widget.paragraph.text.isEmpty ? '本段插图' : widget.paragraph.text,
-              maxLines: 3,
-              overflow: TextOverflow.ellipsis,
-            ),
-            const SizedBox(height: 14),
-            SegmentedButton<CommentSort>(
-              segments: const [
-                ButtonSegment(value: CommentSort.hot, label: Text('最热')),
-                ButtonSegment(value: CommentSort.latest, label: Text('最新')),
-              ],
-              selected: {sort},
-              onSelectionChanged: loading
-                  ? null
-                  : (value) {
-                      setState(() {
-                        sort = value.single;
-                        items.clear();
-                        page = 0;
-                        more = true;
-                      });
-                      _load();
-                    },
-            ),
-          ],
-        ),
-      ),
-      const Divider(height: 1),
-      Expanded(
-        child: ListView.builder(
-          padding: const EdgeInsets.all(20),
-          itemCount: items.length + 1,
-          itemBuilder: (context, index) {
-            if (index == items.length) {
-              return _LoadStatus(
-                loading: loading,
-                error: error,
-                empty: items.isEmpty,
-                more: more,
-                load: _load,
-                emptyText: '这一段还没有吐槽',
-              );
-            }
-            final item = items[index];
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
+  Widget build(BuildContext context) => PopScope(
+    canPop: !sending,
+    child: Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
                 children: [
-                  CommentCard(comment: item),
-                  if (item.replies.isNotEmpty)
-                    Container(
-                      margin: const EdgeInsets.only(left: 20, top: 10),
-                      padding: const EdgeInsets.only(left: 12),
-                      decoration: BoxDecoration(
-                        border: Border(
-                          left: BorderSide(
-                            width: 2,
-                            color: Theme.of(context).colorScheme.outlineVariant,
+                  Text(
+                    '菠萝包 · 段评',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  const Spacer(),
+                  IconButton(
+                    tooltip: '刷新段评',
+                    onPressed: loading || sending ? null : () => _refresh(),
+                    icon: const Icon(Icons.refresh),
+                  ),
+                  IconButton(
+                    tooltip: '关闭段评',
+                    onPressed: sending ? null : () => Navigator.pop(context),
+                    icon: const Icon(Icons.close),
+                  ),
+                ],
+              ),
+              Text(
+                widget.paragraph.text.isEmpty ? '本段插图' : widget.paragraph.text,
+                maxLines: MediaQuery.viewInsetsOf(context).bottom > 0 ? 1 : 3,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: 14),
+              SegmentedButton<CommentSort>(
+                segments: const [
+                  ButtonSegment(value: CommentSort.hot, label: Text('最热')),
+                  ButtonSegment(value: CommentSort.latest, label: Text('最新')),
+                ],
+                selected: {sort},
+                onSelectionChanged: loading || sending
+                    ? null
+                    : (value) {
+                        setState(() {
+                          sort = value.single;
+                          items.clear();
+                          page = 0;
+                          more = true;
+                        });
+                        _load();
+                      },
+              ),
+            ],
+          ),
+        ),
+        const Divider(height: 1),
+        Expanded(
+          child: ListView.builder(
+            padding: const EdgeInsets.all(20),
+            itemCount: items.length + 1,
+            itemBuilder: (context, index) {
+              if (index == items.length) {
+                return _LoadStatus(
+                  loading: loading,
+                  error: error,
+                  empty: items.isEmpty,
+                  more: more,
+                  load: _load,
+                  emptyText: '这一段还没有吐槽',
+                );
+              }
+              final item = items[index];
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    CommentCard(comment: item),
+                    if (item.replies.isNotEmpty)
+                      Container(
+                        margin: const EdgeInsets.only(left: 20, top: 10),
+                        padding: const EdgeInsets.only(left: 12),
+                        decoration: BoxDecoration(
+                          border: Border(
+                            left: BorderSide(
+                              width: 2,
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.outlineVariant,
+                            ),
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            const Text('回复预览'),
+                            const SizedBox(height: 8),
+                            for (final reply in SfacgSource.oldestFirst(
+                              item.replies,
+                            ).take(3))
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 10),
+                                child: CommentCard(comment: reply),
+                              ),
+                          ],
+                        ),
+                      ),
+                    if (item.replyCount > 0 || item.replies.isNotEmpty)
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton(
+                          onPressed: () => _replies(item),
+                          child: Text('查看 ${item.replyCount} 条回复'),
+                        ),
+                      ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
+        const Divider(height: 1),
+        SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (widget.source.api.hasSession)
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          key: const ValueKey('paragraph-comment-draft'),
+                          controller: draft,
+                          enabled: !sending,
+                          minLines: 1,
+                          maxLines: 3,
+                          textInputAction: TextInputAction.newline,
+                          decoration: const InputDecoration(
+                            hintText: '写下对这一段的评论…',
+                            border: OutlineInputBorder(),
+                            isDense: true,
                           ),
                         ),
                       ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          const Text('回复预览'),
-                          const SizedBox(height: 8),
-                          for (final reply in SfacgSource.oldestFirst(
-                            item.replies,
-                          ).take(3))
-                            Padding(
-                              padding: const EdgeInsets.only(bottom: 10),
-                              child: CommentCard(comment: reply),
-                            ),
-                        ],
+                      const SizedBox(width: 12),
+                      FilledButton(
+                        onPressed: sending || loading ? null : _send,
+                        child: Text(sending ? '发送中…' : '发送'),
                       ),
-                    ),
-                  if (item.replyCount > 0 || item.replies.isNotEmpty)
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: TextButton(
-                        onPressed: () => _replies(item),
-                        child: Text('查看 ${item.replyCount} 条回复'),
-                      ),
-                    ),
-                ],
-              ),
-            );
-          },
+                    ],
+                  )
+                else
+                  const Text('请先在“账号”页面登录菠萝包后发表评论'),
+                if (sendMessage != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text(sendMessage!),
+                  ),
+              ],
+            ),
+          ),
         ),
-      ),
-    ],
+      ],
+    ),
   );
 }
 
