@@ -12,13 +12,54 @@ import 'reader_fonts.dart';
 
 enum ReadingMode { scroll, paged }
 
+enum ShelfSort { updated, name, lastActive }
+
+extension ShelfSortLabel on ShelfSort {
+  String get label => switch (this) {
+    ShelfSort.updated => '按更新时间',
+    ShelfSort.name => '按名称',
+    ShelfSort.lastActive => '按上次活跃时间',
+  };
+}
+
 class Library extends ChangeNotifier {
-  Library(this.root, this.source, {ReaderFonts? fonts})
-    : fonts = fonts ?? ReaderFonts(Directory('${root.path}/fonts'));
+  Library(
+    this.root,
+    this.source, {
+    ReaderFonts? fonts,
+    DateTime Function()? clock,
+  }) : fonts = fonts ?? ReaderFonts(Directory('${root.path}/fonts')),
+       clock = clock ?? DateTime.now;
+  final DateTime Function() clock;
   final ReaderFonts fonts;
   final Directory root;
   final SfacgSource source;
   final List<Book> books = [];
+  ShelfSort shelfSort = ShelfSort.lastActive;
+  final Map<String, int> updatedTimes = {}, lastActiveTimes = {};
+  int _updatedTime(Book book) => book.source == 'local'
+      ? updatedTimes[book.key] ?? 0
+      : book.updatedAt?.millisecondsSinceEpoch ?? updatedTimes[book.key] ?? 0;
+  List<Book> get sortedBooks {
+    final result = books.toList();
+    final position = {for (var i = 0; i < books.length; i++) books[i].key: i};
+    result.sort((a, b) {
+      final comparison = switch (shelfSort) {
+        ShelfSort.name => a.title.trim().toLowerCase().compareTo(
+          b.title.trim().toLowerCase(),
+        ),
+        ShelfSort.updated => _updatedTime(b).compareTo(_updatedTime(a)),
+        ShelfSort.lastActive => (lastActiveTimes[b.key] ?? 0).compareTo(
+          lastActiveTimes[a.key] ?? 0,
+        ),
+      };
+      return comparison == 0
+          ? position[a.key]!.compareTo(position[b.key]!)
+          : comparison;
+    });
+    return result;
+  }
+
   final Map<String, List<int>> progress = {};
   double fontSize = 20;
   bool night = false;
@@ -39,12 +80,13 @@ class Library extends ChangeNotifier {
     SfacgSource source, {
     Directory? directory,
     ReaderFonts? fonts,
+    DateTime Function()? clock,
   }) async {
     final dir =
         directory ??
         Directory('${(await getApplicationSupportDirectory()).path}/library');
     await dir.create(recursive: true);
-    final library = Library(dir, source, fonts: fonts);
+    final library = Library(dir, source, fonts: fonts, clock: clock);
     final file = File('${dir.path}/index.json');
     if (await file.exists()) {
       final data = jsonDecode(await file.readAsString()) as Map;
@@ -58,6 +100,21 @@ class Library extends ChangeNotifier {
         32,
       );
       library.night = data['night'] == true;
+      library.shelfSort = ShelfSort.values.firstWhere(
+        (sort) => sort.name == data['shelfSort'],
+        orElse: () => ShelfSort.lastActive,
+      );
+      for (final entry in (data['updatedTimes'] as Map? ?? {}).entries) {
+        if (entry.value is num) {
+          library.updatedTimes['${entry.key}'] = (entry.value as num).toInt();
+        }
+      }
+      for (final entry in (data['lastActiveTimes'] as Map? ?? {}).entries) {
+        if (entry.value is num) {
+          library.lastActiveTimes['${entry.key}'] = (entry.value as num)
+              .toInt();
+        }
+      }
       library.horizontalMargin = (data['horizontalMargin'] as num? ?? 22)
           .toDouble()
           .clamp(8, 64);
@@ -141,6 +198,9 @@ class Library extends ChangeNotifier {
       'horizontalMargin': horizontalMargin,
       'verticalMargin': verticalMargin,
       'lineHeight': lineHeight,
+      'shelfSort': shelfSort.name,
+      'updatedTimes': updatedTimes,
+      'lastActiveTimes': lastActiveTimes,
     });
     // Serialize preferences writes so navigation and font changes cannot race.
     final next = _writes
@@ -202,12 +262,38 @@ class Library extends ChangeNotifier {
   }
 
   Future<void> add(Book book) async {
+    final now = clock().millisecondsSinceEpoch;
+    if (book.source == 'local') {
+      updatedTimes[book.key] = now;
+    } else if (book.updatedAt != null) {
+      updatedTimes[book.key] = book.updatedAt!.millisecondsSinceEpoch;
+    } else {
+      updatedTimes.putIfAbsent(book.key, () => 0);
+    }
+    lastActiveTimes.putIfAbsent(book.key, () => now);
     final index = books.indexWhere((b) => b.key == book.key);
     if (index < 0) {
       books.insert(0, book);
     } else {
       books[index] = book;
     }
+    await save();
+  }
+
+  Future<void> setShelfSort(ShelfSort sort) async {
+    final old = shelfSort;
+    shelfSort = sort;
+    try {
+      await save();
+    } catch (_) {
+      shelfSort = old;
+      notifyListeners();
+      rethrow;
+    }
+  }
+
+  Future<void> markActive(Book book) async {
+    lastActiveTimes[book.key] = clock().millisecondsSinceEpoch;
     await save();
   }
 
@@ -318,6 +404,7 @@ class Library extends ChangeNotifier {
 
   Future<void> remember(Book book, int chapter, int paragraph) async {
     progress[book.key] = [chapter, paragraph];
+    lastActiveTimes[book.key] = clock().millisecondsSinceEpoch;
     await save();
   }
 }

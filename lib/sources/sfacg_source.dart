@@ -47,6 +47,7 @@ class SfacgSource implements NovelSource {
             title: j['novelName'] ?? '',
             author: j['authorName'] ?? '',
             cover: j['novelCover'] ?? '',
+            updatedAt: _updateTime(j['lastUpdateTime']),
             chapters: [],
           ),
         )
@@ -95,8 +96,20 @@ class SfacgSource implements NovelSource {
       author: info['authorName'] ?? '',
       cover: info['novelCover'] ?? '',
       description: info['expand']?['intro'] ?? '',
+      updatedAt:
+          _updateTime(dirs['lastUpdateTime']) ??
+          _updateTime(info['lastUpdateTime']),
       chapters: chapters,
     );
+  }
+
+  static DateTime? _updateTime(Object? raw) {
+    if (raw is! String || raw.trim().isEmpty) return null;
+    final value = raw.trim();
+    // SFACG's offset-free timestamps use China Standard Time, independently of
+    // the reader device's timezone.
+    final hasZone = RegExp(r'(?:[zZ]|[+-]\d{2}:?\d{2})$').hasMatch(value);
+    return DateTime.tryParse(hasZone ? value : '$value+08:00')?.toUtc();
   }
 
   @override

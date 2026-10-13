@@ -37,6 +37,7 @@ class _HomePageState extends State<HomePage> {
     try {
       final book = await library.source.getBook(input);
       await library.add(book);
+      await library.markActive(book);
       if (mounted) {
         await Navigator.push(
           context,
@@ -106,8 +107,26 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  Future<void> _openShelfBook(Book book) async {
+    try {
+      await library.markActive(book);
+      if (!mounted) return;
+      await Navigator.push(
+        context,
+        MaterialPageRoute<void>(
+          builder: (_) => BookPage(library: library, book: book),
+        ),
+      );
+    } catch (e) {
+      if (mounted) setState(() => error = '$e');
+    }
+  }
+
   @override
-  Widget build(BuildContext context) => Scaffold(
+  Widget build(BuildContext context) =>
+      _buildPage(context, library.sortedBooks);
+
+  Widget _buildPage(BuildContext context, List<Book> shelf) => Scaffold(
     appBar: AppBar(
       title: Text(['我的书库', '菠萝包轻小说', '账号', '设置'][tab]),
       actions: [
@@ -146,7 +165,7 @@ class _HomePageState extends State<HomePage> {
           child: IndexedStack(
             index: tab,
             children: [
-              library.books.isEmpty
+              shelf.isEmpty
                   ? Center(
                       child: Padding(
                         padding: const EdgeInsets.all(28),
@@ -193,18 +212,12 @@ class _HomePageState extends State<HomePage> {
                             crossAxisSpacing: 18,
                             childAspectRatio: .64,
                           ),
-                      itemCount: library.books.length,
+                      itemCount: shelf.length,
                       itemBuilder: (context, i) {
-                        final book = library.books[i];
+                        final book = shelf[i];
                         return InkWell(
                           borderRadius: BorderRadius.circular(16),
-                          onTap: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) =>
-                                  BookPage(library: library, book: book),
-                            ),
-                          ),
+                          onTap: () => _openShelfBook(book),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [

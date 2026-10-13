@@ -35,9 +35,11 @@ class Book {
     this.source = 'sfacg',
     this.cover = '',
     this.description = '',
+    this.updatedAt,
   });
   final String id, title, author, source, cover, description;
   final List<Chapter> chapters;
+  final DateTime? updatedAt;
   String get key => '$source:$id';
   Map<String, dynamic> toJson() => {
     'id': id,
@@ -46,6 +48,7 @@ class Book {
     'source': source,
     'cover': cover,
     'description': description,
+    'updatedAt': updatedAt?.toUtc().toIso8601String(),
     'chapters': chapters.map((c) => c.toJson()).toList(),
   };
   factory Book.fromJson(Map<String, dynamic> j) => Book(
@@ -55,6 +58,7 @@ class Book {
     source: j['source'],
     cover: j['cover'] ?? '',
     description: j['description'] ?? '',
+    updatedAt: DateTime.tryParse('${j['updatedAt'] ?? ''}')?.toUtc(),
     chapters: (j['chapters'] as List)
         .map((c) => Chapter.fromJson(Map<String, dynamic>.from(c)))
         .toList(),
