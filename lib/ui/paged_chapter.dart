@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../domain/models.dart';
 import 'text_pagination.dart';
+import 'reading_layout.dart';
 
 class PagedChapter extends StatefulWidget {
   const PagedChapter({
@@ -40,7 +41,7 @@ class _PagedChapterState extends State<PagedChapter> {
   PageController? controller;
   List<List<PageFragment>> pages = [];
   Object? signature;
-  int page = 0, revision = 0;
+  int page = 0, revision = 0, columns = 1;
   late int anchorParagraph = widget.initialParagraph;
   late int anchorOffset = widget.initialOffset;
   @override
@@ -49,10 +50,10 @@ class _PagedChapterState extends State<PagedChapter> {
     super.dispose();
   }
 
-  void _report() {
+  void _report({bool preserveAnchor = false}) {
     if (!mounted || pages.isEmpty) return;
-    final fragments = pages[page];
-    if (fragments.isNotEmpty) {
+    final fragments = pages.skip(page).take(columns).expand((p) => p).toList();
+    if (fragments.isNotEmpty && !preserveAnchor) {
       anchorParagraph = fragments.first.paragraph;
       anchorOffset = fragments.first.offset;
     }
@@ -64,9 +65,9 @@ class _PagedChapterState extends State<PagedChapter> {
   }
 
   void _turn(int delta) {
-    final target = page + delta;
+    final target = page ~/ columns + delta;
     if (target < 0 ||
-        target >= pages.length ||
+        target >= (pages.length / columns).ceil() ||
         controller?.hasClients != true) {
       return;
     }
@@ -80,8 +81,14 @@ class _PagedChapterState extends State<PagedChapter> {
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
+      columns = ReadingLayout.columns(constraints.maxWidth);
+      final canvasWidth = ReadingLayout.canvasWidth(
+        constraints.maxWidth,
+        paged: true,
+      );
+      final gutter = columns == 2 ? ReadingLayout.gutter : 0.0;
       final width =
-          (constraints.maxWidth.clamp(1.0, 820.0) - widget.horizontalMargin * 2)
+          ((canvasWidth - widget.horizontalMargin * 2 - gutter) / columns)
               .clamp(1.0, double.infinity);
       final style = Theme.of(context).textTheme.bodyLarge!.copyWith(
         fontSize: widget.fontSize,
@@ -126,6 +133,7 @@ class _PagedChapterState extends State<PagedChapter> {
       heading.dispose();
       final nextSignature = (
         widget.content,
+        columns,
         width,
         height,
         style,
@@ -160,12 +168,13 @@ class _PagedChapterState extends State<PagedChapter> {
             page = i;
           }
         }
+        page = page ~/ columns * columns;
         final old = controller;
-        controller = PageController(initialPage: page);
+        controller = PageController(initialPage: page ~/ columns);
         final generation = ++revision;
         WidgetsBinding.instance.addPostFrameCallback((_) {
           old?.dispose();
-          if (mounted && generation == revision) _report();
+          if (mounted && generation == revision) _report(preserveAnchor: true);
         });
       }
       final pageRevision = revision;
@@ -191,83 +200,62 @@ class _PagedChapterState extends State<PagedChapter> {
                   child: PageView.builder(
                     key: ValueKey(revision),
                     controller: controller,
-                    itemCount: pages.length,
+                    itemCount: (pages.length / columns).ceil(),
                     onPageChanged: (value) {
                       if (pageRevision != revision ||
                           value < 0 ||
-                          value >= pages.length) {
+                          value >= (pages.length / columns).ceil()) {
                         return;
                       }
-                      setState(() => page = value);
+                      setState(() => page = value * columns);
                       _report();
                     },
-                    itemBuilder: (context, index) => Center(
+                    itemBuilder: (context, spread) => Align(
+                      alignment: Alignment.topCenter,
                       child: SizedBox(
-                        width: width,
+                        width: canvasWidth,
                         child: Padding(
-                          padding: EdgeInsets.symmetric(
-                            vertical: verticalMargin,
+                          padding: EdgeInsets.fromLTRB(
+                            widget.horizontalMargin,
+                            verticalMargin,
+                            widget.horizontalMargin,
+                            verticalMargin,
                           ),
-                          child: SingleChildScrollView(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                if (index == 0)
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              for (
+                                var column = 0;
+                                column < columns;
+                                column++
+                              ) ...[
+                                if (column > 0)
                                   SizedBox(
-                                    height: headingSpace,
-                                    child: Text(
-                                      widget.title,
-                                      style: headingStyle,
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                for (final fragment in pages[index])
-                                  Padding(
-                                    padding: const EdgeInsets.only(bottom: 18),
-                                    child: SizedBox(
-                                      height: fragment.height,
-                                      child: Row(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Expanded(
-                                            child: fragment.image
-                                                ? widget.imageBuilder(
-                                                    widget
-                                                        .content
-                                                        .paragraphs[fragment
-                                                            .paragraph]
-                                                        .image!,
-                                                  )
-                                                : SelectableText(
-                                                    fragment.text,
-                                                    style: style,
-                                                    textScaler: scaler,
-                                                  ),
-                                          ),
-                                          if (widget.comments &&
-                                              widget
-                                                      .content
-                                                      .paragraphs[fragment
-                                                          .paragraph]
-                                                      .remoteIndex !=
-                                                  null)
-                                            SizedBox(
-                                              width: 56,
-                                              child: widget.commentBuilder(
-                                                widget
-                                                    .content
-                                                    .paragraphs[fragment
-                                                    .paragraph],
-                                              ),
-                                            ),
-                                        ],
+                                    width: gutter,
+                                    child: Center(
+                                      child: VerticalDivider(
+                                        width: 1,
+                                        color: Theme.of(
+                                          context,
+                                        ).dividerColor.withValues(alpha: 0.25),
                                       ),
                                     ),
                                   ),
+                                Expanded(
+                                  child:
+                                      spread * columns + column < pages.length
+                                      ? _page(
+                                          context,
+                                          spread * columns + column,
+                                          style,
+                                          headingStyle,
+                                          scaler,
+                                          headingSpace,
+                                        )
+                                      : const SizedBox.shrink(),
+                                ),
                               ],
-                            ),
+                            ],
                           ),
                         ),
                       ),
@@ -286,10 +274,14 @@ class _PagedChapterState extends State<PagedChapter> {
                     ),
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 12),
-                      child: Text('第 ${page + 1} / ${pages.length} 页'),
+                      child: Text(
+                        columns == 2 && page + 1 < pages.length
+                            ? '第 ${page + 1}–${page + 2} / ${pages.length} 页'
+                            : '第 ${page + 1} / ${pages.length} 页',
+                      ),
                     ),
                     TextButton(
-                      onPressed: page + 1 < pages.length
+                      onPressed: page + columns < pages.length
                           ? () => _turn(1)
                           : null,
                       child: const Text('下一页'),
@@ -302,5 +294,69 @@ class _PagedChapterState extends State<PagedChapter> {
         ),
       );
     },
+  );
+
+  Widget _page(
+    BuildContext context,
+    int index,
+    TextStyle style,
+    TextStyle headingStyle,
+    TextScaler scaler,
+    double headingSpace,
+  ) => SingleChildScrollView(
+    key: ValueKey('reading-page-$index'),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (index == 0)
+          SizedBox(
+            height: headingSpace,
+            child: Text(
+              widget.title,
+              style: headingStyle,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        for (final fragment in pages[index])
+          Padding(
+            padding: const EdgeInsets.only(bottom: 18),
+            child: SizedBox(
+              height: fragment.height,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: fragment.image
+                        ? widget.imageBuilder(
+                            widget
+                                .content
+                                .paragraphs[fragment.paragraph]
+                                .image!,
+                          )
+                        : SelectableText(
+                            fragment.text,
+                            style: style,
+                            textScaler: scaler,
+                          ),
+                  ),
+                  if (widget.comments &&
+                      widget
+                              .content
+                              .paragraphs[fragment.paragraph]
+                              .remoteIndex !=
+                          null)
+                    SizedBox(
+                      width: 56,
+                      child: widget.commentBuilder(
+                        widget.content.paragraphs[fragment.paragraph],
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+      ],
+    ),
   );
 }

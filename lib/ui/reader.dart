@@ -6,6 +6,7 @@ import 'comments_sheet.dart';
 import 'image_bytes.dart';
 import 'paged_chapter.dart';
 import 'reading_settings.dart';
+import 'reading_layout.dart';
 
 class ReaderPage extends StatefulWidget {
   const ReaderPage({
@@ -466,7 +467,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
               controller: scroll,
               child: Center(
                 child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 820),
+                  constraints: const BoxConstraints(
+                    maxWidth: ReadingLayout.singleWidth,
+                  ),
                   child: Padding(
                     padding: EdgeInsets.fromLTRB(
                       library.horizontalMargin,
@@ -554,29 +557,43 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
         ),
         bottomNavigationBar: SafeArea(
           top: false,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Row(
-              children: [
-                TextButton.icon(
-                  onPressed: chapter > 0 ? () => _go(chapter - 1) : null,
-                  icon: const Icon(Icons.chevron_left),
-                  label: const Text('上一章'),
+          child: Align(
+            heightFactor: 1,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: ReadingLayout.canvasWidth(
+                  MediaQuery.sizeOf(context).width,
+                  paged: library.readingMode == ReadingMode.paged,
                 ),
-                Expanded(
-                  child: Text(
-                    '${chapter + 1} / ${widget.book.chapters.length}',
-                    textAlign: TextAlign.center,
-                  ),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
                 ),
-                TextButton.icon(
-                  onPressed: chapter + 1 < widget.book.chapters.length
-                      ? () => _go(chapter + 1)
-                      : null,
-                  icon: const Icon(Icons.chevron_right),
-                  label: const Text('下一章'),
+                child: Row(
+                  children: [
+                    TextButton.icon(
+                      onPressed: chapter > 0 ? () => _go(chapter - 1) : null,
+                      icon: const Icon(Icons.chevron_left),
+                      label: const Text('上一章'),
+                    ),
+                    Expanded(
+                      child: Text(
+                        '${chapter + 1} / ${widget.book.chapters.length}',
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                    TextButton.icon(
+                      onPressed: chapter + 1 < widget.book.chapters.length
+                          ? () => _go(chapter + 1)
+                          : null,
+                      icon: const Icon(Icons.chevron_right),
+                      label: const Text('下一章'),
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
           ),
         ),
