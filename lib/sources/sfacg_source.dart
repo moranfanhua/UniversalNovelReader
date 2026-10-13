@@ -129,7 +129,7 @@ class SfacgSource implements NovelSource {
       }
       return parsePublicChapter(utf8.decode(response.bodyBytes));
     }
-    if (!api.hasSession) throw const SourceException('此章节需要在账号设置中登录菠萝包');
+    if (!api.hasSession) throw const SourceException('此章节需要在“账号”页面登录菠萝包');
     final data =
         await api.get(
               'Chaps/${chapter.id}',
