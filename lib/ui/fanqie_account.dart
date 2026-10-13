@@ -67,9 +67,9 @@ class _FanqieAccountPageState extends State<FanqieAccountPage> {
         child: ListView(
           padding: const EdgeInsets.all(24),
           children: [
-            Text(widget.api.hasSession ? '已保存番茄官网会话' : '未导入会话 · 可读取官网公开章节'),
+            Text(widget.api.hasSession ? '已保存番茄登录会话' : '未导入会话 · 可读取官网公开章节'),
             const SizedBox(height: 12),
-            const Text('在番茄官网登录并完成安全验证后，可导入官网 Cookie。官方 App 登录与官网会话独立。'),
+            const Text('可导入番茄官方 App 或官网的 Cookie，验证成功后保存在本机安全存储中。'),
             const SizedBox(height: 20),
             TextField(
               controller: cookie,
@@ -77,7 +77,7 @@ class _FanqieAccountPageState extends State<FanqieAccountPage> {
               autocorrect: false,
               enableSuggestions: false,
               decoration: const InputDecoration(
-                labelText: '番茄官网 Cookie（包含 sessionid）',
+                labelText: '番茄 Cookie（包含 sessionid）',
                 border: OutlineInputBorder(),
               ),
             ),

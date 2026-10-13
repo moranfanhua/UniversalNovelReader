@@ -20,6 +20,7 @@ dependencies:
   enough_convert: ^1.6.0
   path_provider: ^2.1.6
   flutter_svg: ^2.3.0
+  pointycastle: ^4.0.0
 dev_dependencies:
   flutter_test:
     sdk: flutter

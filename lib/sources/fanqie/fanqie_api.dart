@@ -1,10 +1,16 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../../domain/models.dart';
+import 'fanqie_app_api.dart';
 
 class FanqieApi {
   FanqieApi({http.Client? client}) : client = client ?? http.Client();
   final http.Client client;
+  late final app = FanqieAppApi(
+    client: client,
+    cookie: () => _cookie,
+    onChanged: () => onSessionChanged?.call() ?? Future<void>.value(),
+  );
   String _cookie = '';
   String get cookie => _cookie;
   bool get hasSession => _cookie.isNotEmpty;
@@ -44,13 +50,16 @@ class FanqieApi {
             'fanqienovel.com',
             'www.fanqienovel.com',
             'reading.snssdk.com',
+            'novel.snssdk.com',
           }.contains(uri.host) ||
           uri.hasPort && uri.port != 443) {
         throw const SourceException('番茄请求地址无效');
       }
       final request = http.Request('GET', uri)..followRedirects = false;
       request.headers.addAll({
-        'User-Agent': 'Mozilla/5.0',
+        'User-Agent': uri.host == 'novel.snssdk.com'
+            ? 'com.ss.android.article.news/7.0.3 (Linux; U; Android 12; zh_CN; Pixel 6)'
+            : 'Mozilla/5.0',
         'Referer': 'https://fanqienovel.com/',
         if (hasSession &&
             uri.scheme == 'https' &&
@@ -89,6 +98,27 @@ class FanqieApi {
     Map<String, String>? query,
   }) async {
     final response = await fetch(Uri.https('fanqienovel.com', path, query));
+    return _data(response);
+  }
+
+  Future<Map<String, dynamic>> search(String keyword, {int page = 0}) async {
+    final response = await fetch(
+      Uri.https(
+        'novel.snssdk.com',
+        '/api/novel/channel/homepage/search/search/v1/',
+        {
+          'device_platform': 'android',
+          'parent_enterfrom': 'novel_channel_search.tab.',
+          'offset': '${page * 10}',
+          'aid': '1967',
+          'q': keyword,
+        },
+      ),
+    );
+    return _data(response);
+  }
+
+  Map<String, dynamic> _data(http.Response response) {
     Map<String, dynamic> doc;
     try {
       doc = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;

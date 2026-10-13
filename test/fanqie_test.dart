@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:crypto/crypto.dart';
 import 'package:unr/data/library.dart';
 import 'package:unr/domain/models.dart';
 import 'package:unr/formats/ebook.dart';
@@ -158,26 +159,20 @@ void main() {
     );
   });
 
-  test('搜索使用官网参数，获取详情与完整目录并携带正确书源', () async {
+  test('搜索使用官方移动端参数，获取详情与完整目录并携带正确书源', () async {
     final api = FanqieApi(
       client: MockClient((request) async {
         switch (request.url.path) {
-          case '/api/author/search/search_book/v1':
-            expect(
-              request.url.queryParameters,
-              containsPair('query_word', '测试书'),
-            );
-            expect(
-              request.url.queryParameters,
-              containsPair('page_index', '2'),
-            );
+          case '/api/novel/channel/homepage/search/search/v1/':
+            expect(request.url.queryParameters, containsPair('q', '测试书'));
+            expect(request.url.queryParameters, containsPair('offset', '20'));
             return jsonResponse({
-              'search_book_data_list': [
+              'ret_data': [
                 {
                   'book_id': bookId,
-                  'book_name': '测试书',
+                  'title': '<b>测试</b>书',
                   'author': '作者',
-                  'book_abstract': '简介',
+                  'abstract': '简介',
                 },
               ],
             });
@@ -266,29 +261,34 @@ void main() {
     }
   });
 
-  test('错误作品、受限、试读及未知字体正文不写入缓存', () async {
+  test('错误作品、受限、试读及损坏正文不写入缓存，完整 App 正文可离线导出', () async {
     final root = await Directory.systemTemp.createTemp('unr-fanqie-');
     addTearDown(() => root.delete(recursive: true));
     var data = <String, dynamic>{
-      'bookId': bookId,
-      'itemId': chapterId,
-      'content': '<p>\ue4de\ue449段落</p>',
+      'novel_data': {
+        'book_id': bookId,
+        'item_id': chapterId,
+        'version': 'version-1',
+      },
+      'crypt_status': 1,
+      'compress_status': 0,
+      'paragraphs_num': 1,
+      'content': '<p idx="0">一个段落</p>',
     };
-    var font = 'dc027189e0ba4cd';
     var requests = 0;
     final api = FanqieApi(
       client: MockClient((_) async {
         requests++;
-        return http.Response(
-          page({
-            'reader': {'chapterData': data},
-          }, font: font),
-          200,
-          headers: {'content-type': 'text/html; charset=utf-8'},
-        );
+        return jsonResponse(data);
       }),
     );
     addTearDown(api.close);
+    api.app.restore({
+      'deviceId': '123456789',
+      'installId': '987654321',
+      'key': base64Encode(List.filled(16, 7)),
+      'keyOwner': sha256.convert([]).toString(),
+    });
     final sf = SfacgApi(
       client: MockClient((_) async {
         fail('番茄正文不应使用菠萝包接口');
@@ -299,11 +299,24 @@ void main() {
     final library = Library(root, SfacgSource(sf), novelSources: [source]);
     final valid = Map<String, dynamic>.from(data);
     for (final overrides in [
-      {'bookId': '7143038691944959012'},
-      {'itemId': nextId},
-      {'isChapterLock': true},
-      {'isPreview': true},
-      {'needPay': 1},
+      {
+        'novel_data': {
+          'book_id': nextId,
+          'item_id': chapterId,
+          'version': 'version-1',
+        },
+      },
+      {
+        'novel_data': {
+          'book_id': bookId,
+          'item_id': nextId,
+          'version': 'version-1',
+        },
+      },
+      {'block_data': {}},
+      {'is_preview': true},
+      {'code_i32': 403},
+      {'paragraphs_num': 5},
       {'content': ''},
     ]) {
       data = {...valid, ...overrides};
@@ -314,12 +327,12 @@ void main() {
       expect(await library.cached(book, chapter), isNull);
     }
     data = valid;
-    font = 'unknown-font';
+    data = {...valid, 'content': '<p>缺少段落索引</p>'};
     await expectLater(
       library.read(book, chapter),
       throwsA(isA<SourceException>()),
     );
-    font = 'dc027189e0ba4cd';
+    data = valid;
     expect((await library.read(book, chapter)).paragraphs.single.text, '一个段落');
     await library.add(book);
     final count = requests;

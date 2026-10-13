@@ -86,17 +86,8 @@ class FanqieSource implements SearchableNovelSource {
   Future<List<Book>> search(String keyword, {int page = 0}) async {
     if (keyword.trim().isEmpty) return [];
     if (page < 0) throw const SourceException('搜索页码无效');
-    final data = await api.get(
-      '/api/author/search/search_book/v1',
-      query: {
-        'query_word': keyword.trim(),
-        'page_count': '10',
-        'page_index': '$page',
-        'query_type': '0',
-        'filter': '',
-      },
-    );
-    final list = data['search_book_data_list'];
+    final data = await api.search(keyword.trim(), page: page);
+    final list = data['ret_data'];
     if (list is! List) throw const SourceException('番茄搜索结果格式已变化');
     return list.map((raw) {
       if (raw is! Map) throw const SourceException('番茄搜索结果格式已变化');
@@ -106,10 +97,15 @@ class FanqieSource implements SearchableNovelSource {
       return Book(
         id: bid,
         source: id,
-        title: '${info['book_name'] ?? info['bookName'] ?? bid}',
+        title:
+            html
+                .parseFragment('${info['title'] ?? info['book_name'] ?? bid}')
+                .text ??
+            bid,
         author: '${info['author'] ?? info['author_name'] ?? ''}',
-        cover: '${info['thumb_url'] ?? info['thumbUrl'] ?? ''}',
-        description: '${info['book_abstract'] ?? info['abstract'] ?? ''}',
+        cover: '${info['audio_thumb_uri'] ?? info['thumb_url'] ?? ''}'
+            .replaceFirst(RegExp(r'^//'), 'https://'),
+        description: html.parseFragment('${info['abstract'] ?? ''}').text ?? '',
         chapters: [],
       );
     }).toList();
@@ -194,6 +190,22 @@ class FanqieSource implements SearchableNovelSource {
         !_id.hasMatch(chapter.id)) {
       throw const SourceException('番茄作品或章节 ID 无效');
     }
+    final data = await api.app.chapter(book.id, chapter.id);
+    final info = data['novel_data'] as Map;
+    final version = '${info['version'] ?? ''}';
+    if (version.isEmpty) throw const SourceException('番茄 App 未返回章节版本');
+    final markup = '${data['content'] ?? ''}';
+    final document = html.parse(markup);
+    final expected = int.tryParse('${data['paragraphs_num']}');
+    if (expected == null ||
+        expected <= 0 ||
+        document.querySelectorAll('p,h1,h2').length < expected) {
+      throw const SourceException('番茄 App 未返回完整章节正文');
+    }
+    return parseContent(markup, itemVersion: version);
+  }
+
+  Future<ChapterContent> readPublicChapter(Book book, Chapter chapter) async {
     final response = await api.fetch(
       Uri.https('fanqienovel.com', '/reader/${chapter.id}'),
     );
@@ -261,20 +273,25 @@ class FanqieSource implements SearchableNovelSource {
     return value;
   }).join();
 
-  ChapterContent parseContent(String raw) {
+  ChapterContent parseContent(String raw, {String? itemVersion}) {
     // The website embeds raw JSON with unescaped quotes inside src attributes.
     // Escape only that attribute before parsing, keeping paragraph text intact.
     final markup = raw.replaceAllMapped(
       RegExp(r'''src=(["'])(\{\{image_domain\}\}\{.*?\})\1''', dotAll: true),
       (match) => 'src="${const HtmlEscape().convert(match[2]!)}"',
     );
-    final document = html.parseFragment(markup);
+    final document = html.parse(markup);
     final paragraphs = <Paragraph>[];
     final text = StringBuffer();
+    int? remoteIndex;
     void flush() {
       final value = _decode(text.toString()).trim();
       text.clear();
-      if (value.isNotEmpty) paragraphs.add(Paragraph(value));
+      if (value.isNotEmpty) {
+        paragraphs.add(
+          Paragraph(value, remoteIndex: remoteIndex, remoteId: itemVersion),
+        );
+      }
     }
 
     void visit(Node node) {
@@ -282,10 +299,19 @@ class FanqieSource implements SearchableNovelSource {
         text.write(node.text);
         return;
       }
-      if (node is! Element || ['script', 'style'].contains(node.localName)) {
+      if (node is! Element ||
+          ['script', 'style', 'head', 'h1', 'h2'].contains(node.localName)) {
         return;
       }
       if (['p', 'div', 'br'].contains(node.localName)) flush();
+      if (node.localName == 'p') {
+        remoteIndex = itemVersion == null
+            ? null
+            : int.tryParse(node.attributes['idx'] ?? '');
+        if (itemVersion != null && (remoteIndex == null || remoteIndex! < 0)) {
+          throw const SourceException('番茄 App 段落编号无效');
+        }
+      }
       if (node.localName == 'img') {
         flush();
         var address = node.attributes['src'] ?? '';
@@ -314,7 +340,12 @@ class FanqieSource implements SearchableNovelSource {
           throw const SourceException('番茄插图地址无效');
         }
         paragraphs.add(
-          Paragraph('', image: uri.replace(scheme: 'https').toString()),
+          Paragraph(
+            '',
+            image: uri.replace(scheme: 'https').toString(),
+            remoteIndex: remoteIndex,
+            remoteId: itemVersion,
+          ),
         );
         return;
       }
@@ -322,6 +353,7 @@ class FanqieSource implements SearchableNovelSource {
         visit(child);
       }
       if (['p', 'div'].contains(node.localName)) flush();
+      if (node.localName == 'p') remoteIndex = null;
     }
 
     for (final node in document.nodes) {

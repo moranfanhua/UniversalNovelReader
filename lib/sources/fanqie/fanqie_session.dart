@@ -1,8 +1,10 @@
+import 'dart:convert';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'fanqie_api.dart';
 
 class FanqieSession {
   static const _key = 'unr.fanqie.session.v1';
+  static const _deviceKey = 'unr.fanqie.device.v1';
   static const _storage = FlutterSecureStorage();
 
   static Future<FanqieApi> open({
@@ -15,12 +17,26 @@ class FanqieSession {
     } catch (_) {
       api.sessionNotice = '无法恢复本机番茄会话，请重新导入。已缓存章节仍可阅读。';
     }
+    try {
+      final device = await storage.read(key: _deviceKey);
+      if (device != null) {
+        api.app.restore(jsonDecode(device) as Map<String, dynamic>);
+      }
+    } catch (_) {
+      api.sessionNotice ??= '无法恢复番茄本机设备，将在下次联网时重新注册。已缓存章节仍可阅读。';
+    }
     api.onSessionChanged = () async {
       try {
         if (api.hasSession) {
           await storage.write(key: _key, value: api.cookie);
         } else {
           await storage.delete(key: _key);
+        }
+        if (api.app.deviceId.isNotEmpty) {
+          await storage.write(
+            key: _deviceKey,
+            value: jsonEncode(api.app.toJson()),
+          );
         }
         api.sessionNotice = null;
       } catch (_) {
