@@ -4,6 +4,7 @@ import '../data/library.dart';
 import '../domain/models.dart';
 import 'comments_sheet.dart';
 import 'image_bytes.dart';
+import 'paged_chapter.dart';
 
 class ReaderPage extends StatefulWidget {
   const ReaderPage({
@@ -35,6 +36,8 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   int loadGeneration = 0;
   int paragraph = 0;
   bool leaving = false;
+  int characterOffset = 0;
+  Set<int> pageRows = {};
   Library get library => widget.library;
   @override
   void initState() {
@@ -46,6 +49,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       widget.book.chapters.length - 1,
     );
     paragraph = widget.initialChapter == null ? saved?.last ?? 0 : 0;
+    characterOffset = widget.initialChapter == null
+        ? library.pageOffsets[widget.book.key] ?? 0
+        : 0;
     scroll.addListener(_track);
     _load();
   }
@@ -54,6 +60,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     final generation = ++loadGeneration;
     restoring = true;
     keys = [];
+    pageRows = {};
     loadedParagraphs = [];
     commentCounts.clear();
     countRequests.clear();
@@ -105,17 +112,19 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   void _loadVisibleCounts() {
     if (!mounted || restoring || countRequests.length >= 3) return;
-    final view = viewport.currentContext?.findRenderObject();
-    if (view is! RenderBox) return;
-    final top = view.localToGlobal(Offset.zero).dy - 150;
-    final bottom = top + view.size.height + 300;
-    final visible = <int>{};
-    for (var i = 0; i < keys.length; i++) {
-      final box = keys[i].currentContext?.findRenderObject();
-      final row = loadedParagraphs[i].remoteIndex;
-      if (row == null || box is! RenderBox) continue;
-      final y = box.localToGlobal(Offset.zero).dy;
-      if (y < bottom && y + box.size.height > top) visible.add(row);
+    final visible = <int>{...pageRows};
+    if (library.readingMode == ReadingMode.scroll) {
+      final view = viewport.currentContext?.findRenderObject();
+      if (view is! RenderBox) return;
+      final top = view.localToGlobal(Offset.zero).dy - 150;
+      final bottom = top + view.size.height + 300;
+      for (var i = 0; i < keys.length; i++) {
+        final box = keys[i].currentContext?.findRenderObject();
+        final row = loadedParagraphs[i].remoteIndex;
+        if (row == null || box is! RenderBox) continue;
+        final y = box.localToGlobal(Offset.zero).dy;
+        if (y < bottom && y + box.size.height > top) visible.add(row);
+      }
     }
     final generation = loadGeneration;
     final target = widget.book.chapters[chapter];
@@ -174,9 +183,36 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     }
   }
 
+  Widget _commentButton(Paragraph paragraph) => Tooltip(
+    message: '阅读本段段评',
+    child: TextButton(
+      style: TextButton.styleFrom(
+        minimumSize: const Size(40, 40),
+        padding: const EdgeInsets.symmetric(horizontal: 6),
+        visualDensity: VisualDensity.compact,
+      ),
+      onPressed: () => _comments(paragraph),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.chat_bubble_outline, size: 16),
+          const SizedBox(width: 3),
+          Flexible(
+            child: Text(
+              commentCounts[paragraph.remoteIndex]?.toString() ??
+                  (countErrors.contains(paragraph.remoteIndex) ? '?' : '…'),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+
   Future<void> _savePosition() async {
     debounce?.cancel();
-    if (!restoring) {
+    if (!restoring && library.readingMode == ReadingMode.scroll) {
+      characterOffset = 0;
       final viewBox = viewport.currentContext?.findRenderObject();
       final top = viewBox is RenderBox
           ? viewBox.localToGlobal(Offset.zero).dy
@@ -190,6 +226,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
         }
       }
     }
+    library.pageOffsets[widget.book.key] = characterOffset;
     await library.remember(widget.book, chapter, paragraph);
   }
 
@@ -231,6 +268,8 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     setState(() {
       chapter = index;
       paragraph = 0;
+      characterOffset = 0;
+      library.pageOffsets.remove(widget.book.key);
       if (scroll.hasClients) scroll.jumpTo(0);
       _load();
     });
@@ -377,6 +416,26 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
               return const Center(child: CircularProgressIndicator());
             }
             final paragraphs = snapshot.data!.paragraphs;
+            if (library.readingMode == ReadingMode.paged) {
+              return PagedChapter(
+                key: ValueKey(loadGeneration),
+                content: snapshot.data!,
+                title: widget.book.chapters[chapter].title,
+                fontSize: library.fontSize,
+                initialParagraph: paragraph,
+                initialOffset: characterOffset,
+                comments: widget.book.source == 'sfacg',
+                onPosition: (index, offset, rows) {
+                  paragraph = index;
+                  characterOffset = offset;
+                  pageRows = rows;
+                  _track();
+                },
+                imageBuilder: (url) =>
+                    BookImage(library: library, book: widget.book, url: url),
+                commentBuilder: _commentButton,
+              );
+            }
             return SingleChildScrollView(
               key: viewport,
               controller: scroll,

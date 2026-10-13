@@ -9,6 +9,8 @@ import 'package:uuid/uuid.dart';
 import '../domain/models.dart';
 import '../sources/sfacg_source.dart';
 
+enum ReadingMode { scroll, paged }
+
 class Library extends ChangeNotifier {
   Library(this.root, this.source);
   final Directory root;
@@ -17,6 +19,8 @@ class Library extends ChangeNotifier {
   final Map<String, List<int>> progress = {};
   double fontSize = 20;
   bool night = false;
+  ReadingMode readingMode = ReadingMode.scroll;
+  final Map<String, int> pageOffsets = {};
   Future<void> _writes = Future.value();
   final Map<String, Future<ChapterContent>> _reads = {};
   final Map<String, Future<Uint8List>> _imageReads = {};
@@ -24,10 +28,13 @@ class Library extends ChangeNotifier {
   static String safeKey(String value) =>
       sha256.convert(utf8.encode(value)).toString();
 
-  static Future<Library> open(SfacgSource source) async {
-    final dir = Directory(
-      '${(await getApplicationSupportDirectory()).path}/library',
-    );
+  static Future<Library> open(
+    SfacgSource source, {
+    Directory? directory,
+  }) async {
+    final dir =
+        directory ??
+        Directory('${(await getApplicationSupportDirectory()).path}/library');
     await dir.create(recursive: true);
     final library = Library(dir, source);
     final file = File('${dir.path}/index.json');
@@ -40,6 +47,14 @@ class Library extends ChangeNotifier {
       );
       library.fontSize = (data['fontSize'] as num? ?? 20).toDouble();
       library.night = data['night'] == true;
+      library.readingMode = data['readingMode'] == 'paged'
+          ? ReadingMode.paged
+          : ReadingMode.scroll;
+      library.pageOffsets.addAll(
+        (data['pageOffsets'] as Map? ?? {}).map(
+          (key, value) => MapEntry('$key', (value as num).toInt()),
+        ),
+      );
       library.progress.addAll(
         (data['progress'] as Map? ?? {}).map(
           (k, v) => MapEntry('$k', (v as List).cast<int>()),
@@ -87,6 +102,8 @@ class Library extends ChangeNotifier {
       'progress': progress,
       'fontSize': fontSize,
       'night': night,
+      'readingMode': readingMode.name,
+      'pageOffsets': pageOffsets,
     });
     // Serialize preferences writes so navigation and font changes cannot race.
     final next = _writes

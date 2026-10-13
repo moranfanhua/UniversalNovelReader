@@ -70,6 +70,34 @@ class _AccountPageState extends State<AccountPage> {
         children: [
           Text('阅读偏好', style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 12),
+          const Text('阅读方式'),
+          const SizedBox(height: 10),
+          SegmentedButton<ReadingMode>(
+            segments: const [
+              ButtonSegment(
+                value: ReadingMode.scroll,
+                icon: Icon(Icons.swap_vert),
+                label: Text('滚动阅读'),
+              ),
+              ButtonSegment(
+                value: ReadingMode.paged,
+                icon: Icon(Icons.swap_horiz),
+                label: Text('翻页阅读'),
+              ),
+            ],
+            selected: {widget.library.readingMode},
+            onSelectionChanged: (value) async {
+              setState(() => widget.library.readingMode = value.single);
+              try {
+                await widget.library.save();
+              } catch (e) {
+                if (mounted) setState(() => message = '阅读方式保存失败：$e');
+              }
+            },
+          ),
+          const SizedBox(height: 8),
+          const Text('翻页模式支持左右滑动，也可使用上一页、下一页按钮。'),
+          const SizedBox(height: 12),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
             title: const Text('夜间模式'),
