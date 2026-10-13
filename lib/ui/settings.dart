@@ -2,6 +2,38 @@ import 'package:flutter/material.dart';
 import '../data/library.dart';
 import 'reading_settings.dart';
 
+class SoftwareSettingsPage extends StatefulWidget {
+  const SoftwareSettingsPage({
+    super.key,
+    required this.library,
+    required this.gbk,
+    required this.onEncodingChanged,
+  });
+  final Library library;
+  final bool gbk;
+  final ValueChanged<bool> onEncodingChanged;
+
+  @override
+  State<SoftwareSettingsPage> createState() => _SoftwareSettingsPageState();
+}
+
+class _SoftwareSettingsPageState extends State<SoftwareSettingsPage> {
+  late bool gbk = widget.gbk;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('软件设置')),
+    body: SettingsPage(
+      library: widget.library,
+      gbk: gbk,
+      onEncodingChanged: (value) {
+        setState(() => gbk = value);
+        widget.onEncodingChanged(value);
+      },
+    ),
+  );
+}
+
 class SettingsPage extends StatelessWidget {
   const SettingsPage({
     super.key,

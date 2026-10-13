@@ -361,7 +361,7 @@ class _CommentsSheetState extends State<CommentsSheet> {
                       ],
                     )
                   else
-                    Text('请先在“账号”页面登录${widget.source.name}后发表评论'),
+                    Text('请先在“我的 → 账号设置”中登录${widget.source.name}后发表评论'),
                   if (sendMessage != null)
                     Padding(
                       padding: const EdgeInsets.only(top: 8),
@@ -616,7 +616,7 @@ class _RepliesSheetState extends State<RepliesSheet> {
                       ],
                     ),
                   ] else
-                    Text('请先在“账号”页面登录${widget.source.name}后回复评论'),
+                    Text('请先在“我的 → 账号设置”中登录${widget.source.name}后回复评论'),
                   if (sendMessage != null)
                     Padding(
                       padding: const EdgeInsets.only(top: 8),

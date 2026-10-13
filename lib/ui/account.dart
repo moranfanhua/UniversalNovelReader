@@ -2,6 +2,52 @@ import 'package:flutter/material.dart';
 import '../data/library.dart';
 import '../data/session.dart';
 
+class AccountSettingsPage extends StatelessWidget {
+  const AccountSettingsPage({super.key, required this.library});
+  final Library library;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('账号设置')),
+    body: Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 660),
+        child: ListView(
+          padding: const EdgeInsets.all(24),
+          children: [
+            Card(
+              margin: EdgeInsets.zero,
+              clipBehavior: Clip.antiAlias,
+              child: ListTile(
+                leading: ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: Image.asset(
+                    'assets/sfacg_icon.jpg',
+                    width: 44,
+                    height: 44,
+                    excludeFromSemantics: true,
+                  ),
+                ),
+                title: Text(library.source.name),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.push<void>(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => Scaffold(
+                      appBar: AppBar(title: Text(library.source.name)),
+                      body: AccountPage(library: library),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
 class AccountPage extends StatefulWidget {
   const AccountPage({super.key, required this.library});
   final Library library;

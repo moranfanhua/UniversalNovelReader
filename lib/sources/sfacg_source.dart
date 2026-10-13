@@ -175,7 +175,7 @@ class SfacgSource extends CommentSource implements NovelSource {
       }
       return parsePublicChapter(utf8.decode(response.bodyBytes));
     }
-    if (!api.hasSession) throw const SourceException('此章节需要在“账号”页面登录菠萝包');
+    if (!api.hasSession) throw const SourceException('此章节需要在“我的 → 账号设置”中登录菠萝包');
     final data =
         await api.get(
               'Chaps/${chapter.id}',
@@ -429,7 +429,7 @@ class SfacgSource extends CommentSource implements NovelSource {
     final state = likeStatus(comment);
     String? invalid;
     if (!api.hasSession) {
-      invalid = '请先在“账号”页面登录菠萝包后点赞';
+      invalid = '请先在“我的 → 账号设置”中登录菠萝包后点赞';
     } else if (comment.isReply || !RegExp(r'^\d+$').hasMatch(comment.id)) {
       invalid = '当前评论不支持点赞';
     }
@@ -515,7 +515,7 @@ class SfacgSource extends CommentSource implements NovelSource {
 
   Future<void> postComment(Chapter chapter, int row, String text) async {
     if (!api.hasSession) {
-      throw const SourceException('请先在“账号”页面登录菠萝包后发表评论');
+      throw const SourceException('请先在“我的 → 账号设置”中登录菠萝包后发表评论');
     }
     if (row < 1 || !RegExp(r'^\d+$').hasMatch(chapter.id)) {
       throw const SourceException('当前段落信息无效，无法发送段评');
@@ -554,7 +554,7 @@ class SfacgSource extends CommentSource implements NovelSource {
     CommentLocation? location,
   }) async {
     if (!api.hasSession) {
-      throw const SourceException('请先在“账号”页面登录菠萝包后回复评论');
+      throw const SourceException('请先在“我的 → 账号设置”中登录菠萝包后回复评论');
     }
     // This endpoint accepts a root tsukkomiId, never a replyId.
     if (root.isReply || !RegExp(r'^[1-9]\d*$').hasMatch(root.id)) {

@@ -294,7 +294,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('reply-comment-9')));
     await tester.pumpAndSettle();
     expect(find.byKey(replyDraft), findsNothing);
-    expect(find.text('请先在“账号”页面登录菠萝包轻小说后回复评论'), findsOneWidget);
+    expect(find.text('请先在“我的 → 账号设置”中登录菠萝包轻小说后回复评论'), findsOneWidget);
     await tester.tap(find.byTooltip('关闭回复'));
     await tester.pumpAndSettle();
     sf.api.setCookie('.SFCommunity=synthetic; session_APP=synthetic-app');

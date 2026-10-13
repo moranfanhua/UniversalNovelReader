@@ -184,11 +184,15 @@ void main() {
         .map((text) => text.data!)
         .toList();
     Future<void> choose(String label) async {
-      await tester.tap(find.text('设置').last);
+      await tester.tap(find.text('我的').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('软件设置'));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('shelf-sort')));
       await tester.pumpAndSettle();
       await tester.tap(find.text(label).last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(BackButton));
       await tester.pumpAndSettle();
       await tester.tap(find.text('书库'));
       await tester.pumpAndSettle();

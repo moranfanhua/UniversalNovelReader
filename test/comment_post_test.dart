@@ -252,7 +252,7 @@ void main() {
     addTearDown(tester.view.resetViewInsets);
     final sf = source((_) async => response([]), loggedIn: false);
     await open(tester, sf);
-    expect(find.textContaining('请先在“账号”页面'), findsOneWidget);
+    expect(find.textContaining('请先在“我的 → 账号设置”中'), findsOneWidget);
     expect(find.byType(TextField), findsNothing);
     sf.api.setCookie('.SFCommunity=synthetic; session_APP=synthetic-app');
     await tester.pumpWidget(

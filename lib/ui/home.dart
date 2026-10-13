@@ -4,10 +4,9 @@ import 'package:flutter/material.dart';
 import '../data/library.dart';
 import '../domain/models.dart';
 import '../formats/ebook.dart';
-import 'account.dart';
 import 'book_page.dart';
 import 'image_bytes.dart';
-import 'settings.dart';
+import 'my.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key, required this.library});
@@ -128,7 +127,7 @@ class _HomePageState extends State<HomePage> {
 
   Widget _buildPage(BuildContext context, List<Book> shelf) => Scaffold(
     appBar: AppBar(
-      title: Text(['我的书库', '菠萝包轻小说', '账号', '设置'][tab]),
+      title: Text(['我的书库', '菠萝包轻小说', '我的'][tab]),
       actions: [
         IconButton(
           tooltip: '开源许可',
@@ -310,8 +309,7 @@ class _HomePageState extends State<HomePage> {
                   ),
                 ),
               ),
-              AccountPage(library: library),
-              SettingsPage(
+              MyPage(
                 library: library,
                 gbk: gbk,
                 onEncodingChanged: (value) => setState(() => gbk = value),
@@ -334,9 +332,8 @@ class _HomePageState extends State<HomePage> {
         NavigationDestination(
           icon: Icon(Icons.person_outline),
           selectedIcon: Icon(Icons.person),
-          label: '账号',
+          label: '我的',
         ),
-        NavigationDestination(icon: Icon(Icons.tune), label: '设置'),
       ],
     ),
   );
