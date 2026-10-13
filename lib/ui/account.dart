@@ -47,7 +47,6 @@ class _AccountPageState extends State<AccountPage> {
       api.cookies
         ..clear()
         ..addAll(old);
-      await api.onSessionChanged?.call();
       if (mounted) setState(() => message = '$e');
     } finally {
       if (mounted) setState(() => busy = false);
@@ -111,10 +110,11 @@ class _AccountPageState extends State<AccountPage> {
             ],
           ),
           if (busy) const LinearProgressIndicator(),
-          if (message != null)
+          if (message != null ||
+              widget.library.source.api.sessionNotice != null)
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 12),
-              child: Text(message!),
+              child: Text(message ?? widget.library.source.api.sessionNotice!),
             ),
           if (widget.library.source.api.hasSession)
             TextButton(
