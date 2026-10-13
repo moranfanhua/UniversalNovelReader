@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import '../data/library.dart';
-import '../data/session.dart';
+import '../sources/sfacg/sfacg_session.dart';
 
 class AccountSettingsPage extends StatelessWidget {
   const AccountSettingsPage({super.key, required this.library});

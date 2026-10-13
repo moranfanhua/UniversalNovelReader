@@ -5,9 +5,9 @@ import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:unr/data/library.dart';
-import 'package:unr/data/session.dart';
+import 'package:unr/sources/sfacg/sfacg_session.dart';
 import 'package:unr/formats/ebook.dart';
-import 'package:unr/sources/sfacg_source.dart';
+import 'package:unr/sources/sfacg/sfacg_source.dart';
 import 'package:unr/ui/account.dart';
 
 class UnavailableStorage extends FlutterSecureStorage {

@@ -5,13 +5,13 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:html/dom.dart';
 import 'package:html/parser.dart' as html;
-import '../domain/models.dart';
-import 'novel_source.dart';
+import '../../domain/models.dart';
+import '../novel_source.dart';
 import 'sfacg_api.dart';
 import 'sfacg_markup.dart';
-import 'comment_source.dart';
+import '../comment_source.dart';
 
-export 'comment_source.dart' show CommentSort;
+export '../comment_source.dart' show CommentSort;
 
 class SfacgSource extends CommentSource implements NovelSource {
   SfacgSource(this.api, {Map<String, String>? cipher}) : cipher = cipher ?? {};

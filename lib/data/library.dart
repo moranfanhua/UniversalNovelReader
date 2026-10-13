@@ -7,7 +7,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
 import '../domain/models.dart';
-import '../sources/sfacg_source.dart';
+import '../sources/sfacg/sfacg_source.dart';
 import '../sources/comment_source.dart';
 import 'reader_fonts.dart';
 

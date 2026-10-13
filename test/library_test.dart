@@ -7,8 +7,8 @@ import 'package:http/testing.dart';
 import 'package:unr/data/library.dart';
 import 'package:unr/domain/models.dart';
 import 'package:unr/formats/ebook.dart';
-import 'package:unr/sources/sfacg_api.dart';
-import 'package:unr/sources/sfacg_source.dart';
+import 'package:unr/sources/sfacg/sfacg_api.dart';
+import 'package:unr/sources/sfacg/sfacg_source.dart';
 
 void main() {
   late Directory root;

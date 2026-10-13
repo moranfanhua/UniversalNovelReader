@@ -3,9 +3,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:unr/domain/models.dart';
-import 'package:unr/sources/sfacg_api.dart';
-import 'package:unr/sources/sfacg_signature.dart';
-import 'package:unr/sources/sfacg_source.dart';
+import 'package:unr/sources/sfacg/sfacg_api.dart';
+import 'package:unr/sources/sfacg/sfacg_signature.dart';
+import 'package:unr/sources/sfacg/sfacg_source.dart';
 
 http.Response ok(dynamic data) => http.Response(
   jsonEncode({

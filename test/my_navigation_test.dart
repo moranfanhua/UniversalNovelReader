@@ -5,8 +5,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/testing.dart';
 import 'package:unr/data/library.dart';
 import 'package:unr/main.dart';
-import 'package:unr/sources/sfacg_api.dart';
-import 'package:unr/sources/sfacg_source.dart';
+import 'package:unr/sources/sfacg/sfacg_api.dart';
+import 'package:unr/sources/sfacg/sfacg_source.dart';
 import 'package:unr/ui/account.dart';
 import 'package:unr/ui/settings.dart';
 

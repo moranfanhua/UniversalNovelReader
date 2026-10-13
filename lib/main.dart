@@ -3,8 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'data/library.dart';
-import 'data/session.dart';
-import 'sources/sfacg_source.dart';
+import 'sources/sfacg/sfacg_session.dart';
+import 'sources/sfacg/sfacg_source.dart';
 import 'ui/home.dart';
 
 void main() async {

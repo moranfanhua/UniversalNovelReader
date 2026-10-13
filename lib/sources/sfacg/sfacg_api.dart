@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
-import '../domain/models.dart';
+import '../../domain/models.dart';
 import 'sfacg_signature.dart';
 
 class SfacgApi {

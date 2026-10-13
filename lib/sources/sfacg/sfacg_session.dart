@@ -1,6 +1,6 @@
 import 'dart:convert';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import '../sources/sfacg_api.dart';
+import 'sfacg_api.dart';
 
 class SfacgSession {
   static const _key = 'unr.sfacg.session.v1';

@@ -5,8 +5,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:unr/data/library.dart';
 import 'package:unr/domain/models.dart';
 import 'package:unr/sources/comment_source.dart';
-import 'package:unr/sources/sfacg_api.dart';
-import 'package:unr/sources/sfacg_source.dart';
+import 'package:unr/sources/sfacg/sfacg_api.dart';
+import 'package:unr/sources/sfacg/sfacg_source.dart';
 import 'package:unr/ui/reader.dart';
 import 'chapter_preview_test.dart' show PreviewComments;
 
