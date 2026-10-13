@@ -463,6 +463,35 @@ class SfacgSource implements NovelSource {
     }
   }
 
+  Future<void> postReply(ParagraphComment comment, String text) async {
+    if (!api.hasSession) {
+      throw const SourceException('请先在“账号”页面登录菠萝包后回复评论');
+    }
+    // This endpoint accepts a root tsukkomiId, never a replyId.
+    if (comment.isReply || !RegExp(r'^[1-9]\d*$').hasMatch(comment.id)) {
+      throw const SourceException('原段评信息无效，无法发送回复');
+    }
+    final content = text.trim();
+    if (content.isEmpty) throw const SourceException('请输入回复内容');
+    const uncertain = SourceException('发送结果未确认，请先刷新回复检查是否已发布，再决定是否重试');
+    try {
+      await api.request(
+        'tsukkomis/0/${comment.id}/replys',
+        body: {'content': content},
+        retry: false,
+      );
+    } on TimeoutException {
+      throw uncertain;
+    } on http.ClientException {
+      throw uncertain;
+    } on SourceException catch (e) {
+      if (e.code >= 500 || e.message.startsWith('菠萝包返回无法识别的数据')) {
+        throw uncertain;
+      }
+      rethrow;
+    }
+  }
+
   Future<int> commentCount(Chapter chapter, int row, {bool refresh = false}) {
     if (row < 1) throw ArgumentError('段落从 1 开始');
     final key = '${chapter.id}/$row';

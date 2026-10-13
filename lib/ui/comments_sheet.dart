@@ -126,15 +126,34 @@ class _CommentsSheetState extends State<CommentsSheet> {
     }
   }
 
-  void _replies(ParagraphComment comment) => showModalBottomSheet<void>(
-    context: context,
-    isScrollControlled: true,
-    showDragHandle: true,
-    builder: (_) => FractionallySizedBox(
-      heightFactor: .85,
-      child: RepliesSheet(source: widget.source, comment: comment),
-    ),
-  );
+  Future<void> _replies(
+    ParagraphComment comment, {
+    bool compose = false,
+    ParagraphComment? target,
+  }) async {
+    var changed = false;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) => Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.viewInsetsOf(context).bottom,
+        ),
+        child: FractionallySizedBox(
+          heightFactor: .85,
+          child: RepliesSheet(
+            source: widget.source,
+            comment: comment,
+            compose: compose,
+            target: target,
+            onSent: () => changed = true,
+          ),
+        ),
+      ),
+    );
+    if (changed && mounted) await _refresh();
+  }
 
   @override
   Widget build(BuildContext context) => PopScope(
@@ -214,7 +233,13 @@ class _CommentsSheetState extends State<CommentsSheet> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    CommentCard(comment: item, source: widget.source),
+                    CommentCard(
+                      comment: item,
+                      source: widget.source,
+                      onReply: sending
+                          ? null
+                          : () => _replies(item, compose: true),
+                    ),
                     if (item.replies.isNotEmpty)
                       Container(
                         margin: const EdgeInsets.only(left: 20, top: 10),
@@ -242,6 +267,13 @@ class _CommentsSheetState extends State<CommentsSheet> {
                                 child: CommentCard(
                                   comment: reply,
                                   source: widget.source,
+                                  onReply: sending
+                                      ? null
+                                      : () => _replies(
+                                          item,
+                                          compose: true,
+                                          target: reply,
+                                        ),
                                 ),
                               ),
                           ],
@@ -312,9 +344,19 @@ class _CommentsSheetState extends State<CommentsSheet> {
 }
 
 class RepliesSheet extends StatefulWidget {
-  const RepliesSheet({super.key, required this.source, required this.comment});
+  const RepliesSheet({
+    super.key,
+    required this.source,
+    required this.comment,
+    this.compose = false,
+    this.target,
+    this.onSent,
+  });
   final SfacgSource source;
   final ParagraphComment comment;
+  final bool compose;
+  final ParagraphComment? target;
+  final VoidCallback? onSent;
   @override
   State<RepliesSheet> createState() => _RepliesSheetState();
 }
@@ -323,10 +365,68 @@ class _RepliesSheetState extends State<RepliesSheet> {
   List<ParagraphComment> items = [];
   bool loading = false;
   String? error;
+  final draft = TextEditingController();
+  final focus = FocusNode();
+  final scroll = ScrollController();
+  bool sending = false;
+  String? sendMessage;
+  late ParagraphComment target;
+
+  @override
+  void dispose() {
+    draft.dispose();
+    focus.dispose();
+    scroll.dispose();
+    super.dispose();
+  }
+
   @override
   void initState() {
     super.initState();
+    target = widget.target ?? widget.comment;
     load();
+  }
+
+  void _replyTo(ParagraphComment comment) {
+    if (sending) return;
+    setState(() => target = comment);
+    focus.requestFocus();
+  }
+
+  Future<void> _send() async {
+    if (sending || loading) return;
+    final content = draft.text.trim();
+    if (content.isEmpty) {
+      setState(() => sendMessage = '请输入回复内容');
+      return;
+    }
+    setState(() {
+      sending = true;
+      sendMessage = null;
+    });
+    try {
+      // Replies stay in the original conversation. A reply to another reply
+      // includes a visible author mention instead of using its ID as a thread.
+      await widget.source.postReply(
+        widget.comment,
+        target.isReply ? '回复@${target.author} $content' : content,
+      );
+      widget.onSent?.call();
+      if (!mounted) return;
+      draft.clear();
+      setState(() => sendMessage = '回复已发送');
+      await load();
+      if (!mounted) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && scroll.hasClients) {
+          scroll.jumpTo(scroll.position.maxScrollExtent);
+        }
+      });
+    } catch (e) {
+      if (mounted) setState(() => sendMessage = '$e');
+    } finally {
+      if (mounted) setState(() => sending = false);
+    }
   }
 
   Future<void> load() async {
@@ -349,67 +449,131 @@ class _RepliesSheetState extends State<RepliesSheet> {
   }
 
   @override
-  Widget build(BuildContext context) => Column(
-    children: [
-      Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 20),
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('回复', style: Theme.of(context).textTheme.titleLarge),
-                  const Text('从旧到新', style: TextStyle(fontSize: 12)),
-                ],
+  Widget build(BuildContext context) => PopScope(
+    canPop: !sending,
+    child: Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('回复', style: Theme.of(context).textTheme.titleLarge),
+                    const Text('从旧到新', style: TextStyle(fontSize: 12)),
+                  ],
+                ),
               ),
-            ),
-            IconButton(
-              tooltip: '关闭回复',
-              onPressed: () => Navigator.pop(context),
-              icon: const Icon(Icons.close),
-            ),
-          ],
+              IconButton(
+                tooltip: '刷新回复',
+                onPressed: loading || sending ? null : load,
+                icon: const Icon(Icons.refresh),
+              ),
+              IconButton(
+                tooltip: '关闭回复',
+                onPressed: sending ? null : () => Navigator.pop(context),
+                icon: const Icon(Icons.close),
+              ),
+            ],
+          ),
         ),
-      ),
-      const Divider(),
-      Expanded(
-        child: ListView.builder(
-          padding: const EdgeInsets.all(20),
-          itemCount: items.length + 2,
-          itemBuilder: (context, index) {
-            if (index == 0) {
+        const Divider(),
+        Expanded(
+          child: ListView.builder(
+            controller: scroll,
+            padding: const EdgeInsets.all(20),
+            itemCount: items.length + 2,
+            itemBuilder: (context, index) {
+              if (index == 0) {
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 24),
+                  child: CommentCard(
+                    comment: widget.comment,
+                    label: '原段评',
+                    source: widget.source,
+                    onReply: sending ? null : () => _replyTo(widget.comment),
+                  ),
+                );
+              }
+              if (index == items.length + 1) {
+                return _LoadStatus(
+                  loading: loading,
+                  error: error,
+                  empty: items.isEmpty,
+                  more: false,
+                  load: load,
+                  emptyText: '暂无回复',
+                );
+              }
               return Padding(
-                padding: const EdgeInsets.only(bottom: 24),
+                padding: const EdgeInsets.only(left: 12, bottom: 14),
                 child: CommentCard(
-                  comment: widget.comment,
-                  label: '原段评',
+                  comment: items[index - 1],
+                  label: '回复 $index',
                   source: widget.source,
+                  onReply: sending ? null : () => _replyTo(items[index - 1]),
                 ),
               );
-            }
-            if (index == items.length + 1) {
-              return _LoadStatus(
-                loading: loading,
-                error: error,
-                empty: items.isEmpty,
-                more: false,
-                load: load,
-                emptyText: '暂无回复',
-              );
-            }
-            return Padding(
-              padding: const EdgeInsets.only(left: 12, bottom: 14),
-              child: CommentCard(
-                comment: items[index - 1],
-                label: '回复 $index',
-                source: widget.source,
-              ),
-            );
-          },
+            },
+          ),
         ),
-      ),
-    ],
+        const Divider(height: 1),
+        SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (widget.source.api.hasSession) ...[
+                  Text(
+                    '回复 @${target.author}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          key: const ValueKey('comment-reply-draft'),
+                          controller: draft,
+                          focusNode: focus,
+                          autofocus: widget.compose,
+                          enabled: !sending,
+                          minLines: 1,
+                          maxLines: 3,
+                          textInputAction: TextInputAction.newline,
+                          decoration: const InputDecoration(
+                            hintText: '写下回复…',
+                            border: OutlineInputBorder(),
+                            isDense: true,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      FilledButton(
+                        onPressed: sending || loading ? null : _send,
+                        child: Text(sending ? '发送中…' : '发送回复'),
+                      ),
+                    ],
+                  ),
+                ] else
+                  const Text('请先在“账号”页面登录菠萝包后回复评论'),
+                if (sendMessage != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text(sendMessage!),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    ),
   );
 }
 

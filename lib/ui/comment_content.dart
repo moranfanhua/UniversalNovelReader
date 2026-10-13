@@ -53,10 +53,12 @@ class CommentCard extends StatelessWidget {
     required this.comment,
     this.label,
     this.source,
+    this.onReply,
   });
   final ParagraphComment comment;
   final String? label;
   final SfacgSource? source;
+  final VoidCallback? onReply;
   @override
   Widget build(BuildContext context) {
     final sf = source;
@@ -152,6 +154,18 @@ class CommentCard extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           CommentText(comment.text),
+          if (onReply != null)
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                key: ValueKey(
+                  'reply-${comment.isReply ? 'reply' : 'comment'}-${comment.id}',
+                ),
+                onPressed: onReply,
+                icon: const Icon(Icons.reply, size: 18),
+                label: const Text('回复'),
+              ),
+            ),
           if (status?.message != null)
             Padding(
               padding: const EdgeInsets.only(top: 8),

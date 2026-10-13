@@ -146,6 +146,8 @@ class SfacgApi {
           ? '段评发送'
           : req.method == 'POST' && uri.path.endsWith('/favs')
           ? '段评点赞'
+          : req.method == 'POST' && uri.path.endsWith('/replys')
+          ? '段评回复'
           : '菠萝包请求';
       var message = '${status['msg'] ?? ''}'.trim();
       for (final secret in [
