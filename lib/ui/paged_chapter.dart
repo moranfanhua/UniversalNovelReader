@@ -5,6 +5,7 @@ import '../domain/models.dart';
 import 'text_pagination.dart';
 import 'reading_layout.dart';
 import 'boundary_scroll.dart';
+import 'reading_tap_zones.dart';
 
 class ChapterPreview {
   const ChapterPreview({
@@ -49,6 +50,7 @@ class PagedChapter extends StatefulWidget {
     this.onContinueChapter,
     this.onPreviewRows,
     this.skipFirstPage = false,
+    this.onTapTurn,
   });
   final ChapterContent content;
   final String title;
@@ -63,6 +65,7 @@ class PagedChapter extends StatefulWidget {
   final ValueChanged<ChapterContinuation>? onContinueChapter;
   final ValueChanged<Set<int>>? onPreviewRows;
   final bool skipFirstPage;
+  final ValueChanged<int>? onTapTurn;
   final void Function(int paragraph, int offset, Set<int> visibleRows)
   onPosition;
   final Widget Function(String url) imageBuilder;
@@ -345,95 +348,102 @@ class PagedChapterState extends State<PagedChapter> {
         },
         child: Focus(
           autofocus: true,
-          child: Column(
-            children: [
-              Expanded(
-                child: ScrollConfiguration(
-                  behavior: ScrollConfiguration.of(context).copyWith(
-                    dragDevices: {
-                      PointerDeviceKind.touch,
-                      PointerDeviceKind.mouse,
-                      PointerDeviceKind.trackpad,
-                      PointerDeviceKind.stylus,
-                    },
-                  ),
-                  child: BoundaryScroll(
-                    axis: Axis.horizontal,
-                    onPrevious: widget.onPreviousChapter != null
-                        ? () => turnPage(-1)
-                        : null,
-                    onNext: hasNext ? () => turnPage(1) : null,
-                    child: PageView.builder(
-                      physics: const PageScrollPhysics(
-                        parent: AlwaysScrollableScrollPhysics(
-                          parent: ClampingScrollPhysics(),
-                        ),
-                      ),
-                      key: ValueKey(revision),
-                      controller: controller,
-                      itemCount: spreads,
-                      onPageChanged: (value) {
-                        if (pageRevision != revision ||
-                            value < 0 ||
-                            value >= spreads) {
-                          return;
-                        }
-                        setState(() => page = firstPage + value * columns);
-                        _report();
+          child: ReadingTapZones(
+            revision: (signature, page, firstPage),
+            onTurn: widget.onTapTurn ?? (delta) => turnPage(delta),
+            child: Column(
+              children: [
+                Expanded(
+                  child: ScrollConfiguration(
+                    behavior: ScrollConfiguration.of(context).copyWith(
+                      dragDevices: {
+                        PointerDeviceKind.touch,
+                        PointerDeviceKind.mouse,
+                        PointerDeviceKind.trackpad,
+                        PointerDeviceKind.stylus,
                       },
-                      itemBuilder: (context, spread) => Align(
-                        alignment: Alignment.topCenter,
-                        child: SizedBox(
-                          width: canvasWidth,
-                          child: Padding(
-                            padding: EdgeInsets.fromLTRB(
-                              widget.horizontalMargin,
-                              verticalMargin,
-                              widget.horizontalMargin,
-                              verticalMargin,
-                            ),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                for (
-                                  var column = 0;
-                                  column < columns;
-                                  column++
-                                ) ...[
-                                  if (column > 0)
-                                    SizedBox(
-                                      width: gutter,
-                                      child: Center(
-                                        child: VerticalDivider(
-                                          width: 1,
-                                          color: Theme.of(context).dividerColor
-                                              .withValues(alpha: 0.25),
+                    ),
+                    child: BoundaryScroll(
+                      axis: Axis.horizontal,
+                      onPrevious: widget.onPreviousChapter != null
+                          ? () => turnPage(-1)
+                          : null,
+                      onNext: hasNext ? () => turnPage(1) : null,
+                      child: PageView.builder(
+                        physics: const PageScrollPhysics(
+                          parent: AlwaysScrollableScrollPhysics(
+                            parent: ClampingScrollPhysics(),
+                          ),
+                        ),
+                        key: ValueKey(revision),
+                        controller: controller,
+                        itemCount: spreads,
+                        onPageChanged: (value) {
+                          if (pageRevision != revision ||
+                              value < 0 ||
+                              value >= spreads) {
+                            return;
+                          }
+                          setState(() => page = firstPage + value * columns);
+                          _report();
+                        },
+                        itemBuilder: (context, spread) => Align(
+                          alignment: Alignment.topCenter,
+                          child: SizedBox(
+                            width: canvasWidth,
+                            child: Padding(
+                              padding: EdgeInsets.fromLTRB(
+                                widget.horizontalMargin,
+                                verticalMargin,
+                                widget.horizontalMargin,
+                                verticalMargin,
+                              ),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  for (
+                                    var column = 0;
+                                    column < columns;
+                                    column++
+                                  ) ...[
+                                    if (column > 0)
+                                      SizedBox(
+                                        width: gutter,
+                                        child: Center(
+                                          child: VerticalDivider(
+                                            width: 1,
+                                            color: Theme.of(context)
+                                                .dividerColor
+                                                .withValues(alpha: 0.25),
+                                          ),
                                         ),
                                       ),
+                                    Expanded(
+                                      child:
+                                          firstPage +
+                                                  spread * columns +
+                                                  column <
+                                              pages.length
+                                          ? _page(
+                                              context,
+                                              firstPage +
+                                                  spread * columns +
+                                                  column,
+                                              style,
+                                              headingStyle,
+                                              scaler,
+                                              headingSpace,
+                                            )
+                                          : _previewPage(
+                                              context,
+                                              style,
+                                              headingStyle,
+                                              scaler,
+                                            ),
                                     ),
-                                  Expanded(
-                                    child:
-                                        firstPage + spread * columns + column <
-                                            pages.length
-                                        ? _page(
-                                            context,
-                                            firstPage +
-                                                spread * columns +
-                                                column,
-                                            style,
-                                            headingStyle,
-                                            scaler,
-                                            headingSpace,
-                                          )
-                                        : _previewPage(
-                                            context,
-                                            style,
-                                            headingStyle,
-                                            scaler,
-                                          ),
-                                  ),
+                                  ],
                                 ],
-                              ],
+                              ),
                             ),
                           ),
                         ),
@@ -441,37 +451,18 @@ class PagedChapterState extends State<PagedChapter> {
                     ),
                   ),
                 ),
-              ),
-              SizedBox(
-                height: 48,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    TextButton(
-                      onPressed:
-                          page > firstPage || widget.onPreviousChapter != null
-                          ? () => turnPage(-1)
-                          : null,
-                      child: const Text('上一页'),
+                SizedBox(
+                  height: 48,
+                  child: Center(
+                    child: Text(
+                      columns == 2 && page + 1 < pages.length
+                          ? '第 ${page + 1}–${page + 2} / ${pages.length} 页'
+                          : '第 ${page + 1} / ${pages.length} 页${fillsRight && preview != null ? ' · 下一章第 1 页' : ''}',
                     ),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      child: Text(
-                        columns == 2 && page + 1 < pages.length
-                            ? '第 ${page + 1}–${page + 2} / ${pages.length} 页'
-                            : '第 ${page + 1} / ${pages.length} 页${fillsRight && preview != null ? ' · 下一章第 1 页' : ''}',
-                      ),
-                    ),
-                    TextButton(
-                      onPressed: page + columns < pages.length || hasNext
-                          ? () => turnPage(1)
-                          : null,
-                      child: const Text('下一页'),
-                    ),
-                  ],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       );
@@ -530,9 +521,11 @@ class PagedChapterState extends State<PagedChapter> {
                           null)
                     SizedBox(
                       width: 56,
-                      child: (next?.commentBuilder ?? widget.commentBuilder)(
-                        (next?.content ?? widget.content).paragraphs[fragment
-                            .paragraph],
+                      child: ExcludeReadingTap(
+                        child: (next?.commentBuilder ?? widget.commentBuilder)(
+                          (next?.content ?? widget.content).paragraphs[fragment
+                              .paragraph],
+                        ),
                       ),
                     ),
                 ],
@@ -579,15 +572,17 @@ class PagedChapterState extends State<PagedChapter> {
                   Text('正在加载下一章'),
                 ],
               )
-            : Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text('下一章加载失败：$previewError'),
-                  TextButton(
-                    onPressed: _loadPreview,
-                    child: const Text('重试下一章'),
-                  ),
-                ],
+            : ExcludeReadingTap(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('下一章加载失败：$previewError'),
+                    TextButton(
+                      onPressed: _loadPreview,
+                      child: const Text('重试下一章'),
+                    ),
+                  ],
+                ),
               ),
       ),
     );

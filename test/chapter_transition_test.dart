@@ -9,6 +9,7 @@ import 'package:unr/domain/models.dart';
 import 'package:unr/sources/sfacg_api.dart';
 import 'package:unr/sources/sfacg_source.dart';
 import 'package:unr/ui/reader.dart';
+import 'helpers/reading_taps.dart';
 
 class TransitionLibrary extends Library {
   TransitionLibrary() : super(Directory.systemTemp, SfacgSource(SfacgApi()));
@@ -81,7 +82,7 @@ void main() {
   testWidgets('上一页进入上一章末页，下一页和键盘在章节边界连续阅读', (tester) async {
     final library = TransitionLibrary()..readingMode = ReadingMode.paged;
     await open(tester, library, chapter: 1);
-    await tester.tap(find.text('上一页'));
+    await tapReadingSide(tester, -1);
     await settle(tester);
     expect(find.text('1 / 3'), findsOneWidget);
     expect(find.textContaining('上一章结尾标记').hitTestable(), findsOneWidget);
@@ -93,19 +94,16 @@ void main() {
       r'\d+',
     ).allMatches(label).map((m) => int.parse(m[0]!)).toList();
     expect(numbers.first, numbers.last);
-    await tester.tap(find.text('下一页'));
+    await tapReadingSide(tester, 1);
     await settle(tester);
     expect(find.text('2 / 3'), findsOneWidget);
     expect(find.text('　　第二章正文'), findsOneWidget);
     await tester.sendKeyEvent(LogicalKeyboardKey.pageDown);
     await settle(tester);
     expect(find.text('3 / 3'), findsOneWidget);
-    expect(
-      tester
-          .widget<TextButton>(find.widgetWithText(TextButton, '下一页'))
-          .onPressed,
-      isNull,
-    );
+    await tapReadingSide(tester, 1);
+    await settle(tester);
+    expect(find.text('3 / 3'), findsOneWidget);
     await tester.sendKeyEvent(LogicalKeyboardKey.pageUp);
     await settle(tester);
     expect(find.text('2 / 3'), findsOneWidget);
@@ -120,12 +118,9 @@ void main() {
       if (width > 1000) {
         // Both remaining one-page chapters now share the final spread.
         expect(find.text('　　第三章正文').hitTestable(), findsOneWidget);
-        expect(
-          tester
-              .widget<TextButton>(find.widgetWithText(TextButton, '下一页'))
-              .onPressed,
-          isNull,
-        );
+        await tapReadingSide(tester, 1);
+        await settle(tester);
+        expect(find.text('2 / 3'), findsOneWidget);
         await tester.drag(find.byType(PageView), const Offset(320, 0));
         await settle(tester);
         expect(find.text('1 / 3'), findsOneWidget);
@@ -221,7 +216,7 @@ void main() {
       ..readingMode = ReadingMode.paged
       ..pending = Completer<ChapterContent>();
     await open(tester, library, chapter: 2);
-    await tester.tap(find.text('上一页'));
+    await tapReadingSide(tester, -1);
     await tester.pump();
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
     await tester.sendKeyEvent(LogicalKeyboardKey.pageUp);

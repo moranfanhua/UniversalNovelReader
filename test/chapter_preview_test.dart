@@ -11,6 +11,7 @@ import 'package:unr/sources/sfacg_api.dart';
 import 'package:unr/sources/sfacg_source.dart';
 import 'package:unr/ui/reader.dart';
 import 'comment_source_test.dart' show AlternateComments;
+import 'helpers/reading_taps.dart';
 
 const previewBook = Book(
   id: 'preview-book',
@@ -106,7 +107,7 @@ void main() {
   }
 
   Future<void> next(WidgetTester tester) async {
-    await tester.tap(find.text('下一页'));
+    await tapReadingSide(tester, 1);
     await settle(tester);
   }
 
@@ -156,7 +157,7 @@ void main() {
     await next(tester);
     expect(find.text('3 / 3'), findsOneWidget);
     expect(find.text('　　丙章首页').hitTestable(), findsOneWidget);
-    await tester.tap(find.text('上一页'));
+    await tapReadingSide(tester, -1);
     await settle(tester);
     expect(find.text('1 / 3'), findsOneWidget);
     expect(find.text('　　甲章末页').hitTestable(), findsOneWidget);
@@ -195,7 +196,7 @@ void main() {
       ..readingMode = ReadingMode.paged
       ..pending = Completer<ChapterContent>();
     await open(tester, library);
-    await tester.tap(find.text('下一页'));
+    await tapReadingSide(tester, 1);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
     await tester.pump();
@@ -228,7 +229,7 @@ void main() {
       expect(library.progress[previewBook.key], saved);
       expect(tester.takeException(), isNull);
     }
-    await tester.tap(find.text('上一页'));
+    await tapReadingSide(tester, -1);
     await settle(tester);
     expect(find.text('　　甲章末页').hitTestable(), findsOneWidget);
     expect(find.text('　　乙章首页').hitTestable(), findsOneWidget);
@@ -249,12 +250,9 @@ void main() {
     await settle(tester);
     expect(find.text('　　丙章首页').hitTestable(), findsOneWidget);
     expect(find.text('正在加载下一章'), findsNothing);
-    expect(
-      tester
-          .widget<TextButton>(find.widgetWithText(TextButton, '下一页'))
-          .onPressed,
-      isNull,
-    );
+    await tapReadingSide(tester, 1);
+    await settle(tester);
+    expect(find.text('3 / 3'), findsOneWidget);
     await tester.pumpWidget(const SizedBox.shrink());
   });
 

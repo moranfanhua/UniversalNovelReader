@@ -11,6 +11,7 @@ import 'reading_settings.dart';
 import 'reading_layout.dart';
 import 'boundary_scroll.dart';
 import 'volume_page_turner.dart';
+import 'reading_tap_zones.dart';
 
 class ReaderPage extends StatefulWidget {
   const ReaderPage({
@@ -684,6 +685,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                       comments: comments != null,
                       startAtEnd: pagedStartAtEnd,
                       skipFirstPage: skipFirstPage,
+                      onTapTurn: (delta) => unawaited(_turnPage(delta)),
                       loadNextChapter: chapter + 1 < widget.book.chapters.length
                           ? _previewNextChapter
                           : null,
@@ -876,12 +878,14 @@ class _BookImageState extends State<BookImage> {
     future: bytes,
     builder: (context, s) {
       if (s.hasError) {
-        return TextButton.icon(
-          onPressed: () => setState(
-            () => bytes = widget.library.loadImage(widget.book, widget.url),
+        return ExcludeReadingTap(
+          child: TextButton.icon(
+            onPressed: () => setState(
+              () => bytes = widget.library.loadImage(widget.book, widget.url),
+            ),
+            icon: const Icon(Icons.broken_image_outlined),
+            label: const Text('插图加载失败，点击重试'),
           ),
-          icon: const Icon(Icons.broken_image_outlined),
-          label: const Text('插图加载失败，点击重试'),
         );
       }
       if (!s.hasData) {

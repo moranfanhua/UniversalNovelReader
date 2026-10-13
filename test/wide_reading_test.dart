@@ -8,6 +8,7 @@ import 'package:unr/sources/sfacg_api.dart';
 import 'package:unr/sources/sfacg_source.dart';
 import 'package:unr/ui/paged_chapter.dart';
 import 'package:unr/ui/reader.dart';
+import 'helpers/reading_taps.dart';
 
 class WideLibrary extends Library {
   WideLibrary(this.content)
@@ -100,7 +101,7 @@ void main() {
       find.byKey(const ValueKey('image-right')).hitTestable(),
     );
     expect(image.left, greaterThan(900));
-    await tester.tap(find.text('下一页'));
+    await tapReadingSide(tester, 1);
     await tester.pumpAndSettle();
     expect(rows, {3});
     final ending = tester.getRect(find.text('　　末页短正文').hitTestable());
@@ -127,7 +128,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.textContaining(RegExp(r'^第 1–2 /')), findsOneWidget);
-    await tester.tap(find.text('下一页'));
+    await tapReadingSide(tester, 1);
     await tester.pumpAndSettle();
     await tester.pump(const Duration(milliseconds: 700));
     final offset = library.pageOffsets[book.key]!;

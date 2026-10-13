@@ -11,6 +11,7 @@ import 'package:unr/ui/settings.dart';
 import 'package:unr/ui/paged_chapter.dart';
 import 'package:unr/ui/reader.dart';
 import 'package:unr/ui/text_pagination.dart';
+import 'helpers/reading_taps.dart';
 
 class PagedLibrary extends Library {
   PagedLibrary() : super(Directory.systemTemp, SfacgSource(SfacgApi()));
@@ -119,7 +120,7 @@ void main() {
     library.dispose();
     library.source.api.close();
   });
-  testWidgets('手机翻页按钮、滑动、键盘与字号调整保持进度，重新打开恢复', (tester) async {
+  testWidgets('手机点击两侧、滑动、键盘与字号调整保持进度，重新打开恢复', (tester) async {
     tester.view.physicalSize = const Size(360, 640);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -153,7 +154,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(PagedChapter), findsOneWidget);
     expect(tester.takeException(), isNull);
-    await tester.tap(find.text('下一页'));
+    await tapReadingSide(tester, 1);
     await tester.pumpAndSettle();
     await tester.drag(find.byType(PageView), const Offset(-300, 0));
     await tester.pumpAndSettle();
@@ -181,7 +182,7 @@ void main() {
     await tester.tap(find.byTooltip('关闭阅读设置'));
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
-    await tester.tap(find.text('下一页'));
+    await tapReadingSide(tester, 1);
     await tester.pump(const Duration(milliseconds: 50));
     await tester.tap(find.byTooltip('阅读设置'));
     await tester.pumpAndSettle();
