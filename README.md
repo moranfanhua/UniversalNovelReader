@@ -31,6 +31,7 @@
 - [dbus](https://pub.dev/packages/dbus) — MPL-2.0
 - [sky_engine](https://github.com/flutter/flutter) — 第三方组件分别授权，见声明
 - [actions/checkout](https://github.com/actions/checkout)、[actions/setup-java](https://github.com/actions/setup-java)、[actions/upload-artifact](https://github.com/actions/upload-artifact)、[actions/download-artifact](https://github.com/actions/download-artifact)、[subosito/flutter-action](https://github.com/subosito/flutter-action) — MIT；构建与发布 CI 使用的工具。
+- [actions/github-script](https://github.com/actions/github-script) — MIT；分支来源校验使用的工具。
 - [SFacgExporter](https://github.com/moranfanhua/SFacgExporter) — AGPL-3.0；菠萝包签名、正文字符表与导出逻辑参考来源，原作者 moranfanhua。
 
 # 声明

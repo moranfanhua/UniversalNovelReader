@@ -14,10 +14,11 @@ import release
 
 
 class FakeGitHub:
-    def __init__(self, existing=None, sha="commit-sha", fail_upload=False):
+    def __init__(self, existing=None, sha="commit-sha", fail_upload=False, comparison_status="ahead"):
         self.existing = existing
         self.sha = sha
         self.fail_upload = fail_upload
+        self.comparison_status = comparison_status
         self.calls = []
         self.created = None
 
@@ -25,6 +26,8 @@ class FakeGitHub:
         self.calls.append((method, path, payload, file))
         if "/git/ref/" in path:
             return {"object": {"type": "commit", "sha": self.sha}}
+        if "/compare/" in path:
+            return {"status": self.comparison_status, "merge_base_commit": {"sha": self.sha}}
         if method == "GET" and "/releases/tags/" in path:
             return self.existing
         if path.endswith("generate-notes"):
@@ -73,7 +76,7 @@ class ReleaseTests(unittest.TestCase):
     def test_stable_tag_matches_pubspec_and_manual_run_does_not_change_version(self):
         expected = {"version": "0.1.1", "build_number": "2", "prerelease": "false"}
         self.assertEqual(release.metadata(self.root, self.env), expected)
-        self.assertEqual(release.metadata(self.root, {"GITHUB_REF_TYPE": "branch", "GITHUB_REF_NAME": "dev"}), expected)
+        self.assertEqual(release.metadata(self.root, {"GITHUB_REF_TYPE": "branch", "GITHUB_REF_NAME": "master"}), expected)
         with self.assertRaisesRegex(ValueError, "标签必须"):
             release.metadata(self.root, {**self.env, "GITHUB_REF_NAME": "v0.1.2"})
 
@@ -201,6 +204,37 @@ class ReleaseTests(unittest.TestCase):
         api.request = request
         release.draft(self.root, self.env, api)
         self.assertEqual(api.created["target_commitish"], "commit-sha")
+
+    def test_remote_master_must_still_contain_tag_before_any_release_writes(self):
+        for status in ("behind", "diverged", None):
+            api = FakeGitHub(comparison_status=status)
+            with self.subTest(status=status), self.assertRaisesRegex(ValueError, "master 历史"):
+                release.draft(self.root, self.env, api)
+            self.assertTrue(all(call[0] == "GET" for call in api.calls))
+            self.assertIsNone(api.created)
+
+    def test_tag_at_master_tip_is_allowed(self):
+        self.assets()
+        api = FakeGitHub(comparison_status="identical")
+        release.draft(self.root, self.env, api)
+        self.assertTrue(api.created["draft"])
+
+    def test_missing_master_or_wrong_merge_base_blocks_release_writes(self):
+        for comparison in (None, {"status": "ahead", "merge_base_commit": {"sha": "other-commit"}}):
+            api = FakeGitHub()
+            original = api.request
+
+            def request(method, path, payload=None, file=None):
+                if "/compare/" in path:
+                    api.calls.append((method, path, payload, file))
+                    return comparison
+                return original(method, path, payload, file)
+
+            api.request = request
+            with self.subTest(comparison=comparison), self.assertRaisesRegex(ValueError, "master 历史"):
+                release.draft(self.root, self.env, api)
+            self.assertTrue(all(call[0] == "GET" for call in api.calls))
+            self.assertIsNone(api.created)
 
     def test_github_404_is_only_accepted_for_reads_and_permission_errors_fail(self):
         api = release.GitHub(self.env)

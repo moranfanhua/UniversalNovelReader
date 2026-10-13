@@ -18,7 +18,7 @@ concurrency:
 
 jobs:
   metadata:
-    name: Validate version
+    name: Validate master source and version
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
@@ -29,7 +29,9 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - name: Validate tag against pubspec
+          # 标签没有所属分支，取完整历史以确认提交已合入 master。
+          fetch-depth: 0
+      - name: Validate master ancestry and tag against pubspec
         id: version
         run: python3 .github/scripts/release.py metadata
 
@@ -152,6 +154,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
+          fetch-depth: 0
       - uses: actions/download-artifact@v8
         with:
           name: windows-release

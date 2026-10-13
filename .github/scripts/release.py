@@ -87,6 +87,31 @@ def checkout_commit(root):
     return value
 
 
+def validate_source(root, env):
+    event = env.get("GITHUB_EVENT_NAME")
+    if event == "workflow_dispatch":
+        if env.get("GITHUB_REF_TYPE") != "branch" or env.get("GITHUB_REF_NAME") != "master":
+            raise ValueError("手动构建必须选择 master 分支")
+    elif event != "push" or env.get("GITHUB_REF_TYPE") != "tag":
+        raise ValueError("Release 仅支持 master 的版本标签或 master 上的手动构建")
+    head = checkout_commit(root)
+    master = subprocess.run(
+        ["git", "rev-parse", "--verify", "refs/remotes/origin/master^{commit}"],
+        cwd=root, capture_output=True, text=True,
+    )
+    if master.returncode:
+        raise ValueError("无法找到远端 master 分支，请创建稳定分支并获取完整历史")
+    ancestry = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", head, master.stdout.strip()],
+        cwd=root, capture_output=True, text=True,
+    )
+    if ancestry.returncode == 1:
+        raise ValueError("版本提交尚未合入 master，停止构建和发布")
+    if ancestry.returncode:
+        raise RuntimeError("无法检查 master 的提交历史，请确认 checkout 使用 fetch-depth: 0")
+    return head
+
+
 def release_directory(root):
     destination = root / "build" / "release"
     destination.mkdir(parents=True, exist_ok=True)
@@ -217,6 +242,10 @@ def draft(root, env, api):
         target = api.request("GET", f"{prefix}/git/tags/{target['sha']}")["object"]
     if target["type"] != "commit" or target["sha"] != env["GITHUB_SHA"]:
         raise ValueError("版本标签已指向其他提交，停止上传以免混用版本")
+    # 再检查远端 master，避免构建期间稳定分支被改写后仍上传旧产物。
+    comparison = api.request("GET", f"{prefix}/compare/{target['sha']}...master")
+    if comparison is None or comparison.get("status") not in ("ahead", "identical") or comparison.get("merge_base_commit", {}).get("sha") != target["sha"]:
+        raise ValueError("版本提交不在当前远端 master 历史中，停止创建或更新 Release")
     existing = api.request("GET", f"{prefix}/releases/tags/{tag}")
     if existing is not None and not existing["draft"]:
         raise ValueError("该版本已经发布，不会覆盖附件；请增加版本号和构建号")
@@ -251,6 +280,7 @@ def main():
     env = os.environ
     command = sys.argv[1] if len(sys.argv) == 2 else ""
     if command == "metadata":
+        validate_source(root, env)
         output(metadata(root, env), env)
     elif command == "signing":
         output(signing(env), env)
@@ -259,7 +289,7 @@ def main():
     elif command in ("windows", "android", "finalize"):
         globals()[command](root, env["RELEASE_VERSION"])
     elif command == "draft":
-        env = {**env, "GITHUB_SHA": checkout_commit(root)}
+        env = {**env, "GITHUB_SHA": validate_source(root, env)}
         draft(root, env, GitHub(env))
     else:
         raise ValueError("使用 metadata / signing / clean-signing / windows / android / finalize / draft")
