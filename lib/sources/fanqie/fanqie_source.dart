@@ -199,7 +199,7 @@ class FanqieSource extends FanqieComments implements SearchableNovelSource {
     final expected = int.tryParse('${data['paragraphs_num']}');
     if (expected == null ||
         expected <= 0 ||
-        document.querySelectorAll('p,h1,h2').length < expected) {
+        document.querySelectorAll('p,h1,h2,img').length < expected) {
       throw const SourceException('番茄 App 未返回完整章节正文');
     }
     return parseContent(markup, itemVersion: version);

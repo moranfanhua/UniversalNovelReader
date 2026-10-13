@@ -94,6 +94,29 @@ void main() {
   test('段评保留真实段号、版本、统计和游标，两种排序发送对应参数', () async {
     var calls = 0;
     final api = apiWith((req) async {
+      if (req.method == 'GET') {
+        expect(req.url.path, '/reading/ugc/idea/comment_list/v/');
+        expect(req.url.queryParameters['sort'], '3');
+        expect(req.url.queryParameters['offset'], '20');
+        expect(req.url.queryParameters['item_version'], 'version-1');
+        return response({
+          'comments': [
+            {
+              'comment_id': rootId,
+              'user_info': {
+                'user_id': '3456789012345678901',
+                'user_name': '读者',
+              },
+              'text': '最新评论',
+              'create_timestamp': 200,
+              'digg_count': 3,
+              'reply_count': 2,
+            },
+          ],
+          'has_more': false,
+          'next_offset': 40,
+        });
+      }
       final b = jsonDecode(req.body);
       expect(b['group_id'], cid);
       expect(b['group_type'], 15);
@@ -101,15 +124,15 @@ void main() {
       expect(b['business_param']['para_index'], 0);
       expect(b['business_param']['item_version'], 'version-1');
       expect(b['server_channel'], 38);
-      expect(b['sort'], ++calls == 1 ? 1 : 3);
-      if (calls == 2) expect(b['cursor'], 'opaque-next');
+      expect(b['sort'], 1);
+      calls++;
       return response({
         'data_list': [
           {'comment': entry(rootId)},
         ],
         'common_list_info': {
           'has_more': calls == 1,
-          'cursor': 'opaque-next',
+          'cursor': '20',
           'total': 9,
         },
       });
@@ -117,7 +140,7 @@ void main() {
     addTearDown(api.close);
     final source = FanqieSource(api);
     final first = await source.commentPage(location, sort: CommentSort.hot);
-    expect(first.nextCursor, 'opaque-next');
+    expect(first.nextCursor, '20');
     expect(first.items.single.likes, 3);
     expect(first.items.single.replyCount, 2);
     expect(first.items.single.author, '读者');
@@ -128,6 +151,7 @@ void main() {
       sort: CommentSort.latest,
     );
     expect(last.nextCursor, isNull);
+    expect(last.items.single.text, '最新评论');
   });
   test('回复分页去重后按时间排列，取消和重复游标不会无限读取', () async {
     var calls = 0;
@@ -178,8 +202,12 @@ void main() {
       bodies.add(jsonDecode(req.body) as Map<String, dynamic>);
       return response(
         req.url.path.contains('reply')
-            ? {'reply':{'reply_id': replyId}}
-            : {'comment_info':{'comment_id': rootId}},
+            ? {
+                'reply': {'reply_id': replyId},
+              }
+            : {
+                'comment_info': {'comment_id': rootId},
+              },
       );
     }, session: true);
     addTearDown(api.close);
@@ -296,7 +324,7 @@ void main() {
       throwsA(isA<SourceException>()),
     );
     expect(calls, 0);
-    final page = await source.commentPage(location);
+    final page = await source.commentPage(location, sort: CommentSort.hot);
     final parts = source.commentContent(page.items.single.text);
     expect(parts.first.text, '图评');
     expect(

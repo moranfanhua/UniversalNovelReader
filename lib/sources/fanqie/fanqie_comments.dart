@@ -228,6 +228,58 @@ abstract class FanqieComments extends CommentSource {
     CommentSort sort = CommentSort.latest,
   }) async {
     final l = _location(location);
+    if (sort == CommentSort.latest) {
+      final offset = cursor == null ? 0 : int.tryParse(cursor);
+      if (offset == null || offset < 0) {
+        throw const SourceException('番茄最新段评分页游标无效');
+      }
+      final data = await api.app.request(
+        '/reading/ugc/idea/comment_list/v/',
+        query: {
+          'book_id': l.book,
+          'item_id': l.chapter,
+          'item_version': l.version,
+          'para_index': '${l.row}',
+          'sort': '3',
+          'count': '20',
+          'offset': '$offset',
+          'query_type': '0',
+        },
+      );
+      if (data['comments'] is! List) {
+        throw const SourceException('番茄最新段评列表格式已变化');
+      }
+      final items = <ParagraphComment>[];
+      for (final raw in data['comments'] as List) {
+        if (raw is! Map) throw const SourceException('番茄最新段评格式已变化');
+        final user = _map(raw['user_info']);
+        items.add(
+          _comment({
+            'comment_id': raw['comment_id'],
+            'common': {
+              'create_timestamp': raw['create_timestamp'],
+              'service_id': raw['service_id'],
+              'content': {'text': raw['text'] ?? ''},
+              'user_info': {'user_id': user['user_id'], 'base_info': user},
+            },
+            'stat': {
+              'digg_count': raw['digg_count'],
+              'reply_count': raw['reply_count'],
+            },
+            'user_action': {'user_digg': raw['user_digg']},
+          }),
+        );
+      }
+      String? next;
+      if (data['has_more'] == true) {
+        final nextOffset = int.tryParse('${data['next_offset']}');
+        if (nextOffset == null || nextOffset <= offset) {
+          throw const SourceException('番茄最新段评分页未推进');
+        }
+        next = '$nextOffset';
+      }
+      return CommentPage(items, nextCursor: next);
+    }
     final data = await api.app.request(
       '/novel/commentapi/comment/list/${l.chapter}/v1',
       body: {
@@ -247,7 +299,7 @@ abstract class FanqieComments extends CommentSource {
         'group_id': l.chapter,
         'group_type': 15,
         'server_channel': 38,
-        'sort': sort == CommentSort.hot ? 1 : 3,
+        'sort': 1,
         'cursor': ?cursor,
       },
     );
