@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../domain/models.dart';
 import 'text_pagination.dart';
 import 'reading_layout.dart';
+import 'boundary_scroll.dart';
 
 class PagedChapter extends StatefulWidget {
   const PagedChapter({
@@ -21,6 +22,9 @@ class PagedChapter extends StatefulWidget {
     this.horizontalMargin = 22,
     this.verticalMargin = 24,
     this.lineHeight = 1.9,
+    this.startAtEnd = false,
+    this.onPreviousChapter,
+    this.onNextChapter,
   });
   final ChapterContent content;
   final String title;
@@ -29,6 +33,8 @@ class PagedChapter extends StatefulWidget {
   final double horizontalMargin, verticalMargin, lineHeight;
   final int initialParagraph, initialOffset;
   final bool comments;
+  final bool startAtEnd;
+  final VoidCallback? onPreviousChapter, onNextChapter;
   final void Function(int paragraph, int offset, Set<int> visibleRows)
   onPosition;
   final Widget Function(String url) imageBuilder;
@@ -66,9 +72,13 @@ class _PagedChapterState extends State<PagedChapter> {
 
   void _turn(int delta) {
     final target = page ~/ columns + delta;
-    if (target < 0 ||
-        target >= (pages.length / columns).ceil() ||
-        controller?.hasClients != true) {
+    if (controller?.hasClients != true) return;
+    if (target < 0) {
+      widget.onPreviousChapter?.call();
+      return;
+    }
+    if (target >= (pages.length / columns).ceil()) {
+      widget.onNextChapter?.call();
       return;
     }
     controller!.animateToPage(
@@ -143,6 +153,7 @@ class _PagedChapterState extends State<PagedChapter> {
         headingSpace,
       );
       if (signature != nextSignature) {
+        final enterAtEnd = signature == null && widget.startAtEnd;
         signature = nextSignature;
         pages = TextPagination.paginate(
           widget.content.paragraphs,
@@ -154,7 +165,7 @@ class _PagedChapterState extends State<PagedChapter> {
           locale: locale,
           comments: widget.comments,
           headingSpace: headingSpace,
-          anchorParagraph: anchorParagraph,
+          anchorParagraph: enterAtEnd ? null : anchorParagraph,
           anchorOffset: anchorOffset,
         );
         page = 0;
@@ -168,13 +179,16 @@ class _PagedChapterState extends State<PagedChapter> {
             page = i;
           }
         }
+        if (enterAtEnd) page = pages.length - 1;
         page = page ~/ columns * columns;
         final old = controller;
         controller = PageController(initialPage: page ~/ columns);
         final generation = ++revision;
         WidgetsBinding.instance.addPostFrameCallback((_) {
           old?.dispose();
-          if (mounted && generation == revision) _report(preserveAnchor: true);
+          if (mounted && generation == revision) {
+            _report(preserveAnchor: !enterAtEnd);
+          }
         });
       }
       final pageRevision = revision;
@@ -197,65 +211,74 @@ class _PagedChapterState extends State<PagedChapter> {
                       PointerDeviceKind.stylus,
                     },
                   ),
-                  child: PageView.builder(
-                    key: ValueKey(revision),
-                    controller: controller,
-                    itemCount: (pages.length / columns).ceil(),
-                    onPageChanged: (value) {
-                      if (pageRevision != revision ||
-                          value < 0 ||
-                          value >= (pages.length / columns).ceil()) {
-                        return;
-                      }
-                      setState(() => page = value * columns);
-                      _report();
-                    },
-                    itemBuilder: (context, spread) => Align(
-                      alignment: Alignment.topCenter,
-                      child: SizedBox(
-                        width: canvasWidth,
-                        child: Padding(
-                          padding: EdgeInsets.fromLTRB(
-                            widget.horizontalMargin,
-                            verticalMargin,
-                            widget.horizontalMargin,
-                            verticalMargin,
-                          ),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              for (
-                                var column = 0;
-                                column < columns;
-                                column++
-                              ) ...[
-                                if (column > 0)
-                                  SizedBox(
-                                    width: gutter,
-                                    child: Center(
-                                      child: VerticalDivider(
-                                        width: 1,
-                                        color: Theme.of(
-                                          context,
-                                        ).dividerColor.withValues(alpha: 0.25),
+                  child: BoundaryScroll(
+                    axis: Axis.horizontal,
+                    onPrevious: widget.onPreviousChapter,
+                    onNext: widget.onNextChapter,
+                    child: PageView.builder(
+                      physics: const PageScrollPhysics(
+                        parent: AlwaysScrollableScrollPhysics(
+                          parent: ClampingScrollPhysics(),
+                        ),
+                      ),
+                      key: ValueKey(revision),
+                      controller: controller,
+                      itemCount: (pages.length / columns).ceil(),
+                      onPageChanged: (value) {
+                        if (pageRevision != revision ||
+                            value < 0 ||
+                            value >= (pages.length / columns).ceil()) {
+                          return;
+                        }
+                        setState(() => page = value * columns);
+                        _report();
+                      },
+                      itemBuilder: (context, spread) => Align(
+                        alignment: Alignment.topCenter,
+                        child: SizedBox(
+                          width: canvasWidth,
+                          child: Padding(
+                            padding: EdgeInsets.fromLTRB(
+                              widget.horizontalMargin,
+                              verticalMargin,
+                              widget.horizontalMargin,
+                              verticalMargin,
+                            ),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                for (
+                                  var column = 0;
+                                  column < columns;
+                                  column++
+                                ) ...[
+                                  if (column > 0)
+                                    SizedBox(
+                                      width: gutter,
+                                      child: Center(
+                                        child: VerticalDivider(
+                                          width: 1,
+                                          color: Theme.of(context).dividerColor
+                                              .withValues(alpha: 0.25),
+                                        ),
                                       ),
                                     ),
+                                  Expanded(
+                                    child:
+                                        spread * columns + column < pages.length
+                                        ? _page(
+                                            context,
+                                            spread * columns + column,
+                                            style,
+                                            headingStyle,
+                                            scaler,
+                                            headingSpace,
+                                          )
+                                        : const SizedBox.shrink(),
                                   ),
-                                Expanded(
-                                  child:
-                                      spread * columns + column < pages.length
-                                      ? _page(
-                                          context,
-                                          spread * columns + column,
-                                          style,
-                                          headingStyle,
-                                          scaler,
-                                          headingSpace,
-                                        )
-                                      : const SizedBox.shrink(),
-                                ),
+                                ],
                               ],
-                            ],
+                            ),
                           ),
                         ),
                       ),
@@ -269,7 +292,9 @@ class _PagedChapterState extends State<PagedChapter> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     TextButton(
-                      onPressed: page > 0 ? () => _turn(-1) : null,
+                      onPressed: page > 0 || widget.onPreviousChapter != null
+                          ? () => _turn(-1)
+                          : null,
                       child: const Text('上一页'),
                     ),
                     Padding(
@@ -281,7 +306,9 @@ class _PagedChapterState extends State<PagedChapter> {
                       ),
                     ),
                     TextButton(
-                      onPressed: page + columns < pages.length
+                      onPressed:
+                          page + columns < pages.length ||
+                              widget.onNextChapter != null
                           ? () => _turn(1)
                           : null,
                       child: const Text('下一页'),

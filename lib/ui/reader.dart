@@ -7,6 +7,7 @@ import 'image_bytes.dart';
 import 'paged_chapter.dart';
 import 'reading_settings.dart';
 import 'reading_layout.dart';
+import 'boundary_scroll.dart';
 
 class ReaderPage extends StatefulWidget {
   const ReaderPage({
@@ -30,6 +31,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   List<GlobalKey> keys = [];
   Timer? debounce;
   Timer? countDebounce;
+  Timer? chapterCooldown;
   final commentCounts = <int, int>{};
   final countRequests = <int>{};
   final countErrors = <int>{};
@@ -39,6 +41,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   int paragraph = 0;
   bool leaving = false;
   bool settingsOpen = false;
+  bool openAtEnd = false, pagedStartAtEnd = false;
+  bool restoreScheduled = false, restoreAtEnd = false;
+  int restoreParagraph = 0;
   int characterOffset = 0;
   Set<int> pageRows = {};
   Library get library => widget.library;
@@ -62,6 +67,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   void _load() {
     final generation = ++loadGeneration;
     restoring = true;
+    restoreScheduled = false;
     keys = [];
     pageRows = {};
     loadedParagraphs = [];
@@ -69,22 +75,43 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     countRequests.clear();
     countErrors.clear();
     countDebounce?.cancel();
-    final target = paragraph;
+    restoreParagraph = paragraph;
+    final atEnd = openAtEnd;
+    restoreAtEnd = atEnd;
+    pagedStartAtEnd = atEnd;
     content = library.read(widget.book, widget.book.chapters[chapter]).then((
       value,
     ) {
       if (!mounted || generation != loadGeneration) return value;
       keys = List.generate(value.paragraphs.length, (_) => GlobalKey());
       loadedParagraphs = value.paragraphs;
-      WidgetsBinding.instance.addPostFrameCallback((_) async {
-        if (!mounted || generation != loadGeneration) return;
-        final index = target.clamp(0, keys.length - 1);
+      openAtEnd = false;
+      if (atEnd && value.paragraphs.isNotEmpty) {
+        paragraph = value.paragraphs.length - 1;
+        characterOffset = value.paragraphs.last.text.length;
+      }
+      return value;
+    });
+  }
+
+  void _restorePosition() {
+    if (!restoring || restoreScheduled) return;
+    restoreScheduled = true;
+    final generation = loadGeneration;
+    // Schedule from the completed FutureBuilder, after its scroll viewport has
+    // been attached and laid out, rather than from the data fetch callback.
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted || generation != loadGeneration) return;
+      if (restoreAtEnd && scroll.hasClients) {
+        scroll.jumpTo(scroll.position.maxScrollExtent);
+      } else if (keys.isNotEmpty) {
+        final index = restoreParagraph.clamp(0, keys.length - 1);
         final ctx = keys[index].currentContext;
         if (ctx != null) await Scrollable.ensureVisible(ctx, alignment: 0);
-        restoring = false;
-        _scheduleCounts();
-      });
-      return value;
+      }
+      if (!mounted || generation != loadGeneration) return;
+      restoring = false;
+      _track();
     });
   }
 
@@ -268,16 +295,26 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     }
   }
 
-  void _go(int index) {
+  void _stepChapter(int delta) {
+    if (restoring || leaving || settingsOpen) return;
+    if (chapterCooldown?.isActive == true) return;
+    final target = chapter + delta;
+    if (target < 0 || target >= widget.book.chapters.length) return;
+    chapterCooldown = Timer(const Duration(milliseconds: 400), () {});
+    _go(target, atEnd: delta < 0);
+  }
+
+  void _go(int index, {bool atEnd = false}) {
     if (index < 0 || index >= widget.book.chapters.length) return;
     debounce?.cancel();
     setState(() {
       chapter = index;
       paragraph = 0;
       characterOffset = 0;
+      openAtEnd = atEnd;
       library.pageOffsets.remove(widget.book.key);
-      if (scroll.hasClients) scroll.jumpTo(0);
       _load();
+      if (scroll.hasClients) scroll.jumpTo(0);
     });
     library.remember(widget.book, chapter, 0).catchError((Object e) {
       if (mounted) {
@@ -363,6 +400,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    chapterCooldown?.cancel();
     countDebounce?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     debounce?.cancel();
@@ -437,6 +475,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
               return const Center(child: CircularProgressIndicator());
             }
             final paragraphs = snapshot.data!.paragraphs;
+            _restorePosition();
             if (library.readingMode == ReadingMode.paged) {
               return PagedChapter(
                 key: ValueKey(loadGeneration),
@@ -450,6 +489,11 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                 initialParagraph: paragraph,
                 initialOffset: characterOffset,
                 comments: widget.book.source == 'sfacg',
+                startAtEnd: pagedStartAtEnd,
+                onPreviousChapter: chapter > 0 ? () => _stepChapter(-1) : null,
+                onNextChapter: chapter + 1 < widget.book.chapters.length
+                    ? () => _stepChapter(1)
+                    : null,
                 onPosition: (index, offset, rows) {
                   if (settingsOpen) return;
                   paragraph = index;
@@ -462,92 +506,105 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                 commentBuilder: _commentButton,
               );
             }
-            return SingleChildScrollView(
-              key: viewport,
-              controller: scroll,
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(
-                    maxWidth: ReadingLayout.singleWidth,
-                  ),
-                  child: Padding(
-                    padding: EdgeInsets.fromLTRB(
-                      library.horizontalMargin,
-                      library.verticalMargin,
-                      library.horizontalMargin,
-                      library.verticalMargin + 40,
+            return BoundaryScroll(
+              key: ValueKey('chapter-scroll-$loadGeneration'),
+              axis: Axis.vertical,
+              onPrevious: chapter > 0 ? () => _stepChapter(-1) : null,
+              onNext: chapter + 1 < widget.book.chapters.length
+                  ? () => _stepChapter(1)
+                  : null,
+              child: SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(
+                  parent: ClampingScrollPhysics(),
+                ),
+                key: viewport,
+                controller: scroll,
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(
+                      maxWidth: ReadingLayout.singleWidth,
                     ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Text(
-                          widget.book.chapters[chapter].title,
-                          style: Theme.of(context).textTheme.headlineSmall,
-                        ),
-                        const SizedBox(height: 32),
-                        for (var i = 0; i < paragraphs.length; i++)
-                          Padding(
-                            key: keys[i],
-                            padding: const EdgeInsets.only(bottom: 18),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Expanded(
-                                  child: paragraphs[i].image != null
-                                      ? BookImage(
-                                          library: library,
-                                          book: widget.book,
-                                          url: paragraphs[i].image!,
-                                        )
-                                      : SelectableText(
-                                          '　　${paragraphs[i].text}',
-                                          style: TextStyle(
-                                            fontSize: library.fontSize,
-                                            fontFamily:
-                                                library.readingFontFamily,
-                                            height: library.lineHeight,
+                    child: Padding(
+                      padding: EdgeInsets.fromLTRB(
+                        library.horizontalMargin,
+                        library.verticalMargin,
+                        library.horizontalMargin,
+                        library.verticalMargin + 40,
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Text(
+                            widget.book.chapters[chapter].title,
+                            style: Theme.of(context).textTheme.headlineSmall,
+                          ),
+                          const SizedBox(height: 32),
+                          for (var i = 0; i < paragraphs.length; i++)
+                            Padding(
+                              key: keys[i],
+                              padding: const EdgeInsets.only(bottom: 18),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Expanded(
+                                    child: paragraphs[i].image != null
+                                        ? BookImage(
+                                            library: library,
+                                            book: widget.book,
+                                            url: paragraphs[i].image!,
+                                          )
+                                        : SelectableText(
+                                            '　　${paragraphs[i].text}',
+                                            style: TextStyle(
+                                              fontSize: library.fontSize,
+                                              fontFamily:
+                                                  library.readingFontFamily,
+                                              height: library.lineHeight,
+                                            ),
                                           ),
+                                  ),
+                                  if (widget.book.source == 'sfacg' &&
+                                      paragraphs[i].remoteIndex != null)
+                                    Tooltip(
+                                      message: '阅读本段段评',
+                                      child: TextButton(
+                                        style: TextButton.styleFrom(
+                                          minimumSize: const Size(40, 40),
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 6,
+                                          ),
+                                          visualDensity: VisualDensity.compact,
                                         ),
-                                ),
-                                if (widget.book.source == 'sfacg' &&
-                                    paragraphs[i].remoteIndex != null)
-                                  Tooltip(
-                                    message: '阅读本段段评',
-                                    child: TextButton(
-                                      style: TextButton.styleFrom(
-                                        minimumSize: const Size(40, 40),
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 6,
+                                        onPressed: () =>
+                                            _comments(paragraphs[i]),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            const Icon(
+                                              Icons.chat_bubble_outline,
+                                              size: 16,
+                                            ),
+                                            const SizedBox(width: 3),
+                                            Text(
+                                              commentCounts[paragraphs[i]
+                                                          .remoteIndex]
+                                                      ?.toString() ??
+                                                  (countErrors.contains(
+                                                        paragraphs[i]
+                                                            .remoteIndex,
+                                                      )
+                                                      ? '?'
+                                                      : '…'),
+                                            ),
+                                          ],
                                         ),
-                                        visualDensity: VisualDensity.compact,
-                                      ),
-                                      onPressed: () => _comments(paragraphs[i]),
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          const Icon(
-                                            Icons.chat_bubble_outline,
-                                            size: 16,
-                                          ),
-                                          const SizedBox(width: 3),
-                                          Text(
-                                            commentCounts[paragraphs[i]
-                                                        .remoteIndex]
-                                                    ?.toString() ??
-                                                (countErrors.contains(
-                                                      paragraphs[i].remoteIndex,
-                                                    )
-                                                    ? '?'
-                                                    : '…'),
-                                          ),
-                                        ],
                                       ),
                                     ),
-                                  ),
-                              ],
+                                ],
+                              ),
                             ),
-                          ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -574,7 +631,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                 child: Row(
                   children: [
                     TextButton.icon(
-                      onPressed: chapter > 0 ? () => _go(chapter - 1) : null,
+                      onPressed: chapter > 0
+                          ? () => _go(chapter - 1, atEnd: true)
+                          : null,
                       icon: const Icon(Icons.chevron_left),
                       label: const Text('上一章'),
                     ),
