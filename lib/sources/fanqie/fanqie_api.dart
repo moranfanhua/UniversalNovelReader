@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../../domain/models.dart';
@@ -66,9 +67,16 @@ class FanqieApi {
             uri.host == 'fanqienovel.com')
           'Cookie': _cookie,
       });
-      final response = await (() async => http.Response.fromStream(
-        await client.send(request),
-      ))().timeout(const Duration(seconds: 25));
+      final http.Response response;
+      try {
+        response = await (() async => http.Response.fromStream(
+          await client.send(request),
+        ))().timeout(const Duration(seconds: 25));
+      } on TimeoutException {
+        throw const SourceException('番茄请求超时，请检查网络后重试');
+      } on http.ClientException {
+        throw const SourceException('番茄网络连接失败，请稍后重试');
+      }
       if (response.headers.containsKey('bdturing-verify')) {
         throw const SourceException('番茄需要安全验证，请在官网完成验证后重新导入官网会话', code: 403);
       }

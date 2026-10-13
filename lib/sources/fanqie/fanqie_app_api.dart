@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -79,9 +80,16 @@ class FanqieAppApi {
       if (body != null) 'Content-Type': contentType,
     });
     if (body != null) request.bodyBytes = body;
-    final response = await (() async => http.Response.fromStream(
-      await client.send(request),
-    ))().timeout(const Duration(seconds: 25));
+    final http.Response response;
+    try {
+      response = await (() async => http.Response.fromStream(
+        await client.send(request),
+      ))().timeout(const Duration(seconds: 25));
+    } on TimeoutException {
+      throw const SourceException('番茄 App 请求超时，请检查网络后重试');
+    } on http.ClientException {
+      throw const SourceException('番茄 App 网络连接失败，请稍后重试');
+    }
     if (response.statusCode != 200 ||
         response.bodyBytes.isEmpty ||
         response.headers.containsKey('bdturing-verify')) {
@@ -208,10 +216,14 @@ class FanqieAppApi {
     return Map<String, dynamic>.from(doc['data']);
   }
 
-  Future<void> _ensureKey() => _registeringKey ??= (() async {
+  Future<void> _ensureKey() {
+    final owner = sha256.convert(utf8.encode(cookie())).toString();
+    if (_key != null && _keyOwner == owner) return Future<void>.value();
+    return _registeringKey ??= _registerKey(owner);
+  }
+
+  Future<void> _registerKey(String owner) async {
     try {
-      final owner = sha256.convert(utf8.encode(cookie())).toString();
-      if (_key != null && _keyOwner == owner) return;
       var userId = '0';
       if (cookie().isNotEmpty) {
         final document = _document(
@@ -244,7 +256,8 @@ class FanqieAppApi {
     } finally {
       _registeringKey = null;
     }
-  })();
+  }
+
   Future<Map<String, dynamic>> chapter(String bookId, String chapterId) async {
     await ensureDevice();
     await _ensureKey();

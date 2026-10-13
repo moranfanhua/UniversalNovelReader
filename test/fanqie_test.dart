@@ -351,7 +351,7 @@ void main() {
       Ebook.importEpub(epub).contents.values.single.paragraphs.single.text,
       '一个段落',
     );
-    expect(library.commentsFor(book), isNull);
+    expect(library.commentsFor(book), same(source));
   });
 
   test('番茄会话独立恢复，损坏会话不覆盖原值，退出清除安全存储', () async {

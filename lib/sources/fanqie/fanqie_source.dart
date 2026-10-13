@@ -3,11 +3,11 @@ import 'package:html/dom.dart';
 import 'package:html/parser.dart' as html;
 import '../../domain/models.dart';
 import '../novel_source.dart';
-import 'fanqie_api.dart';
+import 'fanqie_comments.dart';
 
-class FanqieSource implements SearchableNovelSource {
-  FanqieSource(this.api, {Map<String, String>? cipher}) : cipher = cipher ?? {};
-  final FanqieApi api;
+class FanqieSource extends FanqieComments implements SearchableNovelSource {
+  FanqieSource(super.api, {Map<String, String>? cipher})
+    : cipher = cipher ?? {};
   final Map<String, String> cipher;
   @override
   String get id => 'fanqie';
