@@ -59,8 +59,11 @@ class _PagedChapterState extends State<PagedChapter> {
 
   void _turn(int delta) {
     final target = page + delta;
-    if (target < 0 || target >= pages.length || controller?.hasClients != true)
+    if (target < 0 ||
+        target >= pages.length ||
+        controller?.hasClients != true) {
       return;
+    }
     controller!.animateToPage(
       target,
       duration: const Duration(milliseconds: 180),
@@ -162,8 +165,9 @@ class _PagedChapterState extends State<PagedChapter> {
                     onPageChanged: (value) {
                       if (pageRevision != revision ||
                           value < 0 ||
-                          value >= pages.length)
+                          value >= pages.length) {
                         return;
+                      }
                       setState(() => page = value);
                       _report();
                     },
