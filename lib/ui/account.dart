@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../data/library.dart';
 import '../sources/sfacg/sfacg_session.dart';
+import '../sources/fanqie/fanqie_source.dart';
+import 'fanqie_account.dart';
 
 class AccountSettingsPage extends StatelessWidget {
   const AccountSettingsPage({super.key, required this.library});
@@ -41,6 +43,27 @@ class AccountSettingsPage extends StatelessWidget {
                 ),
               ),
             ),
+            for (final source
+                in library.searchSources.whereType<FanqieSource>())
+              Card(
+                margin: const EdgeInsets.only(top: 16),
+                clipBehavior: Clip.antiAlias,
+                child: ListTile(
+                  leading: const Icon(
+                    Icons.menu_book,
+                    color: Colors.deepOrange,
+                    size: 44,
+                  ),
+                  title: Text(source.name),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => Navigator.push<void>(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => FanqieAccountPage(api: source.api),
+                    ),
+                  ),
+                ),
+              ),
           ],
         ),
       ),

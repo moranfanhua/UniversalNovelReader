@@ -28,4 +28,5 @@ flutter:
   uses-material-design: true
   assets:
     - assets/sfacg_cipher.json
+    - assets/fanqie_cipher.json
     - assets/sfacg_icon.jpg

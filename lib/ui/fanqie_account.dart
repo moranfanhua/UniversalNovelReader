@@ -1,0 +1,105 @@
+import 'package:flutter/material.dart';
+import '../sources/fanqie/fanqie_api.dart';
+import '../sources/fanqie/fanqie_session.dart';
+
+class FanqieAccountPage extends StatefulWidget {
+  const FanqieAccountPage({super.key, required this.api});
+  final FanqieApi api;
+  @override
+  State<FanqieAccountPage> createState() => _FanqieAccountPageState();
+}
+
+class _FanqieAccountPageState extends State<FanqieAccountPage> {
+  final cookie = TextEditingController();
+  bool busy = false;
+  String? message;
+  @override
+  void dispose() {
+    cookie.dispose();
+    super.dispose();
+  }
+
+  Future<void> _import() async {
+    setState(() {
+      busy = true;
+      message = null;
+    });
+    final candidate = FanqieApi(client: widget.api.client);
+    try {
+      candidate.setCookie(cookie.text);
+      await candidate.validateSession();
+      widget.api.setCookie(candidate.cookie);
+      await widget.api.onSessionChanged?.call();
+      cookie.clear();
+      if (mounted) {
+        setState(
+          () => message = widget.api.sessionNotice ?? '番茄会话已验证并保存在本机安全存储中',
+        );
+      }
+    } catch (e) {
+      if (mounted) setState(() => message = '$e');
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  Future<void> _logout() async {
+    setState(() {
+      busy = true;
+      message = null;
+    });
+    try {
+      await FanqieSession.logout(widget.api);
+      if (mounted) setState(() => message = '已清除本机番茄会话');
+    } catch (_) {
+      if (mounted) setState(() => message = '无法清除本机安全存储，请稍后重试');
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('番茄小说账号')),
+    body: Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 660),
+        child: ListView(
+          padding: const EdgeInsets.all(24),
+          children: [
+            Text(widget.api.hasSession ? '已保存番茄官网会话' : '未导入会话 · 可读取官网公开章节'),
+            const SizedBox(height: 12),
+            const Text('在番茄官网登录并完成安全验证后，可导入官网 Cookie。官方 App 登录与官网会话独立。'),
+            const SizedBox(height: 20),
+            TextField(
+              controller: cookie,
+              obscureText: true,
+              autocorrect: false,
+              enableSuggestions: false,
+              decoration: const InputDecoration(
+                labelText: '番茄官网 Cookie（包含 sessionid）',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            FilledButton(
+              onPressed: busy ? null : _import,
+              child: const Text('验证并保存会话'),
+            ),
+            if (busy) const LinearProgressIndicator(),
+            if (message != null || widget.api.sessionNotice != null)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                child: Text(message ?? widget.api.sessionNotice!),
+              ),
+            if (widget.api.hasSession)
+              TextButton(
+                onPressed: busy ? null : _logout,
+                child: const Text('退出登录'),
+              ),
+          ],
+        ),
+      ),
+    ),
+  );
+}

@@ -5,6 +5,8 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'data/library.dart';
 import 'sources/sfacg/sfacg_session.dart';
 import 'sources/sfacg/sfacg_source.dart';
+import 'sources/fanqie/fanqie_source.dart';
+import 'sources/fanqie/fanqie_session.dart';
 import 'ui/home.dart';
 
 void main() async {
@@ -14,7 +16,14 @@ void main() async {
       jsonDecode(await rootBundle.loadString('assets/sfacg_cipher.json')),
     );
     final api = await SfacgSession.open();
-    final library = await Library.open(SfacgSource(api, cipher: cipher));
+    final fanqieCipher = Map<String, String>.from(
+      jsonDecode(await rootBundle.loadString('assets/fanqie_cipher.json')),
+    );
+    final fanqieApi = await FanqieSession.open();
+    final library = await Library.open(
+      SfacgSource(api, cipher: cipher),
+      novelSources: [FanqieSource(fanqieApi, cipher: fanqieCipher)],
+    );
     runApp(UnrApp(library: library));
   } catch (e) {
     runApp(

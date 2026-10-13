@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../data/library.dart';
 import '../domain/models.dart';
 import '../formats/ebook.dart';
+import '../sources/novel_source.dart';
 import 'book_page.dart';
 import 'image_bytes.dart';
 import 'my.dart';
@@ -21,20 +22,38 @@ class _HomePageState extends State<HomePage> {
   String? error;
   final query = TextEditingController();
   List<Book>? results;
+  String selectedSource = 'sfacg';
   Library get library => widget.library;
+  SearchableNovelSource get searchSource => library.searchSources.firstWhere(
+    (source) => source.id == selectedSource,
+    orElse: () => library.searchSources.first,
+  );
   @override
   void dispose() {
     query.dispose();
     super.dispose();
   }
 
-  Future<void> _open(String input) async {
+  Future<void> _open(String input, {String? sourceId}) async {
     setState(() {
       busy = true;
       error = null;
     });
     try {
-      final book = await library.source.getBook(input);
+      var service = searchSource;
+      final sourceHint =
+          sourceId ??
+          (input.contains('fanqienovel.com') ||
+                  input.contains('reading.snssdk.com')
+              ? 'fanqie'
+              : input.contains('sfacg.com')
+              ? 'sfacg'
+              : selectedSource);
+      service = library.searchSources.firstWhere(
+        (source) => source.id == sourceHint,
+        orElse: () => service,
+      );
+      final book = await service.getBook(input);
       await library.add(book);
       await library.markActive(book);
       if (mounted) {
@@ -55,7 +74,8 @@ class _HomePageState extends State<HomePage> {
   Future<void> _search() async {
     final text = query.text.trim();
     if (text.isEmpty) return;
-    if (RegExp(r'^\d+$').hasMatch(text) || text.startsWith('http')) {
+    if (RegExp(r'^\d+$').hasMatch(text) ||
+        text.contains(RegExp(r'https?://'))) {
       await _open(text);
       return;
     }
@@ -64,7 +84,7 @@ class _HomePageState extends State<HomePage> {
       error = null;
     });
     try {
-      final data = await library.source.search(text);
+      final data = await searchSource.search(text);
       if (mounted) setState(() => results = data);
     } catch (e) {
       if (mounted) setState(() => error = '$e');
@@ -127,7 +147,7 @@ class _HomePageState extends State<HomePage> {
 
   Widget _buildPage(BuildContext context, List<Book> shelf) => Scaffold(
     appBar: AppBar(
-      title: Text(['我的书库', '菠萝包轻小说', '我的'][tab]),
+      title: Text(['我的书库', searchSource.name, '我的'][tab]),
       actions: [
         IconButton(
           tooltip: '开源许可',
@@ -187,7 +207,7 @@ class _HomePageState extends State<HomePage> {
                             ),
                             const SizedBox(height: 12),
                             const Text(
-                              '导入一本 EPUB / TXT，或从菠萝包开始阅读。',
+                              '导入一本 EPUB / TXT，或从书源开始阅读。',
                               textAlign: TextAlign.center,
                             ),
                             const SizedBox(height: 28),
@@ -199,7 +219,7 @@ class _HomePageState extends State<HomePage> {
                             const SizedBox(height: 8),
                             TextButton(
                               onPressed: () => setState(() => tab = 1),
-                              child: const Text('添加菠萝包作品'),
+                              child: const Text('添加网络作品'),
                             ),
                           ],
                         ),
@@ -243,9 +263,7 @@ class _HomePageState extends State<HomePage> {
                                 style: Theme.of(context).textTheme.bodySmall,
                               ),
                               Text(
-                                book.source == 'sfacg'
-                                    ? '菠萝包 · ${book.chapters.length} 章'
-                                    : '本地 · ${book.chapters.length} 章',
+                                '${library.sourceName(book)} · ${book.chapters.length} 章',
                                 style: Theme.of(context).textTheme.bodySmall,
                               ),
                             ],
@@ -258,6 +276,35 @@ class _HomePageState extends State<HomePage> {
                   constraints: const BoxConstraints(maxWidth: 800),
                   child: Column(
                     children: [
+                      if (library.searchSources.length > 1)
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+                          child: DropdownButtonFormField<String>(
+                            key: const ValueKey('novel-source-selector'),
+                            initialValue: selectedSource,
+                            decoration: const InputDecoration(
+                              labelText: '书源',
+                              border: OutlineInputBorder(),
+                            ),
+                            items: [
+                              for (final source in library.searchSources)
+                                DropdownMenuItem(
+                                  value: source.id,
+                                  child: Text(source.name),
+                                ),
+                            ],
+                            onChanged: busy
+                                ? null
+                                : (value) {
+                                    if (value == null) return;
+                                    setState(() {
+                                      selectedSource = value;
+                                      results = null;
+                                      error = null;
+                                    });
+                                  },
+                          ),
+                        ),
                       Padding(
                         padding: const EdgeInsets.all(20),
                         child: TextField(
@@ -278,9 +325,11 @@ class _HomePageState extends State<HomePage> {
                         ),
                       ),
                       if (results == null)
-                        const Padding(
+                        Padding(
                           padding: EdgeInsets.all(24),
-                          child: Text('输入菠萝包书名搜索，也可以直接添加作品 ID 或链接。'),
+                          child: Text(
+                            '输入${searchSource.name}书名搜索，也可以直接添加作品 ID 或链接。',
+                          ),
                         ),
                       if (results?.isEmpty == true)
                         const Padding(
@@ -300,7 +349,10 @@ class _HomePageState extends State<HomePage> {
                                 title: Text(book.title),
                                 subtitle: Text(book.author),
                                 trailing: const Icon(Icons.chevron_right),
-                                onTap: busy ? null : () => _open(book.id),
+                                onTap: busy
+                                    ? null
+                                    : () =>
+                                          _open(book.id, sourceId: book.source),
                               ),
                           ],
                         ),
