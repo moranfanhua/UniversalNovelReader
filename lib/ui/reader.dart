@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollDirection;
 import 'package:flutter/services.dart';
 import '../data/library.dart';
 import '../domain/models.dart';
@@ -55,6 +56,12 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   Set<int> previewRows = {};
   ChapterContent? previewContent;
   bool skipFirstPage = false;
+  final scrollChapters = <_ScrollChapter>[];
+  bool loadingScrollNext = false,
+      scrollNextScheduled = false,
+      scrollFrameScheduled = false;
+  Object? scrollNextError;
+  GlobalKey? pendingScrollRestore;
   String _entryKey(int chapter) => '${widget.book.key}:$chapter';
   Library get library => widget.library;
   CommentSource? get comments => library.commentsFor(widget.book);
@@ -97,6 +104,12 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     previewRows = {};
     previewContent = null;
     loadedParagraphs = [];
+    scrollChapters.clear();
+    loadingScrollNext = false;
+    scrollNextScheduled = false;
+    scrollFrameScheduled = false;
+    scrollNextError = null;
+    pendingScrollRestore = null;
     commentCounts.clear();
     countRequests.clear();
     countErrors.clear();
@@ -111,6 +124,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       if (!mounted || generation != loadGeneration) return value;
       keys = List.generate(value.paragraphs.length, (_) => GlobalKey());
       loadedParagraphs = value.paragraphs;
+      scrollChapters.add(_ScrollChapter(chapter, value, keys));
       openAtEnd = false;
       if (atEnd && value.paragraphs.isNotEmpty) {
         paragraph = value.paragraphs.length - 1;
@@ -133,6 +147,22 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       } else if (keys.isNotEmpty) {
         final index = restoreParagraph.clamp(0, keys.length - 1);
         final ctx = keys[index].currentContext;
+        final box = ctx?.findRenderObject();
+        final view = viewport.currentContext?.findRenderObject();
+        if (restoreParagraph > 0 &&
+            library.readingMode == ReadingMode.scroll &&
+            chapter + 1 < widget.book.chapters.length &&
+            scroll.hasClients &&
+            box is RenderBox &&
+            view is RenderBox &&
+            box.hasSize &&
+            view.hasSize &&
+            scroll.offset +
+                    box.localToGlobal(Offset.zero).dy -
+                    view.localToGlobal(Offset.zero).dy >
+                scroll.position.maxScrollExtent + .5) {
+          pendingScrollRestore = keys[index];
+        }
         if (ctx != null) await Scrollable.ensureVisible(ctx, alignment: 0);
       }
       if (!mounted || generation != loadGeneration) return;
@@ -145,6 +175,11 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     if (settingsOpen) return;
     _scheduleCounts();
     if (restoring) return;
+    if (library.readingMode == ReadingMode.scroll) {
+      _scheduleScrollAnchor();
+      _scheduleScrollNext();
+    }
+    if (pendingScrollRestore != null) return;
     debounce?.cancel();
     debounce = Timer(const Duration(milliseconds: 650), () {
       if (!mounted) return;
@@ -156,6 +191,203 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
         }
       });
     });
+  }
+
+  void _scheduleScrollAnchor() {
+    if (scrollFrameScheduled) return;
+    scrollFrameScheduled = true;
+    final generation = loadGeneration;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || generation != loadGeneration) return;
+      scrollFrameScheduled = false;
+      if (restoring ||
+          settingsOpen ||
+          library.readingMode != ReadingMode.scroll) {
+        return;
+      }
+      final oldChapter = chapter;
+      _updateScrollAnchor();
+      if (oldChapter != chapter) setState(() {});
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
+  void _updateScrollAnchor() {
+    if (pendingScrollRestore != null) return;
+    final view = viewport.currentContext?.findRenderObject();
+    if (view is! RenderBox || !view.hasSize) return;
+    final top = view.localToGlobal(Offset.zero).dy;
+    for (final block in scrollChapters) {
+      if (block.keys.isEmpty) {
+        final box = block.key.currentContext?.findRenderObject();
+        if (box is RenderBox &&
+            box.hasSize &&
+            box.localToGlobal(Offset(0, box.size.height)).dy > top) {
+          chapter = block.index;
+          paragraph = 0;
+          keys = block.keys;
+          loadedParagraphs = block.content.paragraphs;
+          return;
+        }
+      }
+      for (var i = 0; i < block.keys.length; i++) {
+        final box = block.keys[i].currentContext?.findRenderObject();
+        if (box is RenderBox &&
+            box.hasSize &&
+            box.localToGlobal(Offset(0, box.size.height)).dy > top) {
+          chapter = block.index;
+          paragraph = i;
+          keys = block.keys;
+          loadedParagraphs = block.content.paragraphs;
+          return;
+        }
+      }
+    }
+  }
+
+  bool get _canLoadScrollNext =>
+      mounted &&
+      !restoring &&
+      !leaving &&
+      !settingsOpen &&
+      library.readingMode == ReadingMode.scroll &&
+      scroll.hasClients &&
+      scrollChapters.isNotEmpty &&
+      !loadingScrollNext &&
+      scrollChapters.last.index + 1 < widget.book.chapters.length &&
+      ModalRoute.isCurrentOf(context) == true &&
+      (WidgetsBinding.instance.lifecycleState == null ||
+          WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed);
+
+  void _scheduleScrollNext() {
+    if (!_canLoadScrollNext ||
+        scrollNextScheduled ||
+        scrollNextError != null ||
+        scroll.position.extentAfter > .5) {
+      return;
+    }
+    scrollNextScheduled = true;
+    final generation = loadGeneration;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || generation != loadGeneration) return;
+      scrollNextScheduled = false;
+      if (_canLoadScrollNext && scroll.position.extentAfter <= .5) {
+        unawaited(_loadScrollNext());
+      }
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
+  Future<void> _loadScrollNext() async {
+    if (!_canLoadScrollNext) return;
+    final generation = loadGeneration;
+    final index = scrollChapters.last.index + 1;
+    // End the old chapter's fling instead of carrying its velocity into newly
+    // appended text. Loading never changes the current viewport position.
+    scroll.jumpTo(scroll.offset);
+    setState(() {
+      loadingScrollNext = true;
+      scrollNextError = null;
+    });
+    try {
+      final value = await library.read(
+        widget.book,
+        widget.book.chapters[index],
+      );
+      if (!mounted || generation != loadGeneration) return;
+      setState(
+        () => scrollChapters.add(
+          _ScrollChapter(
+            index,
+            value,
+            List.generate(value.paragraphs.length, (_) => GlobalKey()),
+          ),
+        ),
+      );
+    } catch (error) {
+      if (mounted && generation == loadGeneration) {
+        pendingScrollRestore = null;
+        setState(() => scrollNextError = error);
+      }
+    } finally {
+      if (mounted && generation == loadGeneration) {
+        setState(() => loadingScrollNext = false);
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && generation == loadGeneration) {
+            _restoreAppendedScrollAnchor();
+            _trimScrollChapters();
+            _track();
+          }
+        });
+      }
+    }
+  }
+
+  void _restoreAppendedScrollAnchor() {
+    final box = pendingScrollRestore?.currentContext?.findRenderObject();
+    final view = viewport.currentContext?.findRenderObject();
+    if (box is! RenderBox ||
+        view is! RenderBox ||
+        !box.hasSize ||
+        !view.hasSize ||
+        !scroll.hasClients) {
+      return;
+    }
+    final target =
+        scroll.offset +
+        box.localToGlobal(Offset.zero).dy -
+        view.localToGlobal(Offset.zero).dy;
+    if (target <= scroll.position.maxScrollExtent + .5 ||
+        scrollChapters.last.index + 1 == widget.book.chapters.length) {
+      pendingScrollRestore = null;
+    }
+    scroll.jumpTo(
+      target.clamp(
+        scroll.position.minScrollExtent,
+        scroll.position.maxScrollExtent,
+      ),
+    );
+  }
+
+  void _trimScrollChapters() {
+    if (!scroll.hasClients || restoring || scrollChapters.length <= 3) return;
+    final box = scrollChapters.first.key.currentContext?.findRenderObject();
+    if (box is! RenderBox ||
+        !box.hasSize ||
+        box.size.height > scroll.offset - scroll.position.viewportDimension) {
+      return;
+    }
+    final offset = scroll.offset - box.size.height;
+    final generation = loadGeneration;
+    restoring = true;
+    setState(() => scrollChapters.removeAt(0));
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || generation != loadGeneration) return;
+      if (scroll.hasClients) {
+        scroll.jumpTo(
+          offset.clamp(
+            scroll.position.minScrollExtent,
+            scroll.position.maxScrollExtent,
+          ),
+        );
+      }
+      restoring = false;
+      _track();
+    });
+  }
+
+  void _previousScrollChapter() {
+    if (restoring ||
+        leaving ||
+        settingsOpen ||
+        chapterCooldown?.isActive == true ||
+        scrollChapters.isEmpty) {
+      return;
+    }
+    final target = scrollChapters.first.index - 1;
+    if (target < 0) return;
+    chapterCooldown = Timer(const Duration(milliseconds: 400), () {});
+    _go(target, atEnd: true);
   }
 
   void _scheduleCounts() {
@@ -171,26 +403,32 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     final service = comments;
     if (!mounted ||
         restoring ||
+        settingsOpen ||
+        ModalRoute.isCurrentOf(context) == false ||
         countRequests.length >= 3 ||
         service?.commentCapabilities.counts != true) {
       return;
     }
     final visible = <(int, int)>{
-      for (final row in pageRows) (chapter, row),
-      for (final row in previewRows) (chapter + 1, row),
+      if (library.readingMode == ReadingMode.paged)
+        for (final row in pageRows) (chapter, row),
+      if (library.readingMode == ReadingMode.paged)
+        for (final row in previewRows) (chapter + 1, row),
     };
     if (library.readingMode == ReadingMode.scroll) {
       final view = viewport.currentContext?.findRenderObject();
       if (view is! RenderBox) return;
       final top = view.localToGlobal(Offset.zero).dy - 150;
       final bottom = top + view.size.height + 300;
-      for (var i = 0; i < keys.length; i++) {
-        final box = keys[i].currentContext?.findRenderObject();
-        final row = loadedParagraphs[i].remoteIndex;
-        if (row == null || box is! RenderBox) continue;
-        final y = box.localToGlobal(Offset.zero).dy;
-        if (y < bottom && y + box.size.height > top) {
-          visible.add((chapter, row));
+      for (final block in scrollChapters) {
+        for (var i = 0; i < block.keys.length; i++) {
+          final box = block.keys[i].currentContext?.findRenderObject();
+          final row = block.content.paragraphs[i].remoteIndex;
+          if (row == null || box is! RenderBox || !box.hasSize) continue;
+          final y = box.localToGlobal(Offset.zero).dy;
+          if (y < bottom && y + box.size.height > top) {
+            visible.add((block.index, row));
+          }
         }
       }
     }
@@ -205,7 +443,12 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       service!
           .paragraphCommentCount(
             _commentLocation(
-              (location.$1 == chapter
+              (library.readingMode == ReadingMode.scroll
+                      ? scrollChapters
+                            .firstWhere((block) => block.index == location.$1)
+                            .content
+                            .paragraphs
+                      : location.$1 == chapter
                       ? loadedParagraphs
                       : previewContent!.paragraphs)
                   .firstWhere(
@@ -265,6 +508,8 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       if (mounted && generation == loadGeneration) {
         setState(() => countErrors.add(location));
       }
+    } finally {
+      if (mounted && generation == loadGeneration) _scheduleCounts();
     }
   }
 
@@ -308,18 +553,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
         !settingsOpen &&
         library.readingMode == ReadingMode.scroll) {
       characterOffset = 0;
-      final viewBox = viewport.currentContext?.findRenderObject();
-      final top = viewBox is RenderBox
-          ? viewBox.localToGlobal(Offset.zero).dy
-          : 0.0;
-      for (var i = 0; i < keys.length; i++) {
-        final box = keys[i].currentContext?.findRenderObject();
-        if (box is RenderBox &&
-            box.localToGlobal(Offset(0, box.size.height)).dy > top) {
-          paragraph = i;
-          break;
-        }
-      }
+      _updateScrollAnchor();
     }
     library.pageOffsets[widget.book.key] = characterOffset;
     await library.remember(widget.book, chapter, paragraph);
@@ -344,6 +578,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && mounted) _track();
     if (state != AppLifecycleState.resumed && mounted) {
       unawaited(
         _savePosition().catchError((Object e) {
@@ -435,6 +670,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       if (library.readingMode == ReadingMode.paged) {
         await pagedKey.currentState?.turnPage(delta);
       } else if (scroll.hasClients) {
+        pendingScrollRestore = null;
         final position = scroll.position;
         final atBoundary = delta < 0
             ? position.extentBefore <= .5
@@ -579,6 +815,130 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     super.dispose();
   }
 
+  Widget _scrollBody() => BoundaryScroll(
+    key: ValueKey('chapter-scroll-$loadGeneration'),
+    axis: Axis.vertical,
+    onPrevious: scrollChapters.isNotEmpty && scrollChapters.first.index > 0
+        ? _previousScrollChapter
+        : null,
+    child: NotificationListener<ScrollMetricsNotification>(
+      onNotification: (notification) {
+        if (notification.depth == 0) _scheduleScrollNext();
+        return false;
+      },
+      child: NotificationListener<UserScrollNotification>(
+        onNotification: (notification) {
+          if (notification.depth == 0 &&
+              notification.direction != ScrollDirection.idle) {
+            pendingScrollRestore = null;
+          }
+          return false;
+        },
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(
+            parent: ClampingScrollPhysics(),
+          ),
+          key: viewport,
+          controller: scroll,
+          child: Column(
+            children: [
+              for (final block in scrollChapters) _scrollChapter(block),
+              if (loadingScrollNext)
+                const Padding(
+                  key: ValueKey('scroll-next-loading'),
+                  padding: EdgeInsets.all(24),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      SizedBox(width: 12),
+                      Text('正在加载下一章'),
+                    ],
+                  ),
+                ),
+              if (scrollNextError != null)
+                Padding(
+                  key: const ValueKey('scroll-next-error'),
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    children: [
+                      Text('下一章加载失败：$scrollNextError'),
+                      TextButton(
+                        key: const ValueKey('retry-scroll-next'),
+                        onPressed: _loadScrollNext,
+                        child: const Text('重试下一章'),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+
+  Widget _scrollChapter(_ScrollChapter block) => Center(
+    key: block.key,
+    child: ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: ReadingLayout.singleWidth),
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          library.horizontalMargin,
+          library.verticalMargin,
+          library.horizontalMargin,
+          library.verticalMargin + 40,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              widget.book.chapters[block.index].title,
+              style: Theme.of(context).textTheme.headlineSmall,
+            ),
+            const SizedBox(height: 32),
+            for (var i = 0; i < block.content.paragraphs.length; i++)
+              Padding(
+                key: block.keys[i],
+                padding: const EdgeInsets.only(bottom: 18),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: block.content.paragraphs[i].image != null
+                          ? BookImage(
+                              library: library,
+                              book: widget.book,
+                              url: block.content.paragraphs[i].image!,
+                            )
+                          : SelectableText(
+                              '　　${block.content.paragraphs[i].text}',
+                              style: TextStyle(
+                                fontSize: library.fontSize,
+                                fontFamily: library.readingFontFamily,
+                                height: library.lineHeight,
+                              ),
+                            ),
+                    ),
+                    if (comments != null &&
+                        block.content.paragraphs[i].remoteIndex != null)
+                      _commentButton(
+                        block.content.paragraphs[i],
+                        chapterIndex: block.index,
+                      ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+    ),
+  );
+
   @override
   Widget build(BuildContext context) => PopScope(
     canPop: false,
@@ -668,7 +1028,6 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                       !snapshot.hasData) {
                     return const Center(child: CircularProgressIndicator());
                   }
-                  final paragraphs = snapshot.data!.paragraphs;
                   _restorePosition();
                   if (library.readingMode == ReadingMode.paged) {
                     return PagedChapter(
@@ -722,79 +1081,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                       commentBuilder: _commentButton,
                     );
                   }
-                  return BoundaryScroll(
-                    key: ValueKey('chapter-scroll-$loadGeneration'),
-                    axis: Axis.vertical,
-                    onPrevious: chapter > 0 ? () => _stepChapter(-1) : null,
-                    onNext: chapter + 1 < widget.book.chapters.length
-                        ? () => _stepChapter(1)
-                        : null,
-                    child: SingleChildScrollView(
-                      physics: const AlwaysScrollableScrollPhysics(
-                        parent: ClampingScrollPhysics(),
-                      ),
-                      key: viewport,
-                      controller: scroll,
-                      child: Center(
-                        child: ConstrainedBox(
-                          constraints: const BoxConstraints(
-                            maxWidth: ReadingLayout.singleWidth,
-                          ),
-                          child: Padding(
-                            padding: EdgeInsets.fromLTRB(
-                              library.horizontalMargin,
-                              library.verticalMargin,
-                              library.horizontalMargin,
-                              library.verticalMargin + 40,
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                Text(
-                                  widget.book.chapters[chapter].title,
-                                  style: Theme.of(
-                                    context,
-                                  ).textTheme.headlineSmall,
-                                ),
-                                const SizedBox(height: 32),
-                                for (var i = 0; i < paragraphs.length; i++)
-                                  Padding(
-                                    key: keys[i],
-                                    padding: const EdgeInsets.only(bottom: 18),
-                                    child: Row(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Expanded(
-                                          child: paragraphs[i].image != null
-                                              ? BookImage(
-                                                  library: library,
-                                                  book: widget.book,
-                                                  url: paragraphs[i].image!,
-                                                )
-                                              : SelectableText(
-                                                  '　　${paragraphs[i].text}',
-                                                  style: TextStyle(
-                                                    fontSize: library.fontSize,
-                                                    fontFamily: library
-                                                        .readingFontFamily,
-                                                    height: library.lineHeight,
-                                                  ),
-                                                ),
-                                        ),
-                                        if (comments != null &&
-                                            paragraphs[i].remoteIndex != null)
-                                          _commentButton(paragraphs[i]),
-                                      ],
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  );
+                  return _scrollBody();
                 },
               ),
               bottomNavigationBar: SafeArea(
@@ -847,6 +1134,14 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       ),
     ),
   );
+}
+
+class _ScrollChapter {
+  _ScrollChapter(this.index, this.content, this.keys);
+  final int index;
+  final ChapterContent content;
+  final List<GlobalKey> keys;
+  final key = GlobalKey();
 }
 
 class BookImage extends StatefulWidget {

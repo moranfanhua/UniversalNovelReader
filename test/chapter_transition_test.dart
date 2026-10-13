@@ -140,33 +140,47 @@ void main() {
     });
   }
 
-  testWidgets('滚动到底后继续下滑进入下一章，上滑返回上一章底部', (tester) async {
+  testWidgets('滚动到底自动追加下一章，原章节仍可回读', (tester) async {
     final library = TransitionLibrary();
+    library.contents['2'] = ChapterContent([
+      const Paragraph('第二章正文'),
+      for (var i = 0; i < 40; i++) Paragraph('第二章段落$i'),
+    ]);
     await open(tester, library);
     final view = find.byType(SingleChildScrollView);
     final controller = tester.widget<SingleChildScrollView>(view).controller!;
     controller.jumpTo(controller.position.maxScrollExtent);
     await settle(tester);
     expect(find.text('1 / 3'), findsOneWidget);
-    await tester.drag(view, const Offset(0, -150));
+    expect(library.requests, ['1', '2']);
+    expect(find.text('　　第二章正文'), findsOneWidget);
+    await Scrollable.ensureVisible(
+      tester.element(find.text('　　第二章正文')),
+      alignment: 0,
+    );
     await settle(tester);
     expect(find.text('2 / 3'), findsOneWidget);
-    await tester.drag(find.byType(SingleChildScrollView), const Offset(0, 150));
+    await Scrollable.ensureVisible(
+      tester.element(find.text('　　上一章结尾标记')),
+      alignment: 0,
+    );
     await settle(tester);
     expect(find.text('1 / 3'), findsOneWidget);
-    expect(
-      controller.offset,
-      closeTo(controller.position.maxScrollExtent, 0.01),
-    );
     expect(find.text('　　上一章结尾标记').hitTestable(), findsOneWidget);
     expect(library.progress[transitionBook.key]!.last, greaterThan(20));
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
-  testWidgets('桌面滚轮在边界切章，短章也可向前和向后衔接', (tester) async {
+  testWidgets('桌面滚轮到达章末便加载下一章，回滚不需重新加载当前章', (tester) async {
     final library = TransitionLibrary();
-    await open(tester, library, chapter: 1, width: 1920);
+    await open(tester, library, width: 1920);
+    final controller = tester
+        .widget<SingleChildScrollView>(find.byType(SingleChildScrollView))
+        .controller!;
+    final end = controller.position.maxScrollExtent;
+    controller.jumpTo(end - 20);
+    await settle(tester);
     Future<void> wheel(double delta) async {
       await tester.sendEventToBinding(
         PointerScrollEvent(
@@ -178,35 +192,32 @@ void main() {
     }
 
     await wheel(30);
-    expect(find.text('3 / 3'), findsOneWidget);
+    expect(library.requests, ['1', '2']);
+    expect(find.text('　　第二章正文'), findsOneWidget);
+    expect(controller.offset, closeTo(end, .01));
     await wheel(-30);
-    expect(find.text('2 / 3'), findsOneWidget);
-    await wheel(-30);
+    expect(controller.offset, closeTo(end - 30, .01));
     expect(find.text('1 / 3'), findsOneWidget);
     expect(find.text('　　上一章结尾标记').hitTestable(), findsOneWidget);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
-  testWidgets('惯性到达章末不会连跳章节，继续拖动才衔接下一章', (tester) async {
+  testWidgets('惯性到达章末会追加下一章，停止惯性以保留当前章结尾', (tester) async {
     final library = TransitionLibrary();
     await open(tester, library);
     final view = find.byType(SingleChildScrollView);
     final controller = tester.widget<SingleChildScrollView>(view).controller!;
-    controller.jumpTo(controller.position.maxScrollExtent - 600);
+    final end = controller.position.maxScrollExtent;
+    controller.jumpTo(end - 600);
     await tester.pump();
     await tester.fling(view, const Offset(0, -300), 4000);
     await settle(tester);
-    expect(
-      controller.offset,
-      closeTo(controller.position.maxScrollExtent, 0.01),
-    );
+    expect(controller.offset, closeTo(end, 0.01));
     expect(find.text('1 / 3'), findsOneWidget);
-    expect(library.requests, ['1']);
-    await tester.drag(view, const Offset(0, -150));
-    await settle(tester);
-    expect(find.text('2 / 3'), findsOneWidget);
     expect(library.requests, ['1', '2']);
+    expect(find.text('　　上一章结尾标记').hitTestable(), findsOneWidget);
+    expect(find.text('　　第二章正文'), findsOneWidget);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
   });

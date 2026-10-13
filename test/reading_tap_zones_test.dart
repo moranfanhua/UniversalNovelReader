@@ -161,13 +161,14 @@ void main() {
               .widget<SingleChildScrollView>(view)
               .controller!;
           final offset = controller.offset;
+          final requests = library.requests.toList();
           final bounds = tester.getRect(view);
           for (final x in [bounds.left + 5, bounds.right - 5]) {
             await tester.tapAt(Offset(x, bounds.center.dy));
             await settle(tester);
           }
           expect(controller.offset, offset);
-          expect(library.requests, ['2']);
+          expect(library.requests, requests);
           expect(find.text('2 / 3'), findsOneWidget);
           await tester.pumpWidget(const SizedBox.shrink());
           return;

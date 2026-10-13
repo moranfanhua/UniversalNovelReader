@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:unr/data/library.dart';
+import 'package:unr/domain/models.dart';
 import 'package:unr/sources/sfacg_api.dart';
 import 'package:unr/sources/sfacg_source.dart';
 import 'package:unr/ui/reader.dart';
@@ -94,6 +95,10 @@ void main() {
 
   testWidgets('滚动阅读音量键按一屏移动，到边界才切章', (tester) async {
     final library = TransitionLibrary();
+    library.contents['2'] = ChapterContent([
+      const Paragraph('第二章正文'),
+      for (var i = 0; i < 40; i++) Paragraph('第二章段落$i'),
+    ]);
     await open(tester, library);
     final controller = tester
         .widget<SingleChildScrollView>(find.byType(SingleChildScrollView))
@@ -104,13 +109,14 @@ void main() {
     expect(find.text('1 / 3'), findsOneWidget);
     await volume(tester, -1);
     expect(controller.offset, closeTo(initialOffset, .1));
-    controller.jumpTo(controller.position.maxScrollExtent);
+    final chapterEnd = controller.position.maxScrollExtent;
+    controller.jumpTo(chapterEnd);
     await settle(tester);
     await volume(tester, 1);
     expect(find.text('2 / 3'), findsOneWidget);
     await volume(tester, -1);
     expect(find.text('1 / 3'), findsOneWidget);
-    expect(controller.offset, closeTo(controller.position.maxScrollExtent, .1));
+    expect(controller.offset, closeTo(chapterEnd, .1));
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
@@ -119,7 +125,22 @@ void main() {
       '四个方向键操控阅读，跨章保持正确位置（${mode.name}）',
       (tester) async {
         final library = TransitionLibrary()..readingMode = mode;
+        if (mode == ReadingMode.scroll) {
+          for (final id in ['2', '3']) {
+            library.contents[id] = ChapterContent([
+              Paragraph(id == '2' ? '第二章正文' : '第三章正文'),
+              for (var i = 0; i < 40; i++) Paragraph('章节$id段落$i'),
+            ]);
+          }
+        }
         await open(tester, library, chapter: 1);
+        if (mode == ReadingMode.scroll) {
+          final view = tester.widget<SingleChildScrollView>(
+            find.byType(SingleChildScrollView),
+          );
+          view.controller!.jumpTo(0);
+          await settle(tester);
+        }
         expect(enabledCalls.where((enabled) => enabled), isEmpty);
         for (final key in [
           LogicalKeyboardKey.arrowLeft,
@@ -133,7 +154,14 @@ void main() {
           await settle(tester);
           expect(find.text('2 / 3'), findsOneWidget);
         }
-        await tester.tap(find.text('　　第二章正文'));
+        if (mode == ReadingMode.scroll) {
+          final view = tester.widget<SingleChildScrollView>(
+            find.byType(SingleChildScrollView),
+          );
+          view.controller!.jumpTo(view.controller!.position.maxScrollExtent);
+        } else {
+          await tester.tap(find.text('　　第二章正文'));
+        }
         await settle(tester);
         await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
         await settle(tester);
