@@ -1,0 +1,15 @@
+name: Setup Flutter
+description: 使用固定 Flutter 版本和锁定依赖
+runs:
+  using: composite
+  steps:
+    - uses: subosito/flutter-action@v2
+      with:
+        flutter-version: '3.44.9'
+        channel: stable
+        cache: true
+    - name: Install locked dependencies
+      shell: bash
+      env:
+        PUB_HOSTED_URL: https://pub.flutter-io.cn
+      run: flutter pub get --enforce-lockfile

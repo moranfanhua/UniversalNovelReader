@@ -1,0 +1,169 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PYTHONUTF8: '1'
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  metadata:
+    name: Validate version
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      build_number: ${{ steps.version.outputs.build_number }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Validate tag against pubspec
+        id: version
+        run: python3 .github/scripts/release.py metadata
+
+  checks:
+    name: Analyze and test
+    needs: metadata
+    runs-on: windows-2025
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-flutter
+      - run: flutter analyze --no-pub --fatal-infos
+      - run: flutter test --no-pub
+      - name: Test release tooling
+        run: python -m unittest discover -s .github/scripts/tests -v
+
+  windows:
+    name: Build Windows x64
+    needs: [metadata, checks]
+    runs-on: windows-2025
+    timeout-minutes: 45
+    env:
+      RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
+      RELEASE_BUILD_NUMBER: ${{ needs.metadata.outputs.build_number }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-flutter
+      - name: Build release
+        shell: pwsh
+        run: >-
+          flutter build windows --release
+          --build-name "$env:RELEASE_VERSION"
+          --build-number "$env:RELEASE_BUILD_NUMBER"
+          --dart-define="APP_VERSION=$env:RELEASE_VERSION"
+      - name: Package complete Windows bundle
+        run: python .github/scripts/release.py windows
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows-release
+          path: build/release/*.zip
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+  android:
+    name: Build signed Android APKs
+    needs: [metadata, checks]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
+      RELEASE_BUILD_NUMBER: ${{ needs.metadata.outputs.build_number }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - uses: ./.github/actions/setup-flutter
+      - name: Restore release signing key
+        id: signing
+        run: python3 .github/scripts/release.py signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+      - name: Build universal and ABI APKs
+        shell: bash
+        env:
+          UNR_REQUIRE_RELEASE_SIGNING: 'true'
+          ANDROID_KEYSTORE_PATH: ${{ steps.signing.outputs.keystore_path }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+          BUILD_ARGS=(--release --build-name "$RELEASE_VERSION" --build-number "$RELEASE_BUILD_NUMBER" --dart-define="APP_VERSION=$RELEASE_VERSION")
+          flutter build apk "${BUILD_ARGS[@]}"
+          mkdir -p build/release
+          cp build/app/outputs/flutter-apk/app-release.apk "build/release/unr-${RELEASE_VERSION}-android-universal.apk"
+          flutter build apk "${BUILD_ARGS[@]}" --split-per-abi
+          python3 .github/scripts/release.py android
+      - name: Verify APK signatures
+        shell: bash
+        run: |
+          set -euo pipefail
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n 1)
+          test -n "$APKSIGNER"
+          for apk in build/release/*.apk; do "$APKSIGNER" verify "$apk"; done
+      - name: Remove signing key
+        if: always()
+        run: python3 .github/scripts/release.py clean-signing
+      - uses: actions/upload-artifact@v7
+        with:
+          name: android-release
+          path: build/release/*.apk
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+  draft-release:
+    name: Create release draft
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    needs: [metadata, windows, android]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: windows-release
+          path: build/release
+      - uses: actions/download-artifact@v8
+        with:
+          name: android-release
+          path: build/release
+      - name: Validate assets and create checksums
+        run: python3 .github/scripts/release.py finalize
+      # 所有附件上传成功后仍保留草稿，由维护者检查并点击 Publish release。
+      - name: Create or resume draft and upload assets
+        run: python3 .github/scripts/release.py draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
