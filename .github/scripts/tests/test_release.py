@@ -48,6 +48,7 @@ class ReleaseTests(unittest.TestCase):
         (self.root / "pubspec.yaml").write_text("name: unr\nversion: 0.1.1+2\n", encoding="utf-8")
         (self.root / "LICENSE").write_text("test-license", encoding="utf-8")
         (self.root / "README.md").write_text("# 开源库\n", encoding="utf-8")
+        (self.root / "CHANGELOG.md").write_text("# 更新日志\n\n## v0.1.1\n\n### 修复 | Fix\n\n* 修复阅读与段评问题。\n\n## v0.1.0\n\n* 旧版本功能。\n", encoding="utf-8")
         self.env = {"RELEASE_VERSION": "0.1.1", "GITHUB_EVENT_NAME": "push", "GITHUB_REF_TYPE": "tag", "GITHUB_REF_NAME": "v0.1.1", "GITHUB_REPOSITORY": "owner/unr", "GITHUB_SHA": "commit-sha", "GH_TOKEN": "synthetic-token"}
 
     def bundle(self):
@@ -158,8 +159,19 @@ class ReleaseTests(unittest.TestCase):
         self.assertTrue(api.created["draft"])
         self.assertFalse(api.created["prerelease"])
         self.assertIn("AGPL-3.0", api.created["body"])
+        self.assertIn("修复阅读与段评问题", api.created["body"])
+        self.assertNotIn("旧版本功能", api.created["body"])
+        self.assertFalse(any("generate-notes" in call[1] for call in api.calls))
         self.assertEqual(len([call for call in api.calls if call[3] is not None]), 7)
         self.assertFalse(any(call[0] == "PATCH" for call in api.calls))
+
+    def test_missing_changelog_blocks_all_release_writes(self):
+        self.assets()
+        (self.root / "CHANGELOG.md").unlink()
+        api = FakeGitHub()
+        with self.assertRaisesRegex(ValueError, "缺少已提交"):
+            release.draft(self.root, self.env, api)
+        self.assertTrue(all(call[0] == "GET" for call in api.calls))
 
     def test_upload_failure_never_publishes_partial_release(self):
         self.assets()

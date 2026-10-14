@@ -1,0 +1,38 @@
+name: Release Preparation
+
+on:
+  pull_request:
+    branches: [master]
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PYTHONUTF8: '1'
+
+concurrency:
+  group: release-preparation-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  release-changelog:
+    name: release-changelog
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      # 在 dev → master PR 中检查准备好的版本，不向受保护分支写入提交。
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Check version and reviewed changelog
+        run: python3 .github/scripts/release.py changelog
+      - name: Test release tooling
+        run: python3 -m unittest discover -s .github/scripts/tests -v
+      - name: Show next steps
+        run: |
+          echo '请在 dev 提交版本号与 CHANGELOG.md；若本检查失败，补充 changelog commit 并推送即可重跑。' >> "$GITHUB_STEP_SUMMARY"
+          echo '检查通过后合并 dev → master，在包含 changelog commit 的 master 提交上打 v版本号 标签。' >> "$GITHUB_STEP_SUMMARY"
+          echo '标签触发 Release 构建，草稿读取对应版本的日志；检查附件后手动发布。' >> "$GITHUB_STEP_SUMMARY"

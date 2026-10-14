@@ -34,6 +34,8 @@ jobs:
       - name: Validate master ancestry and tag against pubspec
         id: version
         run: python3 .github/scripts/release.py metadata
+      - name: Validate reviewed changelog in tagged sources
+        run: python3 .github/scripts/release.py changelog
 
   checks:
     name: Analyze and test
