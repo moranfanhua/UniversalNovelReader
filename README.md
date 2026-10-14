@@ -35,6 +35,7 @@
 - [SFacgExporter](https://github.com/moranfanhua/SFacgExporter) — AGPL-3.0；菠萝包签名、正文字符表与导出逻辑参考来源，原作者 moranfanhua。
 - [fanqienovel-downloader](https://github.com/ying-ck/fanqienovel-downloader) — AGPL-3.0；番茄官网正文字体字符表参考来源，原作者 ying-ck（qxqycb）。
 - [Pointy Castle](https://pub.dev/packages/pointycastle) — MIT；番茄接口签名与阅读密钥注册使用的 AES、SM3 实现。
+- [pinyin](https://pub.dev/packages/pinyin) — BSD-2-Clause；书名排序使用的汉字转拼音实现。
 - [convert](https://pub.dev/packages/convert) — BSD-3-Clause；Pointy Castle 的传递依赖。
 - [fqapp](https://github.com/ch6vip/fqapp) — GPL-3.0；番茄签名、密钥注册与接口参数参考来源，原作者 ch6vip。
 - [NetBare-Android](https://github.com/MegatronKing/NetBare-Android/tree/df5b417ea663763932cabf1ef52f15b09ddc2e16) — 本地 VPN 与 HTTPS 拦截核心；源码头标注 GPL-3.0-or-later，上游仓库 LICENSE 为 MIT，均保留在 Android 模块中。

@@ -79,7 +79,7 @@ class SettingsPage extends StatelessWidget {
             ),
             Text(switch (library.shelfSort) {
               ShelfSort.updated => '按已获取的作品更新时间排序，本地小说按导入时间排序。',
-              ShelfSort.name => '按名称升序排列。',
+              ShelfSort.name => '中文书名按无声调拼音的字典序升序排列，忽略英文大小写。',
               ShelfSort.lastActive => '最近打开或阅读的作品优先。',
             }),
             const Divider(height: 40),

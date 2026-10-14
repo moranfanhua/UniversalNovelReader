@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
+import 'package:pinyin/pinyin.dart';
 import '../domain/models.dart';
 import '../domain/bookshelf.dart';
 import '../sources/bookshelf_source.dart';
@@ -64,17 +65,52 @@ class Library extends ChangeNotifier {
   final List<Bookshelf> shelves = [];
   ShelfSort shelfSort = ShelfSort.lastActive;
   final Map<String, int> updatedTimes = {}, lastActiveTimes = {};
+  final Map<String, String> _nameSortKeys = {};
+  static String _nameSortKey(String title) {
+    final text = title.trim().toLowerCase();
+    try {
+      return PinyinHelper.getPinyin(
+        text,
+        separator: '',
+        format: PinyinFormat.WITHOUT_TONE,
+      ).toLowerCase();
+    } on PinyinException {
+      // An unsupported character must not prevent the shelf from opening.
+      return text.runes.map((rune) {
+        final character = String.fromCharCode(rune);
+        try {
+          return PinyinHelper.getPinyin(
+            character,
+            separator: '',
+            format: PinyinFormat.WITHOUT_TONE,
+          ).toLowerCase();
+        } on PinyinException {
+          return character;
+        }
+      }).join();
+    }
+  }
+
   int _updatedTime(Book book) => book.source == 'local'
       ? updatedTimes[book.key] ?? 0
       : book.updatedAt?.millisecondsSinceEpoch ?? updatedTimes[book.key] ?? 0;
   List<Book> get sortedBooks {
     final result = books.toList();
     final position = {for (var i = 0; i < books.length; i++) books[i].key: i};
+    final names = <String, String>{};
+    if (shelfSort == ShelfSort.name) {
+      final titles = books.map((book) => book.title).toSet();
+      _nameSortKeys.removeWhere((title, _) => !titles.contains(title));
+      for (final book in books) {
+        names[book.key] = _nameSortKeys.putIfAbsent(
+          book.title,
+          () => _nameSortKey(book.title),
+        );
+      }
+    }
     result.sort((a, b) {
       final comparison = switch (shelfSort) {
-        ShelfSort.name => a.title.trim().toLowerCase().compareTo(
-          b.title.trim().toLowerCase(),
-        ),
+        ShelfSort.name => names[a.key]!.compareTo(names[b.key]!),
         ShelfSort.updated => _updatedTime(b).compareTo(_updatedTime(a)),
         ShelfSort.lastActive => (lastActiveTimes[b.key] ?? 0).compareTo(
           lastActiveTimes[a.key] ?? 0,

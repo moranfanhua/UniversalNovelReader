@@ -21,6 +21,7 @@ dependencies:
   path_provider: ^2.1.6
   flutter_svg: ^2.3.0
   pointycastle: ^4.0.0
+  pinyin: ^3.3.0
 dev_dependencies:
   flutter_test:
     sdk: flutter
