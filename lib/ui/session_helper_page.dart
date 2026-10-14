@@ -18,7 +18,7 @@ class _SessionHelperPageState extends State<SessionHelperPage>
     with WidgetsBindingObserver {
   StreamSubscription<Map<String, dynamic>>? _subscription;
   Map<String, dynamic> _state = {};
-  bool _busy = false, _ready = false, _installed = false;
+  bool _busy = false, _ready = false, _installed = false, _appInstalled = false;
   String? _message;
 
   @override
@@ -40,11 +40,12 @@ class _SessionHelperPageState extends State<SessionHelperPage>
 
   Future<void> _prepare() async {
     try {
-      final state = await SessionHelper.prepare();
+      final state = await SessionHelper.prepare(widget.source);
       if (mounted) {
         setState(() {
           _state = state;
           _installed = state['certificateInstalled'] == true;
+          _appInstalled = state['appInstalled'] == true;
           _ready = true;
         });
       }
@@ -111,9 +112,12 @@ class _SessionHelperPageState extends State<SessionHelperPage>
     );
   }
 
-  Future<void> _openLogin() => _run(() async {
-    final cookie = await SessionHelper.openLogin(widget.source, vpn: true);
-    if (mounted && cookie != null) Navigator.pop(context, cookie);
+  Future<void> _complete() => _run(() async {
+    final cookie = await SessionHelper.captureResult(widget.source);
+    if (mounted && cookie != null)
+      Navigator.pop(context, cookie);
+    else if (mounted)
+      setState(() => _message = '尚未取得完整 App 会话，请在官方 App 登录或进入账号页后返回');
   });
 
   @override
@@ -131,7 +135,7 @@ class _SessionHelperPageState extends State<SessionHelperPage>
     final phase = _state['phase'];
     final running =
         phase == 'starting' || phase == 'capturing' || phase == 'stopping';
-    final canOpen = phase == 'capturing' || phase == 'captured';
+    final canOpen = phase == 'capturing';
     return Scaffold(
       appBar: AppBar(title: Text('${widget.name} · VPN 辅助登录')),
       body: Center(
@@ -140,15 +144,21 @@ class _SessionHelperPageState extends State<SessionHelperPage>
           child: ListView(
             padding: const EdgeInsets.all(24),
             children: [
-              const Text('网页登录无法自动取得会话时，可使用此 VPN 辅助。'),
+              Text('启动 VPN 后打开${widget.name}官方 App，登录或进入账号页，再返回 UNR 验证并保存会话。'),
               const SizedBox(height: 16),
               const Text(
-                '仅处理本阅读器中所选平台的网页登录请求，不抓取其他 App。会临时占用系统 VPN，取得会话或退出后自动停止。',
+                '只转发所选官方 App 的流量，仅收集其认证域名中的会话 Cookie，不读取密码或请求正文。取得完整会话或退出后自动停止 VPN。',
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                '官方 App 必须信任本机 CA 才能读取 HTTPS 会话。普通手机上，安装用户 CA 不保证可用；若 App 拒绝证书，将停止抓取并提示原因。',
               ),
               const SizedBox(height: 20),
               if (!SessionHelper.supported)
                 const Text('此辅助目前仅支持 Android。')
               else ...[
+                if (_ready && !_appInstalled)
+                  Text('未找到${widget.name}官方 App，请先安装后返回。'),
                 Text(_installed ? '本机 CA 证书已安装' : '需要先安装本机 CA 证书'),
                 if (_installed)
                   TextButton(
@@ -165,7 +175,11 @@ class _SessionHelperPageState extends State<SessionHelperPage>
                 const SizedBox(height: 12),
                 FilledButton(
                   onPressed:
-                      _busy || !_installed || running || phase == 'captured'
+                      _busy ||
+                          !_installed ||
+                          !_appInstalled ||
+                          running ||
+                          phase == 'captured'
                       ? null
                       : () => _run(() async {
                           final state = await SessionHelper.start(
@@ -176,8 +190,14 @@ class _SessionHelperPageState extends State<SessionHelperPage>
                   child: const Text('启动 VPN 辅助'),
                 ),
                 OutlinedButton(
-                  onPressed: _busy || !canOpen ? null : _openLogin,
-                  child: const Text('打开官网登录'),
+                  onPressed: _busy || !canOpen || !_appInstalled
+                      ? null
+                      : () => _run(() => SessionHelper.openApp(widget.source)),
+                  child: Text('打开${widget.name}官方 App'),
+                ),
+                FilledButton(
+                  onPressed: _busy || phase != 'captured' ? null : _complete,
+                  child: const Text('验证并保存 App 会话'),
                 ),
                 if (running || phase == 'captured')
                   TextButton(
@@ -189,8 +209,8 @@ class _SessionHelperPageState extends State<SessionHelperPage>
                   'starting' => '正在启动 VPN…',
                   'stopping' => '正在停止 VPN…',
                   'capturing' =>
-                    '正在等待网页登录，已识别 ${_state['requests'] ?? 0} 个平台请求',
-                  'captured' => '已取得会话，请在网页登录页点击“完成并验证”',
+                    '正在等待官方 App 请求，已识别 ${_state['requests'] ?? 0} 个认证域名请求',
+                  'captured' => '已取得完整 App 会话，请验证并保存',
                   'error' => '${_state['message'] ?? '辅助运行失败，请重试'}',
                   'stopped' => 'VPN 辅助已停止',
                   _ => _ready ? '准备就绪' : '正在准备本机证书…',

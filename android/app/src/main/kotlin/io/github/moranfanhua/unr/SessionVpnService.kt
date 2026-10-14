@@ -37,7 +37,7 @@ class SessionVpnService : NetBareService() {
         val builder = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(this, channelId) else Notification.Builder(this)
         return builder.setSmallIcon(android.R.drawable.ic_lock_lock)
             .setContentTitle("UNR 会话辅助正在运行")
-            .setContentText("仅辅助本机网页登录，点此返回；获取会话后自动停止")
+            .setContentText("仅抓取所选官方 App 的会话，取得后自动停止；点此返回 UNR")
             .setContentIntent(openIntent).setOngoing(true)
             .addAction(Notification.Action.Builder(null, "停止抓取", stopIntent).build()).build()
     }

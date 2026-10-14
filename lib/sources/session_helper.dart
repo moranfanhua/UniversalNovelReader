@@ -9,9 +9,12 @@ class SessionHelper {
   static Stream<Map<String, dynamic>> get events => _events
       .receiveBroadcastStream()
       .map((event) => Map<String, dynamic>.from(event as Map));
-  static Future<Map<String, dynamic>> prepare() async =>
+  static Future<Map<String, dynamic>> prepare(String source) async =>
       Map<String, dynamic>.from(
-        await _channel.invokeMapMethod<String, dynamic>('prepare') ?? {},
+        await _channel.invokeMapMethod<String, dynamic>('prepare', {
+              'source': source,
+            }) ??
+            {},
       );
   static Future<Map<String, dynamic>> start(String source) async =>
       Map<String, dynamic>.from(
@@ -25,9 +28,10 @@ class SessionHelper {
   static Future<void> certificateSettings() =>
       _channel.invokeMethod<void>('certificateSettings');
   static Future<void> stop() => _channel.invokeMethod<void>('stop');
-  static Future<String?> openLogin(String source, {bool vpn = false}) =>
-      _channel.invokeMethod<String>('openLogin', {
-        'source': source,
-        'vpn': vpn,
-      });
+  static Future<void> openApp(String source) =>
+      _channel.invokeMethod<void>('openApp', {'source': source});
+  static Future<String?> captureResult(String source) =>
+      _channel.invokeMethod<String>('captureResult', {'source': source});
+  static Future<String?> openLogin(String source) => _channel
+      .invokeMethod<String>('openLogin', {'source': source, 'vpn': false});
 }

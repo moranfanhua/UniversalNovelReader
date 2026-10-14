@@ -205,7 +205,8 @@ import javax.net.ssl.SSLHandshakeException;
         if (e == null || e.getMessage() == null) {
             return;
         }
-        if (e instanceof SSLHandshakeException) {
+        if (e instanceof SSLHandshakeException || e instanceof javax.net.ssl.SSLProtocolException) {
+            NetBareLog.tlsHandshakeFailed();
             // Client doesn't accept the MITM CA certificate.
             NetBareLog.e(e.getMessage());
             if (ip != null) {

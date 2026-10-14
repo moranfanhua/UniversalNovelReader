@@ -93,7 +93,6 @@ class WebLoginActivity : Activity() {
         for (url in platform.cookieUrls) {
             cookie = collector.add(URI(url).host, CookieManager.getInstance().getCookie(url) ?: "") ?: cookie
         }
-        cookie = cookie ?: SessionCapture.cookie(platform)
         collector.clear()
         if (cookie == null) {
             Toast.makeText(this, "尚未取得登录会话，请先在官网完成登录", Toast.LENGTH_LONG).show()

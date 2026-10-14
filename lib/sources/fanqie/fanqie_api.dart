@@ -141,9 +141,11 @@ class FanqieApi {
     return Map<String, dynamic>.from(doc['data']);
   }
 
-  Future<void> validateSession() async {
+  Future<void> validateSession({bool appSession = false}) async {
     if (!hasSession) throw const SourceException('请先导入番茄官网会话');
-    final data = await get('/api/reader/user/info');
+    final data = appSession
+        ? await app.request('/reading/user/info/v/')
+        : await get('/api/reader/user/info');
     final id = '${data['user_id'] ?? data['userId'] ?? data['id'] ?? ''}';
     if (!RegExp(r'^[1-9]\d*$').hasMatch(id)) {
       throw const SourceException('番茄会话未登录或已失效');

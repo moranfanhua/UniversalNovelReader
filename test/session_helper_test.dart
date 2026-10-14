@@ -227,7 +227,11 @@ void main() {
       messenger.setMockMethodCallHandler(helper, (call) async {
         methods.add(call.method);
         return switch (call.method) {
-          'prepare' => {'phase': 'idle', 'certificateInstalled': installed},
+          'prepare' => {
+            'phase': 'idle',
+            'certificateInstalled': installed,
+            'appInstalled': true,
+          },
           'installCertificate' => 'UNR-session-CA.cer',
           'certificateSettings' => null,
           'start' =>
@@ -255,6 +259,7 @@ void main() {
             .onPressed,
         isNull,
       );
+      await tester.ensureVisible(find.text('安装本机抓包证书'));
       await tester.tap(find.text('安装本机抓包证书'));
       await tester.pumpAndSettle();
       expect(find.textContaining('下载/UNR-session-CA.cer'), findsOneWidget);
@@ -264,13 +269,14 @@ void main() {
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
       await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('启动 VPN 辅助'));
       await tester.tap(find.text('启动 VPN 辅助'));
       await tester.pumpAndSettle();
       expect(find.text('未授权 VPN，网页登录仍可直接使用'), findsOneWidget);
       denied = false;
       await tester.tap(find.text('启动 VPN 辅助'));
       await tester.pumpAndSettle();
-      expect(find.textContaining('正在等待网页登录'), findsOneWidget);
+      expect(find.textContaining('正在等待官方 App 请求'), findsOneWidget);
       expect(find.text('停止抓取'), findsOneWidget);
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pumpAndSettle();
@@ -298,4 +304,114 @@ void main() {
     },
     variant: TargetPlatformVariant({TargetPlatform.windows}),
   );
+
+  for (final source in ['sfacg', 'fanqie']) {
+    testWidgets(
+      '$source 的 VPN 辅助打开官方 App 并按 App 会话验证，不进入网页',
+      (tester) async {
+        var phase = 'idle', saves = 0;
+        final calls = <String>[];
+        messenger.setMockMethodCallHandler(events, (_) async => null);
+        messenger.setMockMethodCallHandler(helper, (call) async {
+          calls.add(call.method);
+          if (call.method != 'stop') expect(call.arguments, {'source': source});
+          switch (call.method) {
+            case 'prepare':
+              return {
+                'phase': phase,
+                'source': source,
+                'certificateInstalled': true,
+                'appInstalled': true,
+              };
+            case 'start':
+              phase = 'capturing';
+              return {'phase': phase, 'source': source};
+            case 'openApp':
+              phase = 'captured';
+              return null;
+            case 'captureResult':
+              return source == 'sfacg'
+                  ? '.SFCommunity=app; session_APP=app-session'
+                  : 'sessionid=app-session';
+            case 'stop':
+              return null;
+            default:
+              fail('VPN 辅助不应调用 ${call.method}');
+          }
+        });
+        final sf = SfacgApi(
+          client: MockClient((request) async {
+            expect(request.url.host, 'api.sfacg.com');
+            expect(request.url.path, '/user');
+            expect(
+              request.headers['Cookie'],
+              contains('session_APP=app-session'),
+            );
+            return sfResponse({'accountId': 42});
+          }),
+        );
+        final fq = FanqieApi(
+          client: MockClient((request) async {
+            expect(request.url.host, 'api5-normal-sinfonlineb.fqnovel.com');
+            expect(request.url.path, '/reading/user/info/v/');
+            expect(request.headers['Cookie'], 'sessionid=app-session');
+            return http.Response(
+              jsonEncode({
+                'code': 0,
+                'data': {'user_id': '42'},
+              }),
+              200,
+            );
+          }),
+        );
+        fq.app.restore({'deviceId': '1234567890', 'installId': '2345678901'});
+        addTearDown(sf.close);
+        addTearDown(fq.close);
+        sf.onSessionChanged = fq.onSessionChanged = () async {
+          saves++;
+        };
+        await tester.pumpWidget(
+          MaterialApp(
+            home: source == 'sfacg'
+                ? Scaffold(
+                    body: AccountPage(
+                      library: Library(Directory.systemTemp, SfacgSource(sf)),
+                    ),
+                  )
+                : FanqieAccountPage(api: fq),
+          ),
+        );
+        await tester.tap(find.text('VPN 辅助登录'));
+        await tester.pumpAndSettle();
+        expect(find.text('打开官网登录'), findsNothing);
+        await tester.ensureVisible(find.text('启动 VPN 辅助'));
+        await tester.tap(find.text('启动 VPN 辅助'));
+        await tester.pumpAndSettle();
+        final openApp = find.text(
+          '打开${source == 'sfacg' ? '菠萝包' : '番茄小说'}官方 App',
+        );
+        await tester.ensureVisible(openApp);
+        await tester.tap(openApp);
+        await tester.pumpAndSettle();
+        tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+        tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.resumed,
+        );
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.text('验证并保存 App 会话'));
+        await tester.tap(find.text('验证并保存 App 会话'));
+        await tester.pumpAndSettle();
+        expect(saves, 1);
+        expect(
+          calls,
+          containsAllInOrder(['start', 'openApp', 'captureResult', 'stop']),
+        );
+        expect(calls, isNot(contains('openLogin')));
+        if (source == 'sfacg') expect(sf.websiteSession, isFalse);
+        expect(source == 'sfacg' ? sf.hasSession : fq.hasSession, isTrue);
+        expect(tester.takeException(), isNull);
+      },
+      variant: TargetPlatformVariant({TargetPlatform.android}),
+    );
+  }
 }

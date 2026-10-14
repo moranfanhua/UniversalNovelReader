@@ -10,11 +10,13 @@ import java.util.HashSet;
 public class SSLWhiteList {
     private static HashSet<String> whitelist = new HashSet<>();
 
-    public static void add(String ip) {
+    public static synchronized void add(String ip) {
         whitelist.add(ip);
     }
 
-    public static boolean contains(String ip) {
+    public static synchronized boolean contains(String ip) {
         return whitelist.contains(ip);
     }
+
+    public static synchronized void clear() { whitelist.clear(); }
 }

@@ -34,7 +34,7 @@ class _FanqieAccountPageState extends State<FanqieAccountPage> {
     super.dispose();
   }
 
-  Future<void> _import() async {
+  Future<void> _import({bool appSession = false}) async {
     setState(() {
       busy = true;
       message = null;
@@ -42,8 +42,11 @@ class _FanqieAccountPageState extends State<FanqieAccountPage> {
     final candidate = FanqieApi(client: widget.api.client);
     try {
       candidate.setCookie(cookie.text);
-      await candidate.validateSession();
+      if (appSession && widget.api.app.deviceId.isNotEmpty)
+        candidate.app.restore(widget.api.app.toJson());
+      await candidate.validateSession(appSession: appSession);
       widget.api.setCookie(candidate.cookie);
+      if (appSession) widget.api.app.restore(candidate.app.toJson());
       await widget.api.onSessionChanged?.call();
       cookie.clear();
       if (mounted) {
@@ -90,10 +93,15 @@ class _FanqieAccountPageState extends State<FanqieAccountPage> {
           : await SessionHelper.openLogin('fanqie');
       if (mounted && value != null) {
         cookie.text = value;
-        await _import();
+        await _import(appSession: vpn);
       }
     } catch (_) {
-      if (mounted) setState(() => message = '无法打开网页登录，请重试或手动导入会话');
+      if (mounted)
+        setState(
+          () => message = vpn
+              ? '无法打开 App 会话辅助，请重试或手动导入会话'
+              : '无法打开网页登录，请重试或手动导入会话',
+        );
     } finally {
       if (mounted) setState(() => busy = false);
     }

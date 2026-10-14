@@ -120,6 +120,7 @@ object SessionCapture {
         check(phase in listOf("idle", "stopped", "error") && !NetBare.get().isActive) { "请先停止当前抓取" }
         val store = checkNotNull(jks) { "请先准备并安装证书" }
         check(store.isInstalled) { "请先安装本机抓包 CA 证书" }
+        check(context.packageManager.getLaunchIntentForPackage(source.appPackage) != null) { "请先安装${source.title}官方 App" }
         val connectivity = context.getSystemService(ConnectivityManager::class.java)
         val network = connectivity.activeNetwork?.takeIf {
             connectivity.getNetworkCapabilities(it)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == false
@@ -138,41 +139,57 @@ object SessionCapture {
         captured = null
         requests = 0
         message = null
+        com.github.megatronking.netbare.ssl.SSLWhiteList.clear()
         phase = "starting"
+        com.github.megatronking.netbare.NetBareLog.setTlsHandshakeFailureListener { main.post {
+            if (generation == token && phase in listOf("starting", "capturing")) {
+                stop()
+                phase = "error"
+                message = "官方 App 的 HTTPS 握手失败，可能不信任本机 CA 或启用了证书校验。VPN 已停止；普通手机无法仅靠安装用户 CA 解除此限制。"
+                publish()
+            }
+        } }
+        fun collectHeaders(host: String, headers: List<String>, response: Boolean) {
+            if (!source.acceptsAppHost(host)) return
+            main.post {
+                if (generation == token && phase in listOf("capturing", "starting")) {
+                    if (!response) requests++
+                    for (header in headers) {
+                        val cookie = if (response) collector?.addAppSetCookie(host, header) else collector?.addApp(host, header)
+                        if (cookie != null) {
+                            captured = cookie
+                            phase = "captured"
+                            main.postDelayed({ if (generation == token && phase == "captured") stop(clear = false) }, 2000)
+                            break
+                        }
+                    }
+                    publish()
+                }
+            }
+        }
         val factory = HttpInterceptorFactory { object : HttpIndexedInterceptor() {
             override fun intercept(chain: HttpRequestChain, buffer: ByteBuffer, index: Int) {
                 val requestHeaders = chain.request().requestHeaders()
-                val loginRequest = requestHeaders.filterKeys { it.equals("user-agent", true) }.values.flatten().any { it.contains(source.userAgentMarker) }
-                if (index == 0 && loginRequest && source.acceptsHost(chain.request().host() ?: "")) {
-                    val host = chain.request().host()
+                if (index == 0) {
                     val headers = requestHeaders.filterKeys { it.equals("cookie", true) }.values.flatten()
-                    main.post {
-                        if (generation == token && (phase == "capturing" || phase == "starting")) {
-                            requests++
-                            for (header in headers) {
-                                val cookie = collector?.add(host, header)
-                                if (cookie != null) {
-                                    captured = cookie
-                                    phase = "captured"
-                                    main.postDelayed({ if (generation == token && phase == "captured") stop(clear = false) }, 2000)
-                                    break
-                                }
-                            }
-                            publish()
-                        }
-                    }
+                    collectHeaders(chain.request().host() ?: "", headers, false)
                 }
                 chain.process(buffer)
             }
-            override fun intercept(chain: HttpResponseChain, buffer: ByteBuffer, index: Int) { chain.process(buffer) }
+            override fun intercept(chain: HttpResponseChain, buffer: ByteBuffer, index: Int) {
+                if (index == 0) {
+                    val headers = chain.response().responseHeaders().filterKeys { it.equals("set-cookie", true) }.values.flatten()
+                    collectHeaders(chain.response().host() ?: "", headers, true)
+                }
+                chain.process(buffer)
+            }
         } }
         val builder = NetBareConfig.defaultHttpConfig(store, listOf(factory)).newBuilder()
             .setSession("UNR 会话辅助")
-            .addAllowedApplication(context.packageName)
-            .addAllowedHost(if (source == SessionPlatform.SFACG) "*.sfacg.com" else "*.fanqienovel.com")
-            .addAllowedHost(if (source == SessionPlatform.SFACG) "sfacg.com" else "fanqienovel.com")
+            .addAllowedApplication(source.appPackage)
             .excludeSelf(false)
             .blockQuic(true)
+        source.appHosts.forEach { builder.addAllowedHost(it); builder.addAllowedHost("*.$it") }
         dnsServers.forEach { builder.addDnsServer(it) }
         val config = builder.build()
         try {
@@ -196,7 +213,14 @@ object SessionCapture {
 
     fun cookie(source: SessionPlatform): String? = if (platform == source) captured else null
 
+    fun takeCookie(source: SessionPlatform): String? {
+        val result = cookie(source)
+        if (result != null) stop()
+        return result
+    }
+
     fun stop(clear: Boolean = true) {
+        com.github.megatronking.netbare.NetBareLog.setTlsHandshakeFailureListener(null)
         val active = NetBare.get().isActive || phase == "starting" || phase == "capturing"
         if (clear) {
             generation++

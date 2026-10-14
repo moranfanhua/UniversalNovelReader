@@ -7,6 +7,18 @@ enum class SessionPlatform(val id: String, val title: String, val loginUrl: Stri
     FANQIE("fanqie", "番茄小说", "https://fanqienovel.com/main/writer/login");
 
     val userAgentMarker get() = "UNRSessionLogin/$id"
+    val appPackage get() = when (this) {
+        SFACG -> "com.sfacg"
+        FANQIE -> "com.dragon.read"
+    }
+    val appHosts get() = when (this) {
+        SFACG -> listOf("api.sfacg.com")
+        FANQIE -> listOf("fqnovel.com", "fanqienovel.com", "reading.snssdk.com", "novel.snssdk.com")
+    }
+    fun acceptsAppHost(host: String): Boolean {
+        val normalized = host.lowercase().trimEnd('.')
+        return appHosts.any { normalized == it || normalized.endsWith(".$it") }
+    }
 
     fun acceptsHost(host: String): Boolean {
         val normalized = host.lowercase().trimEnd('.')
@@ -43,8 +55,23 @@ class SessionCookies(private val platform: SessionPlatform) {
             "uid_tt_ss", "passport_csrf_token", "passport_csrf_token_default", "sid_ucp_v1", "ssid_ucp_v1")
     }
 
-    @Synchronized fun add(host: String, header: String): String? {
-        if (!platform.acceptsHost(host) || header.length > 16384 || header.any { it.code < 32 || it.code == 127 }) return null
+    @Synchronized fun add(host: String, header: String): String? = collect(host, header, false)
+
+    @Synchronized fun addApp(host: String, header: String): String? = collect(host, header, true)
+
+    @Synchronized fun addAppSetCookie(host: String, header: String): String? {
+        if (header.length > 16384 || header.any { it.code < 32 || it.code == 127 }) return null
+        var result: String? = null
+        for (part in header.split(Regex(",\\s*(?=[.A-Za-z0-9_-]+=)"))) {
+            val pair = part.substringBefore(';')
+            val deletion = part.split(';').drop(1).any { it.trim().equals("Max-Age=0", true) }
+            result = collect(host, if (deletion) pair.substringBefore('=') + "=" else pair, true)
+        }
+        return result
+    }
+
+    private fun collect(host: String, header: String, app: Boolean): String? {
+        if (!(if (app) platform.acceptsAppHost(host) else platform.acceptsHost(host)) || header.length > 16384 || header.any { it.code < 32 || it.code == 127 }) return null
         for (part in header.split(';')) {
             val index = part.indexOf('=')
             if (index < 1) continue
@@ -55,7 +82,7 @@ class SessionCookies(private val platform: SessionPlatform) {
             }
         }
         val ready = when (platform) {
-            SessionPlatform.SFACG -> values[".SFCommunity"]?.isNotEmpty() == true
+            SessionPlatform.SFACG -> values[".SFCommunity"]?.isNotEmpty() == true && (!app || values["session_APP"]?.isNotEmpty() == true)
             SessionPlatform.FANQIE -> values["sessionid"]?.isNotEmpty() == true || values["sessionid_ss"]?.isNotEmpty() == true
         }
         return if (ready) values.entries.joinToString("; ") { "${it.key}=${it.value}" } else null

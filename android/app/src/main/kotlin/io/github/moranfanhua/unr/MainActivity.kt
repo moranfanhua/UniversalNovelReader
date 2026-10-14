@@ -32,8 +32,12 @@ class MainActivity : FlutterActivity() {
             channel.setMethodCallHandler { call, result ->
                 try {
                     when (call.method) {
-                        "prepare" -> SessionCapture.prepare { state, error ->
-                            if (error == null) result.success(state) else result.error("certificate", error, null)
+                        "prepare" -> {
+                            val source = SessionPlatform.fromId(call.argument<String>("source"))
+                            val appInstalled = packageManager.getLaunchIntentForPackage(source.appPackage) != null
+                            SessionCapture.prepare { state, error ->
+                                if (error == null) result.success(state?.plus("appInstalled" to appInstalled)) else result.error("certificate", error, null)
+                            }
                         }
                         "status" -> result.success(SessionCapture.snapshot())
                         "installCertificate" -> {
@@ -85,12 +89,20 @@ class MainActivity : FlutterActivity() {
                         "openLogin" -> {
                             check(loginResult == null) { "网页登录正在进行" }
                             val source = SessionPlatform.fromId(call.argument<String>("source"))
-                            if (call.argument<Boolean>("vpn") == true) {
-                                val state = SessionCapture.snapshot()
-                                check(state["source"] == source.id && state["phase"] in listOf("capturing", "captured")) { "请先启动对应平台的 VPN 辅助" }
-                            } else SessionCapture.stop()
+                            check(call.argument<Boolean>("vpn") != true) { "VPN 辅助请打开官方 App" }
+                            SessionCapture.stop()
                             loginResult = result
                             startActivityForResult(Intent(this, WebLoginActivity::class.java).putExtra("source", source.id), 5134)
+                        }
+                        "openApp" -> {
+                            val source = SessionPlatform.fromId(call.argument<String>("source"))
+                            val launch = packageManager.getLaunchIntentForPackage(source.appPackage)
+                            if (launch == null) result.error("app_missing", "请先安装${source.title}官方 App", null)
+                            else { startActivity(launch); result.success(null) }
+                        }
+                        "captureResult" -> {
+                            val source = SessionPlatform.fromId(call.argument<String>("source"))
+                            result.success(SessionCapture.takeCookie(source))
                         }
                         else -> result.notImplemented()
                     }

@@ -29,6 +29,16 @@ public final class NetBareLog {
 
     private static boolean sDebug;
     private static boolean sTransportDebug;
+    private static volatile Runnable sTlsHandshakeFailureListener;
+
+    public static void setTlsHandshakeFailureListener(Runnable listener) {
+        sTlsHandshakeFailureListener = listener;
+    }
+
+    public static void tlsHandshakeFailed() {
+        Runnable listener = sTlsHandshakeFailureListener;
+        if (listener != null) listener.run();
+    }
 
     public static void setTransportDebug(boolean debug) { sTransportDebug = debug; }
 
