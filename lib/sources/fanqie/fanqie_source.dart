@@ -89,11 +89,30 @@ class FanqieSource extends FanqieComments implements SearchableNovelSource {
     final data = await api.search(keyword.trim(), page: page);
     final list = data['ret_data'];
     if (list is! List) throw const SourceException('番茄搜索结果格式已变化');
-    return list.map((raw) {
+    final infos = list.map((raw) {
       if (raw is! Map) throw const SourceException('番茄搜索结果格式已变化');
       final info = raw['book_data'] is Map ? raw['book_data'] as Map : raw;
       final bid = '${info['book_id'] ?? info['bookId'] ?? ''}';
       if (!_id.hasMatch(bid)) throw const SourceException('番茄搜索结果包含无效作品 ID');
+      return info;
+    }).toList();
+    final favorites = <String, int>{};
+    try {
+      for (var offset = 0; offset < infos.length; offset += 20) {
+        favorites.addAll(
+          await api.app.bookFavoriteCounts(
+            infos
+                .skip(offset)
+                .take(20)
+                .map((info) => '${info['book_id'] ?? info['bookId']}'),
+          ),
+        );
+      }
+    } on SourceException {
+      // A missing popularity response must not discard successful search results.
+    }
+    return infos.map((info) {
+      final bid = '${info['book_id'] ?? info['bookId']}';
       return Book(
         id: bid,
         source: id,
@@ -106,6 +125,7 @@ class FanqieSource extends FanqieComments implements SearchableNovelSource {
         cover: '${info['audio_thumb_uri'] ?? info['thumb_url'] ?? ''}'
             .replaceFirst(RegExp(r'^//'), 'https://'),
         description: html.parseFragment('${info['abstract'] ?? ''}').text ?? '',
+        favoriteCount: favorites[bid],
         chapters: [],
       );
     }).toList();

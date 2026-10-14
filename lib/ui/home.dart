@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import '../data/library.dart';
 import '../domain/models.dart';
 import '../formats/ebook.dart';
-import '../sources/novel_source.dart';
+import '../sources/novel_search.dart';
 import 'book_page.dart';
 import 'image_bytes.dart';
 import 'my.dart';
@@ -18,16 +18,11 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   int tab = 0;
-  bool busy = false, gbk = false;
+  bool busy = false, gbk = false, searchFailed = false;
   String? error;
   final query = TextEditingController();
   List<Book>? results;
-  String selectedSource = 'sfacg';
   Library get library => widget.library;
-  SearchableNovelSource get searchSource => library.searchSources.firstWhere(
-    (source) => source.id == selectedSource,
-    orElse: () => library.searchSources.first,
-  );
   @override
   void dispose() {
     query.dispose();
@@ -35,23 +30,29 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _open(String input, {String? sourceId}) async {
+    if (busy) return;
     setState(() {
       busy = true;
       error = null;
     });
     try {
-      var service = searchSource;
+      final link = RegExp(r'https?://[^\s<>「」“”]+').firstMatch(input);
+      final host = link == null
+          ? null
+          : Uri.tryParse(link[0]!)?.host.toLowerCase();
       final sourceHint =
           sourceId ??
-          (input.contains('fanqienovel.com') ||
-                  input.contains('reading.snssdk.com')
+          ([
+                    'fanqienovel.com',
+                    'www.fanqienovel.com',
+                    'reading.snssdk.com',
+                  ].contains(host) ||
+                  RegExp(r'^[1-9]\d{14,19}$').hasMatch(input.trim())
               ? 'fanqie'
-              : input.contains('sfacg.com')
-              ? 'sfacg'
-              : selectedSource);
-      service = library.searchSources.firstWhere(
+              : 'sfacg');
+      final service = library.searchSources.firstWhere(
         (source) => source.id == sourceHint,
-        orElse: () => service,
+        orElse: () => throw const SourceException('对应书源尚未启用'),
       );
       final book = await service.getBook(input);
       await library.add(book);
@@ -72,6 +73,7 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _search() async {
+    if (busy) return;
     final text = query.text.trim();
     if (text.isEmpty) return;
     if (RegExp(r'^\d+$').hasMatch(text) ||
@@ -84,8 +86,19 @@ class _HomePageState extends State<HomePage> {
       error = null;
     });
     try {
-      final data = await searchSource.search(text);
-      if (mounted) setState(() => results = data);
+      final data = await searchNovels(library.searchSources, text);
+      if (mounted) {
+        setState(() {
+          results = data.books;
+          searchFailed =
+              data.failedSources.isNotEmpty &&
+              data.failedSources.length == library.searchSources.length;
+          if (data.failedSources.isNotEmpty) {
+            error =
+                '${data.failedSources.join('、')}搜索失败，请重试。${data.failedSources.length < library.searchSources.length ? '已显示其他平台的结果。' : ''}';
+          }
+        });
+      }
     } catch (e) {
       if (mounted) setState(() => error = '$e');
     } finally {
@@ -147,7 +160,7 @@ class _HomePageState extends State<HomePage> {
 
   Widget _buildPage(BuildContext context, List<Book> shelf) => Scaffold(
     appBar: AppBar(
-      title: Text(['我的书库', searchSource.name, '我的'][tab]),
+      title: Text(['我的书库', '跨平台搜索', '我的'][tab]),
       actions: [
         IconButton(
           tooltip: '开源许可',
@@ -276,42 +289,14 @@ class _HomePageState extends State<HomePage> {
                   constraints: const BoxConstraints(maxWidth: 800),
                   child: Column(
                     children: [
-                      if (library.searchSources.length > 1)
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
-                          child: DropdownButtonFormField<String>(
-                            key: const ValueKey('novel-source-selector'),
-                            initialValue: selectedSource,
-                            decoration: const InputDecoration(
-                              labelText: '书源',
-                              border: OutlineInputBorder(),
-                            ),
-                            items: [
-                              for (final source in library.searchSources)
-                                DropdownMenuItem(
-                                  value: source.id,
-                                  child: Text(source.name),
-                                ),
-                            ],
-                            onChanged: busy
-                                ? null
-                                : (value) {
-                                    if (value == null) return;
-                                    setState(() {
-                                      selectedSource = value;
-                                      results = null;
-                                      error = null;
-                                    });
-                                  },
-                          ),
-                        ),
                       Padding(
                         padding: const EdgeInsets.all(20),
                         child: TextField(
                           controller: query,
+                          enabled: !busy,
                           onSubmitted: busy ? null : (_) => _search(),
                           decoration: InputDecoration(
-                            hintText: '作品 ID、作品链接或书名',
+                            hintText: '搜索书名或作者，也可粘贴作品 ID、链接',
                             prefixIcon: const Icon(Icons.search),
                             suffixIcon: IconButton(
                               tooltip: '搜索或添加作品',
@@ -326,28 +311,32 @@ class _HomePageState extends State<HomePage> {
                       ),
                       if (results == null)
                         Padding(
-                          padding: EdgeInsets.all(24),
+                          padding: const EdgeInsets.all(24),
                           child: Text(
-                            '输入${searchSource.name}书名搜索，也可以直接添加作品 ID 或链接。',
+                            '同时搜索${library.searchSources.map((source) => source.name).join('、')}，按相关性优先、收藏人数其次排序。也可以直接添加作品 ID 或链接。',
                           ),
                         ),
                       if (results?.isEmpty == true)
-                        const Padding(
-                          padding: EdgeInsets.all(24),
-                          child: Text('没有搜索到作品'),
+                        Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Text(searchFailed ? '搜索未完成，请重试' : '没有搜索到作品'),
                         ),
                       Expanded(
                         child: ListView(
                           children: [
                             for (final book in results ?? <Book>[])
                               ListTile(
+                                key: ValueKey('search-${book.key}'),
                                 leading: SizedBox(
                                   width: 46,
                                   height: 64,
                                   child: BookCover(book: book),
                                 ),
                                 title: Text(book.title),
-                                subtitle: Text(book.author),
+                                subtitle: Text(
+                                  '${book.author} · ${library.sourceName(book)}\n${book.favoriteCount == null ? '收藏数未知' : '${book.favoriteCount} 人收藏'}',
+                                ),
+                                isThreeLine: true,
                                 trailing: const Icon(Icons.chevron_right),
                                 onTap: busy
                                     ? null
@@ -454,22 +443,39 @@ class _BookCoverState extends State<BookCover> {
           : _placeholder(context),
     ),
   );
-  Widget _placeholder(BuildContext context) => Container(
-    padding: const EdgeInsets.all(14),
+  Widget _placeholder(BuildContext context) => ColoredBox(
     color: Theme.of(context).colorScheme.primaryContainer,
-    child: Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        const Icon(Icons.menu_book, size: 40),
-        const SizedBox(height: 16),
-        Text(
-          book.title,
-          maxLines: 4,
-          overflow: TextOverflow.ellipsis,
-          textAlign: TextAlign.center,
-          style: Theme.of(context).textTheme.titleMedium,
-        ),
-      ],
+    child: LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxHeight < 140 || constraints.maxWidth < 80) {
+          return const Padding(
+            padding: EdgeInsets.all(8),
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Icon(Icons.menu_book, size: 28),
+            ),
+          );
+        }
+        return Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.menu_book, size: 40),
+              const SizedBox(height: 16),
+              Flexible(
+                child: Text(
+                  book.title,
+                  maxLines: 4,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     ),
   );
 }

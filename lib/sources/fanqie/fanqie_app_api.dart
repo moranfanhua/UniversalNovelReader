@@ -198,6 +198,44 @@ class FanqieAppApi {
     Map<String, dynamic>? body,
     String hostname = host,
   }) async {
+    final data = await _requestData(
+      path,
+      query: query,
+      body: body,
+      hostname: hostname,
+    );
+    if (data is! Map) throw const SourceException('番茄 App 返回无效数据');
+    return Map<String, dynamic>.from(data);
+  }
+
+  Future<Map<String, int>> bookFavoriteCounts(Iterable<String> bookIds) async {
+    final ids = bookIds.toSet();
+    if (ids.isEmpty) return {};
+    if (ids.length > 20 ||
+        ids.any((id) => !RegExp(r'^[1-9]\d{14,19}$').hasMatch(id))) {
+      throw const SourceException('番茄收藏数查询作品 ID 无效');
+    }
+    final data = await _requestData(
+      '/reading/bookapi/multi-detail/v/',
+      query: {'book_id': ids.join(',')},
+    );
+    if (data is! List) throw const SourceException('番茄收藏数数据格式已变化');
+    final counts = <String, int>{};
+    for (final info in data.whereType<Map>()) {
+      final id = '${info['book_id']}';
+      // all_bookshelf_count is the recent count; use cumulative shelf history.
+      final count = Book.parseFavoriteCount(info['shelf_cnt_history']);
+      if (ids.contains(id) && count != null) counts[id] = count;
+    }
+    return counts;
+  }
+
+  Future<dynamic> _requestData(
+    String path, {
+    Map<String, String> query = const {},
+    Map<String, dynamic>? body,
+    String hostname = host,
+  }) async {
     if (!{host, 'reading.snssdk.com', 'novel.snssdk.com'}.contains(hostname) ||
         !path.startsWith('/') ||
         path.contains('?')) {
@@ -210,10 +248,10 @@ class FanqieAppApi {
     );
     final doc = _document(response);
     final code = int.tryParse('${doc['code']}') ?? -1;
-    if (code != 0 || doc['data'] is! Map) {
+    if (code != 0) {
       throw SourceException('番茄 App 请求失败（状态 $code），请检查会话或阅读权限', code: code);
     }
-    return Map<String, dynamic>.from(doc['data']);
+    return doc['data'];
   }
 
   Future<void> _ensureKey() {

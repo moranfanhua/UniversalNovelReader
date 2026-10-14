@@ -94,6 +94,7 @@ class SfacgSource extends CommentSource implements SearchableNovelSource {
             title: j['novelName'] ?? '',
             author: j['authorName'] ?? '',
             cover: j['novelCover'] ?? '',
+            favoriteCount: Book.parseFavoriteCount(j['markCount']),
             updatedAt: _updateTime(j['lastUpdateTime']),
             chapters: [],
           ),

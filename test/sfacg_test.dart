@@ -17,6 +17,23 @@ http.Response ok(dynamic data) => http.Response(
 );
 
 void main() {
+  test('搜索保留平台收藏数，兼容字符串和缺失计数', () async {
+    final api = SfacgApi(
+      client: MockClient((request) async {
+        expect(request.url.queryParameters['q'], '测试');
+        return ok({
+          'novels': [
+            {'novelId': 1, 'novelName': '测试', 'markCount': 10390},
+            {'novelId': 2, 'novelName': '测试二', 'markCount': '200'},
+            {'novelId': 3, 'novelName': '测试三'},
+          ],
+        });
+      }),
+    );
+    addTearDown(api.close);
+    final books = await SfacgSource(api).search(' 测试 ');
+    expect(books.map((book) => book.favoriteCount), [10390, 200, null]);
+  });
   test('头像读取用户展开字段，兼容评论展开字段', () {
     final parsed = SfacgSource.parseComment({
       'tsukkomiId': 1,

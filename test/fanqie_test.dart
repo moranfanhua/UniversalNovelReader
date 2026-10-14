@@ -192,20 +192,78 @@ void main() {
             );
           case '/api/reader/directory/detail':
             return jsonResponse(directory());
+          case '/reading/bookapi/multi-detail/v/':
+            expect(request.url.queryParameters['book_id'], bookId);
+            return http.Response(
+              jsonEncode({
+                'code': 0,
+                'data': [
+                  {
+                    'book_id': bookId,
+                    'shelf_cnt_history': '42000000',
+                    'all_bookshelf_count': '230000',
+                    'add_bookshelf_count': '0',
+                  },
+                ],
+              }),
+              200,
+              headers: {'content-type': 'application/json; charset=utf-8'},
+            );
           default:
             fail('意外请求 ${request.url}');
         }
       }),
     );
     addTearDown(api.close);
+    api.app.restore({'deviceId': '123456789', 'installId': '234567890'});
     final source = FanqieSource(api, cipher: cipher);
     final results = await source.search(' 测试书 ', page: 2);
     expect(results.single.source, 'fanqie');
     expect(results.single.description, '简介');
+    expect(results.single.favoriteCount, 42000000);
     final full = await source.getBook(results.single.id);
     expect(full.key, 'fanqie:$bookId');
     expect(full.chapters.length, 2);
     expect(full.updatedAt?.isUtc, isTrue);
+  });
+
+  test('收藏数使用累计值，忽略近期计数与无效值，详情失败仍返回搜索结果', () async {
+    var failDetails = false;
+    final api = FanqieApi(
+      client: MockClient((request) async {
+        if (request.url.path.contains('/search/')) {
+          return jsonResponse({
+            'ret_data': [
+              {'book_id': bookId, 'title': '测试书'},
+            ],
+          });
+        }
+        expect(request.url.path, '/reading/bookapi/multi-detail/v/');
+        if (failDetails) return http.Response('', 503);
+        return http.Response(
+          jsonEncode({
+            'code': 0,
+            'data': [
+              {
+                'book_id': bookId,
+                'shelf_cnt_history': '-1',
+                'all_bookshelf_count': '100',
+                'add_bookshelf_count': '0',
+              },
+              {'book_id': '6982529841564224526', 'shelf_cnt_history': '999'},
+            ],
+          }),
+          200,
+        );
+      }),
+    );
+    addTearDown(api.close);
+    api.app.restore({'deviceId': '123456789', 'installId': '234567890'});
+    expect(await api.app.bookFavoriteCounts([bookId]), isEmpty);
+    failDetails = true;
+    final books = await FanqieSource(api).search('测试书');
+    expect(books.single.title, '测试书');
+    expect(books.single.favoriteCount, isNull);
   });
 
   test('短链接处理空正文跳转，拒绝跳转至外部域名并隔离会话', () async {
@@ -398,7 +456,7 @@ void main() {
     }
   });
 
-  testWidgets('书源选择和账号设置显示番茄入口', (tester) async {
+  testWidgets('跨平台搜索和账号设置显示番茄入口', (tester) async {
     final root = Directory.systemTemp.createTempSync('unr-fanqie-ui-');
     addTearDown(() => root.deleteSync(recursive: true));
     final api = FanqieApi();
@@ -413,11 +471,9 @@ void main() {
     await tester.pumpWidget(MaterialApp(home: HomePage(library: library)));
     await tester.tap(find.text('书源'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('novel-source-selector')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('番茄小说').last);
-    await tester.pumpAndSettle();
-    expect(find.textContaining('输入番茄小说书名搜索'), findsOneWidget);
+    expect(find.text('跨平台搜索'), findsOneWidget);
+    expect(find.textContaining('同时搜索菠萝包轻小说、番茄小说'), findsOneWidget);
+    expect(find.byKey(const ValueKey('novel-source-selector')), findsNothing);
     await tester.pumpWidget(
       MaterialApp(home: AccountSettingsPage(library: library)),
     );

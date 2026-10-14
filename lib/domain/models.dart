@@ -35,11 +35,18 @@ class Book {
     this.source = 'sfacg',
     this.cover = '',
     this.description = '',
+    this.favoriteCount,
     this.updatedAt,
   });
   final String id, title, author, source, cover, description;
   final List<Chapter> chapters;
+  final int? favoriteCount;
   final DateTime? updatedAt;
+  static int? parseFavoriteCount(Object? value) {
+    final count = int.tryParse('$value');
+    return count != null && count >= 0 ? count : null;
+  }
+
   String get key => '$source:$id';
   Map<String, dynamic> toJson() => {
     'id': id,
@@ -48,6 +55,7 @@ class Book {
     'source': source,
     'cover': cover,
     'description': description,
+    if (favoriteCount != null) 'favoriteCount': favoriteCount,
     'updatedAt': updatedAt?.toUtc().toIso8601String(),
     'chapters': chapters.map((c) => c.toJson()).toList(),
   };
@@ -58,6 +66,7 @@ class Book {
     source: j['source'],
     cover: j['cover'] ?? '',
     description: j['description'] ?? '',
+    favoriteCount: parseFavoriteCount(j['favoriteCount']),
     updatedAt: DateTime.tryParse('${j['updatedAt'] ?? ''}')?.toUtc(),
     chapters: (j['chapters'] as List)
         .map((c) => Chapter.fromJson(Map<String, dynamic>.from(c)))
