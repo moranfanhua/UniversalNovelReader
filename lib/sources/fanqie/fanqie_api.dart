@@ -168,8 +168,9 @@ class FanqieApi {
       'false',
       'guest',
       'anonymous',
-    }.contains(value.toLowerCase()))
+    }.contains(value.toLowerCase())) {
       return false;
+    }
     return RegExp(r'^[A-Za-z0-9_+/=-]+$').hasMatch(value);
   }
 
