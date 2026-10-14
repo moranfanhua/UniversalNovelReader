@@ -471,8 +471,8 @@ void main() {
     await tester.pumpWidget(MaterialApp(home: HomePage(library: library)));
     await tester.tap(find.text('书源'));
     await tester.pumpAndSettle();
-    expect(find.text('跨平台搜索'), findsOneWidget);
-    expect(find.textContaining('同时搜索菠萝包轻小说、番茄小说'), findsOneWidget);
+    expect(find.text('搜索'), findsOneWidget);
+    expect(find.textContaining('同时搜索菠萝包轻小说、番茄小说'), findsNothing);
     expect(find.byKey(const ValueKey('novel-source-selector')), findsNothing);
     await tester.pumpWidget(
       MaterialApp(home: AccountSettingsPage(library: library)),

@@ -160,7 +160,9 @@ class _HomePageState extends State<HomePage> {
 
   Widget _buildPage(BuildContext context, List<Book> shelf) => Scaffold(
     appBar: AppBar(
-      title: Text(['我的书库', '跨平台搜索', '我的'][tab]),
+      toolbarHeight: 48,
+      titleTextStyle: Theme.of(context).textTheme.titleMedium,
+      title: Text(['我的书库', '搜索', '我的'][tab]),
       actions: [
         IconButton(
           tooltip: '开源许可',
@@ -309,13 +311,6 @@ class _HomePageState extends State<HomePage> {
                           ),
                         ),
                       ),
-                      if (results == null)
-                        Padding(
-                          padding: const EdgeInsets.all(24),
-                          child: Text(
-                            '同时搜索${library.searchSources.map((source) => source.name).join('、')}，按相关性优先、收藏人数其次排序。也可以直接添加作品 ID 或链接。',
-                          ),
-                        ),
                       if (results?.isEmpty == true)
                         Padding(
                           padding: const EdgeInsets.all(24),
