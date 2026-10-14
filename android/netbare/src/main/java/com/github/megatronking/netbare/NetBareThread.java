@@ -64,7 +64,7 @@ import java.util.Map;
 	}
 
 	@Override
-	public void interrupt() {
+	public synchronized void interrupt() {
 		super.interrupt();
 		if (packetsTransfer != null) packetsTransfer.stop();
 		NetBareUtils.closeQuietly(vpnDescriptor);
@@ -147,10 +147,12 @@ import java.util.Map;
 	private static class PacketsTransfer {
 
 		private final Map<Protocol, ProxyServerForwarder> mForwarderRegistry;
+		private final boolean mConfigBlockQuic;
 
 		private byte[] buffer;
 
 		private PacketsTransfer(VpnService service, NetBareConfig config) throws IOException {
+			mConfigBlockQuic = config.blockQuic;
 			int mtu = config.mtu;
 			String localIp = config.address.address;
 			UidDumper uidDumper = config.dumpUid ? new UidDumper(localIp, config.uidProvider) : null;
@@ -176,7 +178,7 @@ import java.util.Map;
 
 		private void stop() {
 			for (ProxyServerForwarder forwarder : mForwarderRegistry.values()) {
-				forwarder.release();
+				try { forwarder.release(); } catch (Exception e) { NetBareLog.wtf(e); }
 			}
 			mForwarderRegistry.clear();
 		}
@@ -193,6 +195,11 @@ import java.util.Map;
 			}
 			IpHeader ipHeader = new IpHeader(packet, 0);
 			Protocol protocol = Protocol.parse(ipHeader.getProtocol());
+			if (mConfigBlockQuic && protocol == Protocol.UDP && len >= ipHeader.getHeaderLength() + 8) {
+				int offset = ipHeader.getHeaderLength() + 2;
+				int destinationPort = (packet[offset] & 255) << 8 | packet[offset + 1] & 255;
+				if (destinationPort == 443) return;
+			}
 			ProxyServerForwarder forwarder = mForwarderRegistry.get(protocol);
 			if (forwarder != null) {
 				forwarder.forward(packet, len, output);

@@ -12,6 +12,7 @@ import android.webkit.WebSettings
 import android.webkit.WebStorage
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.webkit.WebChromeClient
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -36,7 +37,9 @@ class WebLoginActivity : Activity() {
         bar.addView(host, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         bar.addView(done)
         layout.addView(bar)
+        WebView.setWebContentsDebuggingEnabled(false)
         web = WebView(this)
+        web.webChromeClient = WebChromeClient()
         @Suppress("SetJavaScriptEnabled")
         web.settings.apply {
             javaScriptEnabled = true
@@ -50,11 +53,14 @@ class WebLoginActivity : Activity() {
             builtInZoomControls = true
             displayZoomControls = false
             if (platform == SessionPlatform.FANQIE) {
-                userAgentString = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+                userAgentString = userAgentString.replace(Regex("\\(Linux; Android[^)]*\\)"), "(X11; Linux x86_64)")
+                    .replace(" Version/4.0", "").replace(" Mobile ", " ")
             }
+            userAgentString += " ${platform.userAgentMarker}"
         }
         web.webViewClient = object : WebViewClient() {
-            override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean = !platform.acceptsNavigation(request.url.toString())
+            override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean =
+                if (request.isForMainFrame) !platform.acceptsNavigation(request.url.toString()) else request.url.scheme != "https"
             @Deprecated("Legacy Android WebView callback")
             override fun shouldOverrideUrlLoading(view: WebView, url: String): Boolean = !platform.acceptsNavigation(url)
             override fun onPageFinished(view: WebView, url: String) {

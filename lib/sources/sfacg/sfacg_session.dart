@@ -16,7 +16,12 @@ class SfacgSession {
           : jsonDecode(value) as Map<String, dynamic>;
       api = SfacgApi(device: json['device'], nonce: json['nonce']);
       try {
-        if (json['cookie'] != null) api.setCookie(json['cookie'] as String);
+        if (json['cookie'] != null) {
+          api.setCookie(
+            json['cookie'] as String,
+            website: json['website'] == true,
+          );
+        }
       } catch (_) {
         api.close();
         rethrow;
@@ -37,6 +42,7 @@ class SfacgSession {
           value: jsonEncode({
             'device': api.device,
             'nonce': api.nonce,
+            if (api.websiteSession) 'website': true,
             'cookie': api.cookies.entries
                 .map((e) => '${e.key}=${e.value}')
                 .join('; '),
@@ -52,6 +58,7 @@ class SfacgSession {
 
   static Future<void> logout(SfacgApi api) async {
     api.cookies.clear();
+    api.websiteSession = false;
     await _storage.delete(key: _key);
     api.sessionNotice = null;
   }

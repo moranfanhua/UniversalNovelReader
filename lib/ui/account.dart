@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import '../data/library.dart';
 import '../sources/sfacg/sfacg_session.dart';
 import '../sources/fanqie/fanqie_source.dart';
+import '../sources/session_helper.dart';
 import 'fanqie_account.dart';
+import 'session_helper_page.dart';
 
 class AccountSettingsPage extends StatelessWidget {
   const AccountSettingsPage({super.key, required this.library});
@@ -96,18 +98,18 @@ class _AccountPageState extends State<AccountPage> {
     super.dispose();
   }
 
-  Future<void> authenticate({bool useCookie = false}) async {
+  Future<void> authenticate({
+    bool useCookie = false,
+    bool website = false,
+  }) async {
     final api = widget.library.source.api;
-    final old = Map<String, String>.from(api.cookies);
     setState(() {
       busy = true;
       message = null;
     });
     try {
       if (useCookie) {
-        api.setCookie(cookie.text);
-        await api.get('user');
-        await api.onSessionChanged?.call();
+        await api.importCookie(cookie.text, website: website);
       } else {
         await api.login(account.text.trim(), password.text);
       }
@@ -117,10 +119,33 @@ class _AccountPageState extends State<AccountPage> {
         setState(() => message = api.sessionNotice ?? '菠萝包登录成功，会话已保存在本机安全存储中');
       }
     } catch (e) {
-      api.cookies
-        ..clear()
-        ..addAll(old);
       if (mounted) setState(() => message = '$e');
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  Future<void> _webLogin({bool vpn = false}) async {
+    setState(() {
+      busy = true;
+      message = null;
+    });
+    try {
+      final value = vpn
+          ? await Navigator.push<String>(
+              context,
+              MaterialPageRoute(
+                builder: (_) =>
+                    const SessionHelperPage(source: 'sfacg', name: '菠萝包'),
+              ),
+            )
+          : await SessionHelper.openLogin('sfacg');
+      if (mounted && value != null) {
+        cookie.text = value;
+        await authenticate(useCookie: true, website: true);
+      }
+    } catch (_) {
+      if (mounted) setState(() => message = '无法打开网页登录，请重试或使用账号密码登录');
     } finally {
       if (mounted) setState(() => busy = false);
     }
@@ -141,6 +166,18 @@ class _AccountPageState extends State<AccountPage> {
                 : '未登录 · 可阅读免费正文及公开段评',
           ),
           const SizedBox(height: 12),
+          if (SessionHelper.supported) ...[
+            OutlinedButton.icon(
+              onPressed: busy ? null : () => _webLogin(),
+              icon: const Icon(Icons.public),
+              label: const Text('网页登录'),
+            ),
+            TextButton(
+              onPressed: busy ? null : () => _webLogin(vpn: true),
+              child: const Text('VPN 会话辅助'),
+            ),
+            const SizedBox(height: 12),
+          ],
           TextField(
             controller: account,
             decoration: const InputDecoration(

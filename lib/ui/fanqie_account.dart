@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../sources/fanqie/fanqie_api.dart';
 import '../sources/fanqie/fanqie_session.dart';
+import '../sources/session_helper.dart';
+import 'session_helper_page.dart';
 
 class FanqieAccountPage extends StatefulWidget {
   const FanqieAccountPage({super.key, required this.api});
@@ -58,6 +60,32 @@ class _FanqieAccountPageState extends State<FanqieAccountPage> {
     }
   }
 
+  Future<void> _webLogin({bool vpn = false}) async {
+    setState(() {
+      busy = true;
+      message = null;
+    });
+    try {
+      final value = vpn
+          ? await Navigator.push<String>(
+              context,
+              MaterialPageRoute(
+                builder: (_) =>
+                    const SessionHelperPage(source: 'fanqie', name: '番茄小说'),
+              ),
+            )
+          : await SessionHelper.openLogin('fanqie');
+      if (mounted && value != null) {
+        cookie.text = value;
+        await _import();
+      }
+    } catch (_) {
+      if (mounted) setState(() => message = '无法打开网页登录，请重试或手动导入会话');
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('番茄小说账号')),
@@ -67,9 +95,21 @@ class _FanqieAccountPageState extends State<FanqieAccountPage> {
         child: ListView(
           padding: const EdgeInsets.all(24),
           children: [
-            Text(widget.api.hasSession ? '已保存番茄登录会话' : '未导入会话 · 可读取官网公开章节'),
+            Text(widget.api.hasSession ? '已保存番茄登录会话' : '未登录 · 可阅读免费正文及公开段评'),
             const SizedBox(height: 12),
-            const Text('可导入番茄官方 App 或官网的 Cookie，验证成功后保存在本机安全存储中。'),
+            if (SessionHelper.supported) ...[
+              FilledButton.icon(
+                onPressed: busy ? null : () => _webLogin(),
+                icon: const Icon(Icons.public),
+                label: const Text('网页登录'),
+              ),
+              TextButton(
+                onPressed: busy ? null : () => _webLogin(vpn: true),
+                child: const Text('VPN 会话辅助'),
+              ),
+              const SizedBox(height: 12),
+            ],
+            const Text('网页登录或手动导入会话后，验证成功才会保存在本机安全存储中。'),
             const SizedBox(height: 20),
             TextField(
               controller: cookie,

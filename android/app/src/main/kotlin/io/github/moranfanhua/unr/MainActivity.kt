@@ -23,6 +23,7 @@ class MainActivity : FlutterActivity() {
     private var loginResult: MethodChannel.Result? = null
     private var vpnResult: MethodChannel.Result? = null
     private var vpnPlatform: SessionPlatform? = null
+    private var helperGeneration = 0
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -62,23 +63,20 @@ class MainActivity : FlutterActivity() {
                         }
                         "start" -> {
                             check(vpnResult == null) { "VPN 授权正在进行" }
+                            val generation = ++helperGeneration
                             val source = SessionPlatform.fromId(call.argument<String>("source"))
                             SessionCapture.prepare { state, error ->
-                                if (error != null || state?.get("certificateInstalled") != true) {
+                                if (generation != helperGeneration || isDestroyed || isFinishing) {
+                                    result.error("cancelled", "会话辅助已关闭", null)
+                                } else if (error != null || state?.get("certificateInstalled") != true) {
                                     result.error("certificate", error ?: "请先安装本机抓包 CA 证书", null)
                                 } else {
-                                    val permission = VpnService.prepare(this)
-                                    if (permission == null) {
-                                        try { SessionCapture.start(source); result.success(SessionCapture.snapshot()) }
-                                        catch (_: Exception) { result.error("vpn", "无法启动 VPN，请检查授权与运行状态", null) }
-                                    } else {
-                                        vpnResult = result; vpnPlatform = source
-                                        startActivityForResult(permission, 5133)
-                                    }
+                                    requestVpn(source, result)
                                 }
                             }
                         }
                         "stop" -> {
+                            helperGeneration++
                             SessionCapture.stop()
                             vpnResult?.error("cancelled", "已取消 VPN 授权", null)
                             vpnResult = null; vpnPlatform = null
@@ -117,6 +115,38 @@ class MainActivity : FlutterActivity() {
                     result.notImplemented()
                 }
             }
+        }
+    }
+
+    private fun requestVpn(source: SessionPlatform, result: MethodChannel.Result, notifications: Boolean = true) {
+        try {
+            if (notifications && Build.VERSION.SDK_INT >= 33 &&
+                checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                vpnResult = result; vpnPlatform = source
+                requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 5135)
+                return
+            }
+            val permission = VpnService.prepare(this)
+            if (permission == null) {
+                SessionCapture.start(source)
+                result.success(SessionCapture.snapshot())
+            } else {
+                vpnResult = result; vpnPlatform = source
+                startActivityForResult(permission, 5133)
+            }
+        } catch (_: Exception) {
+            vpnResult = null; vpnPlatform = null
+            result.error("vpn", "无法启动 VPN，请检查授权与运行状态", null)
+        }
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 5135) {
+            val result = vpnResult
+            val source = vpnPlatform
+            vpnResult = null; vpnPlatform = null
+            if (result != null && source != null) requestVpn(source, result, notifications = false)
         }
     }
 
@@ -164,6 +194,7 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
+        helperGeneration++
         SessionCapture.stop()
         SessionCapture.onChanged = null
         sessionChannel?.setMethodCallHandler(null)

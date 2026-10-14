@@ -74,6 +74,12 @@ import javax.net.ssl.SSLEngine;
         if (mSelectedAlpnProtocol == null) {
             return sslEngine;
         }
+        if (android.os.Build.VERSION.SDK_INT >= 29) {
+            javax.net.ssl.SSLParameters parameters = sslEngine.getSSLParameters();
+            parameters.setApplicationProtocols(new String[]{mSelectedAlpnProtocol.toString().toLowerCase(java.util.Locale.ROOT)});
+            sslEngine.setSSLParameters(parameters);
+            return sslEngine;
+        }
         try {
             String sslEngineName = sslEngine.getClass().getSimpleName();
             if (sslEngineName.equals("Java8EngineWrapper")) {

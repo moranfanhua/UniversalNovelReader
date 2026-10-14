@@ -17,12 +17,16 @@ class SfacgApi {
   int clockOffset = 0;
   String? sessionNotice;
   final Map<String, String> cookies = {};
+  bool websiteSession = false;
   Future<void> Function()? onSessionChanged;
   bool get hasSession =>
       cookies['.SFCommunity']?.isNotEmpty == true &&
-      cookies['session_APP']?.isNotEmpty == true;
+      (websiteSession || cookies['session_APP']?.isNotEmpty == true);
 
-  void setCookie(String value) {
+  void setCookie(String value, {bool website = false}) {
+    if (RegExp(r'[\x00-\x1f\x7f]').hasMatch(value)) {
+      throw const SourceException('会话包含无效字符');
+    }
     final parsed = <String, String>{};
     for (final part in value.split(';')) {
       final i = part.indexOf('=');
@@ -32,15 +36,39 @@ class SfacgApi {
         parsed[key] = part.substring(i + 1).trim();
       }
     }
-    if (parsed.length != 2 ||
+    if ((!website && parsed.length != 2) ||
+        parsed['.SFCommunity']?.isNotEmpty != true ||
         parsed.values.any(
           (v) => v.isEmpty || v.contains('\n') || v.contains('\r'),
         )) {
-      throw const SourceException('需要完整的 .SFCommunity 和 session_APP 会话');
+      throw SourceException(
+        website ? '尚未取得菠萝包官网登录会话' : '需要完整的 .SFCommunity 和 session_APP 会话',
+      );
     }
     cookies
       ..clear()
       ..addAll(parsed);
+    websiteSession = website;
+  }
+
+  Future<void> importCookie(String value, {bool website = false}) async {
+    final candidate = SfacgApi(client: client, device: device)
+      ..clockOffset = clockOffset
+      ..setCookie(value, website: website);
+    final user = await candidate.get('user');
+    final userId = user is Map
+        ? int.tryParse('${user['userId'] ?? user['id'] ?? ''}')
+        : null;
+    if (userId == null || userId <= 0) {
+      throw const SourceException('菠萝包会话未登录或已失效，请重新登录');
+    }
+    cookies
+      ..clear()
+      ..addAll(candidate.cookies);
+    websiteSession = candidate.websiteSession;
+    nonce = candidate.nonce;
+    clockOffset = candidate.clockOffset;
+    await onSessionChanged?.call();
   }
 
   Future<dynamic> get(String path, {Map<String, String>? query}) =>
@@ -186,6 +214,7 @@ class SfacgApi {
     cookies
       ..clear()
       ..addAll(candidate.cookies);
+    websiteSession = false;
     nonce = candidate.nonce;
     clockOffset = candidate.clockOffset;
     await onSessionChanged?.call();

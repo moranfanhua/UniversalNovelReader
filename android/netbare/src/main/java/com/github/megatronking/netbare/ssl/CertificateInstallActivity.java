@@ -60,7 +60,7 @@ public class CertificateInstallActivity extends Activity {
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == REQUEST_CODE_INSTALL && resultCode == RESULT_OK) {
-            File jsk = new File(getCacheDir(),
+            File jsk = new File(getNoBackupFilesDir(),
                     getIntent().getStringExtra(EXTRA_ALIAS) + JKS.KEY_JKS_FILE_EXTENSION);
             try {
                 if(!jsk.exists() && !jsk.createNewFile()) {

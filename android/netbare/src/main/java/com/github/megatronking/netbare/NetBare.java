@@ -101,6 +101,10 @@ public final class NetBare {
      * @param config The configuration for NetBare service.
      */
     public void start(@NonNull NetBareConfig config) {
+        start(config, null);
+    }
+
+    public void start(@NonNull NetBareConfig config, Class<? extends NetBareService> service) {
         if (config.mtu <= 0) {
             throw new RuntimeException("Must set mtu in NetBareConfig");
         }
@@ -108,7 +112,8 @@ public final class NetBare {
             throw new RuntimeException("Must set address in NetBareConfig");
         }
         mNetBareConfig = config;
-        Intent intent = new Intent(NetBareService.ACTION_START);
+        Intent intent = service == null ? new Intent(NetBareService.ACTION_START) :
+                new Intent(mApp, service).setAction(NetBareService.ACTION_START);
         intent.setPackage(mApp.getPackageName());
         ContextCompat.startForegroundService(mApp, intent);
     }

@@ -1,0 +1,246 @@
+import 'dart:convert';
+import 'dart:io';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
+import 'package:unr/data/library.dart';
+import 'package:unr/domain/models.dart';
+import 'package:unr/sources/fanqie/fanqie_api.dart';
+import 'package:unr/sources/sfacg/sfacg_api.dart';
+import 'package:unr/sources/sfacg/sfacg_session.dart';
+import 'package:unr/sources/sfacg/sfacg_source.dart';
+import 'package:unr/ui/account.dart';
+import 'package:unr/ui/fanqie_account.dart';
+import 'package:unr/ui/session_helper_page.dart';
+
+http.Response sfResponse(Object data, {int status = 200}) => http.Response(
+  jsonEncode({
+    'status': {'httpCode': status},
+    'data': data,
+  }),
+  status,
+);
+
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  const helper = MethodChannel('unr/session_helper');
+  const events = MethodChannel('unr/session_helper/events');
+  final messenger =
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+  setUp(() => FlutterSecureStorage.setMockInitialValues({}));
+  tearDown(() {
+    messenger.setMockMethodCallHandler(helper, null);
+    messenger.setMockMethodCallHandler(events, null);
+  });
+
+  test('网页登录会话验证成功后才替换账号，匿名与无效会话保留原值', () async {
+    var valid = false, authenticated = false, saves = 0;
+    final api = SfacgApi(
+      client: MockClient((request) async {
+        expect(request.url.path, '/user');
+        expect(request.headers['cookie'], '.SFCommunity=synthetic-web');
+        return sfResponse(
+          authenticated ? {'userId': 42} : {},
+          status: valid ? 200 : 401,
+        );
+      }),
+    )..setCookie('.SFCommunity=old; session_APP=old-app');
+    addTearDown(api.close);
+    api.onSessionChanged = () async {
+      saves++;
+    };
+    await expectLater(
+      api.importCookie('.SFCommunity=synthetic-web', website: true),
+      throwsA(isA<SourceException>()),
+    );
+    expect(api.cookies['.SFCommunity'], 'old');
+    expect(api.websiteSession, isFalse);
+    valid = true;
+    await expectLater(
+      api.importCookie('.SFCommunity=synthetic-web', website: true),
+      throwsA(isA<SourceException>()),
+    );
+    expect(api.cookies['.SFCommunity'], 'old');
+    authenticated = true;
+    await api.importCookie('.SFCommunity=synthetic-web', website: true);
+    expect(api.cookies, {'.SFCommunity': 'synthetic-web'});
+    expect(api.websiteSession, isTrue);
+    expect(api.hasSession, isTrue);
+    expect(saves, 1);
+    expect(
+      () => api.setCookie('.SFCommunity=x\u0000', website: true),
+      throwsA(isA<SourceException>()),
+    );
+  });
+
+  test('网页登录会话标识随安全存储恢复，退出清除；旧的不完整 App 会话仍拒绝', () async {
+    final api = await SfacgSession.open();
+    addTearDown(api.close);
+    api.setCookie('.SFCommunity=synthetic-web', website: true);
+    await api.onSessionChanged!();
+    final restored = await SfacgSession.open();
+    addTearDown(restored.close);
+    expect(restored.hasSession, isTrue);
+    expect(restored.websiteSession, isTrue);
+    expect(
+      () => restored.setCookie('.SFCommunity=incomplete'),
+      throwsA(isA<SourceException>()),
+    );
+    await SfacgSession.logout(restored);
+    expect(restored.websiteSession, isFalse);
+    expect(restored.hasSession, isFalse);
+  });
+
+  testWidgets(
+    '番茄网页登录直接验证并保存，取消不会改动账号',
+    (tester) async {
+      String? returnedCookie;
+      final methods = <String>[];
+      messenger.setMockMethodCallHandler(helper, (call) async {
+        methods.add(call.method);
+        expect(call.arguments, {'source': 'fanqie', 'vpn': false});
+        return returnedCookie;
+      });
+      var saves = 0;
+      final api = FanqieApi(
+        client: MockClient((request) async {
+          expect(request.url.path, '/api/reader/user/info');
+          expect(request.headers['cookie'], 'sessionid=synthetic-web');
+          return http.Response(
+            jsonEncode({
+              'code': 0,
+              'data': {'user_id': '42'},
+            }),
+            200,
+          );
+        }),
+      )..setCookie('sessionid=old');
+      addTearDown(api.close);
+      api.onSessionChanged = () async {
+        saves++;
+      };
+      await tester.pumpWidget(MaterialApp(home: FanqieAccountPage(api: api)));
+      await tester.tap(find.text('网页登录'));
+      await tester.pumpAndSettle();
+      expect(api.cookie, 'sessionid=old');
+      expect(saves, 0);
+      returnedCookie = 'sessionid=synthetic-web';
+      await tester.tap(find.text('网页登录'));
+      await tester.pumpAndSettle();
+      expect(api.cookie, 'sessionid=synthetic-web');
+      expect(saves, 1);
+      expect(methods, ['openLogin', 'openLogin']);
+      expect(find.text('番茄会话已验证并保存在本机安全存储中'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+    variant: TargetPlatformVariant({TargetPlatform.android}),
+  );
+
+  testWidgets('菠萝包网页登录验证后保存为官网会话', (tester) async {
+    messenger.setMockMethodCallHandler(helper, (call) async {
+      expect(call.arguments, {'source': 'sfacg', 'vpn': false});
+      return '.SFCommunity=synthetic-web';
+    });
+    var saves = 0;
+    final api = SfacgApi(
+      client: MockClient((_) async => sfResponse({'userId': 42})),
+    );
+    addTearDown(api.close);
+    api.onSessionChanged = () async {
+      saves++;
+    };
+    final library = Library(Directory.systemTemp, SfacgSource(api));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: AccountPage(library: library)),
+      ),
+    );
+    await tester.tap(find.text('网页登录'));
+    await tester.pumpAndSettle();
+    expect(api.websiteSession, isTrue);
+    expect(saves, 1);
+    expect(find.text('已保存登录会话'), findsOneWidget);
+  }, variant: TargetPlatformVariant({TargetPlatform.android}));
+
+  testWidgets(
+    'VPN 入口要求证书，拒绝授权可恢复并在退出时停止',
+    (tester) async {
+      var installed = false, denied = true;
+      final methods = <String>[];
+      messenger.setMockMethodCallHandler(events, (_) async => null);
+      messenger.setMockMethodCallHandler(helper, (call) async {
+        methods.add(call.method);
+        return switch (call.method) {
+          'prepare' => {'phase': 'idle', 'certificateInstalled': installed},
+          'installCertificate' => 'UNR-session-CA.cer',
+          'certificateSettings' => null,
+          'start' =>
+            denied
+                ? throw PlatformException(
+                    code: 'cancelled',
+                    message: '未授权 VPN，网页登录仍可直接使用',
+                  )
+                : {'phase': 'capturing', 'source': 'fanqie', 'requests': 0},
+          'stop' => null,
+          _ => throw StateError('意外调用 ${call.method}'),
+        };
+      });
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: SessionHelperPage(source: 'fanqie', name: '番茄小说'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<FilledButton>(
+              find.widgetWithText(FilledButton, '启动 VPN 辅助'),
+            )
+            .onPressed,
+        isNull,
+      );
+      await tester.tap(find.text('安装本机抓包证书'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('下载/UNR-session-CA.cer'), findsOneWidget);
+      await tester.tap(find.text('打开系统设置'));
+      await tester.pumpAndSettle();
+      installed = true;
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('启动 VPN 辅助'));
+      await tester.pumpAndSettle();
+      expect(find.text('未授权 VPN，网页登录仍可直接使用'), findsOneWidget);
+      denied = false;
+      await tester.tap(find.text('启动 VPN 辅助'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('正在等待网页登录'), findsOneWidget);
+      expect(find.text('停止抓取'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+      expect(methods.last, 'stop');
+      expect(tester.takeException(), isNull);
+    },
+    variant: TargetPlatformVariant({TargetPlatform.android}),
+  );
+
+  testWidgets(
+    '非 Android 保留原有登录，不调用原生会话助手',
+    (tester) async {
+      messenger.setMockMethodCallHandler(
+        helper,
+        (_) async => fail('非 Android 不应调用原生会话助手'),
+      );
+      final api = FanqieApi();
+      addTearDown(api.close);
+      await tester.pumpWidget(MaterialApp(home: FanqieAccountPage(api: api)));
+      expect(find.text('网页登录'), findsNothing);
+      expect(find.text('VPN 会话辅助'), findsNothing);
+      expect(find.text('验证并保存会话'), findsOneWidget);
+    },
+    variant: TargetPlatformVariant({TargetPlatform.windows}),
+  );
+}

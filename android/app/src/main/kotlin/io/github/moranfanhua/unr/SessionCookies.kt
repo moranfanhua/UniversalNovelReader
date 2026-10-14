@@ -6,6 +6,8 @@ enum class SessionPlatform(val id: String, val title: String, val loginUrl: Stri
     SFACG("sfacg", "菠萝包", "https://m.sfacg.com/login/"),
     FANQIE("fanqie", "番茄小说", "https://fanqienovel.com/");
 
+    val userAgentMarker get() = "UNRSessionLogin/$id"
+
     fun acceptsHost(host: String): Boolean {
         val normalized = host.lowercase().trimEnd('.')
         return when (this) {

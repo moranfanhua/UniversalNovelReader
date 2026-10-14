@@ -42,7 +42,8 @@ object SessionCapture {
                 if (phase == "starting") { phase = "capturing"; publish() }
             } }
             override fun onServiceStopped() { main.post {
-                if (phase == "starting" || phase == "capturing") {
+                if (phase == "stopping") { phase = "stopped"; publish() }
+                else if (phase == "starting" || phase == "capturing") {
                     phase = "error"
                     message = "VPN 已断开，请重新启动辅助抓取"
                     context.stopService(Intent(context, SessionVpnService::class.java))
@@ -64,8 +65,7 @@ object SessionCapture {
             try {
                 val store = ensureCertificate()
                 val installed = isTrusted(store)
-                val result = snapshot() + mapOf("certificateInstalled" to installed)
-                main.post { done(result, null) }
+                main.post { done(snapshot() + mapOf("certificateInstalled" to installed), null) }
             } catch (_: Exception) {
                 main.post { done(null, "无法准备本机抓包证书，请重试") }
             }
@@ -112,7 +112,7 @@ object SessionCapture {
     fun publicCertificate(): ByteArray = certificate(checkNotNull(jks)).encoded
 
     fun start(source: SessionPlatform) {
-        check(phase != "starting" && phase != "capturing") { "请先停止当前抓取" }
+        check(phase in listOf("idle", "stopped", "error") && !NetBare.get().isActive) { "请先停止当前抓取" }
         val store = checkNotNull(jks) { "请先准备并安装证书" }
         check(store.isInstalled) { "请先安装本机抓包 CA 证书" }
         generation++
@@ -126,9 +126,11 @@ object SessionCapture {
         phase = "starting"
         val factory = HttpInterceptorFactory { object : HttpIndexedInterceptor() {
             override fun intercept(chain: HttpRequestChain, buffer: ByteBuffer, index: Int) {
-                if (index == 0 && source.acceptsHost(chain.request().host() ?: "")) {
+                val requestHeaders = chain.request().requestHeaders()
+                val loginRequest = requestHeaders.filterKeys { it.equals("user-agent", true) }.values.flatten().any { it.contains(source.userAgentMarker) }
+                if (index == 0 && loginRequest && source.acceptsHost(chain.request().host() ?: "")) {
                     val host = chain.request().host()
-                    val headers = chain.request().requestHeaders().filterKeys { it.equals("cookie", true) }.values.flatten()
+                    val headers = requestHeaders.filterKeys { it.equals("cookie", true) }.values.flatten()
                     main.post {
                         if (generation == token && (phase == "capturing" || phase == "starting")) {
                             requests++
@@ -155,9 +157,10 @@ object SessionCapture {
             .addAllowedHost(if (source == SessionPlatform.SFACG) "*.sfacg.com" else "*.fanqienovel.com")
             .addAllowedHost(if (source == SessionPlatform.SFACG) "sfacg.com" else "fanqienovel.com")
             .excludeSelf(false)
+            .blockQuic(true)
             .build()
         try {
-            NetBare.get().start(config)
+            NetBare.get().start(config, SessionVpnService::class.java)
             main.postDelayed({
                 if (generation == token && phase == "starting") {
                     stop(); phase = "error"; message = "VPN 启动失败，请检查系统 VPN 设置"; publish()
@@ -178,15 +181,20 @@ object SessionCapture {
     fun cookie(source: SessionPlatform): String? = if (platform == source) captured else null
 
     fun stop(clear: Boolean = true) {
-        context.stopService(Intent(context, SessionVpnService::class.java))
+        val active = NetBare.get().isActive || phase == "starting" || phase == "capturing"
         if (clear) {
             generation++
             collector?.clear()
             collector = null
             captured = null
-            phase = "stopped"
+            phase = if (active) "stopping" else "stopped"
             message = null
         }
+        if (!context.stopService(Intent(context, SessionVpnService::class.java)) && phase == "stopping") phase = "stopped"
         publish()
+    }
+
+    fun serviceDestroyed() {
+        if (phase == "stopping") { phase = "stopped"; publish() }
     }
 }

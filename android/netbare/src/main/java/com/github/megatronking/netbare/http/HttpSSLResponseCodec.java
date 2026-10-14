@@ -88,6 +88,17 @@ import javax.net.ssl.SSLEngine;
     }
 
     private void enableAlpn() {
+        if (android.os.Build.VERSION.SDK_INT >= 29) {
+            String[] protocols = new String[mClientAlpns.length];
+            for (int i = 0; i < protocols.length; i++) {
+                protocols[i] = mClientAlpns[i].toString().toLowerCase(java.util.Locale.ROOT);
+            }
+            javax.net.ssl.SSLParameters parameters = mSSLEngine.getSSLParameters();
+            parameters.setApplicationProtocols(protocols);
+            mSSLEngine.setSSLParameters(parameters);
+            mAlpnEnabled = true;
+            return;
+        }
         try {
             String sslEngineName = mSSLEngine.getClass().getSimpleName();
             if (sslEngineName.equals("Java8EngineWrapper")) {
@@ -171,6 +182,9 @@ import javax.net.ssl.SSLEngine;
     private String getAlpnSelectedProtocol() {
         if (!mAlpnEnabled) {
             return null;
+        }
+        if (android.os.Build.VERSION.SDK_INT >= 29) {
+            return mSSLEngine.getApplicationProtocol();
         }
         String alpnResult = null;
         try {

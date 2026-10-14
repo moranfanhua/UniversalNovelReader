@@ -55,6 +55,7 @@ public final class NetBareConfig {
     UidProvider uidProvider;
     boolean dumpUid;
     boolean excludeSelf;
+    boolean blockQuic;
     SSLKeyManagerProvider keyManagerProvider;
     SSLTrustManagerProvider trustManagerProvider;
 
@@ -105,6 +106,11 @@ public final class NetBareConfig {
      * Helper class to createServerEngine a VPN Service.
      */
     public static class Builder {
+
+        public Builder blockQuic(boolean block) {
+            mConfig.blockQuic = block;
+            return this;
+        }
 
         private NetBareConfig mConfig;
 
