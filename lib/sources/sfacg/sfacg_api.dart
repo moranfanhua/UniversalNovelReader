@@ -214,9 +214,18 @@ class SfacgApi {
       message = message
           .replaceAll(RegExp(r'1[3-9]\d{9}'), '[手机号已隐藏]')
           .replaceAll(RegExp(r'[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}'), '[邮箱已隐藏]');
+      final errorCode = int.tryParse('${status['errorCode']}');
+      if (uri.path.startsWith('/Chaps/') && code == 401 && errorCode == 507) {
+        throw const SourceException(
+          '菠萝包正文接口拒绝当前 App 请求配置（错误码 507），请检查 App 版本和设备标识；登录成功不代表正文接口可用',
+          code: 401,
+          errorCode: 507,
+        );
+      }
       throw SourceException(
         '$endpoint失败（HTTP ${response.statusCode}，状态 $code，错误码 ${status['errorCode'] ?? 0}）${message.isEmpty ? '' : '：$message'}',
         code: code,
+        errorCode: errorCode,
       );
     }
     throw const SourceException('菠萝包暂时无法访问');

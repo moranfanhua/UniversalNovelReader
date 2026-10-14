@@ -461,6 +461,103 @@ void main() {
     expect(content.paragraphs.map((p) => p.text), ['啊', '第二段']);
     expect(content.paragraphs.map((p) => p.remoteIndex), [1, 3]);
   });
+  test('VIP 展开正文和免费正文使用同一签名接口，保留会话且不购买', () async {
+    var requests = 0;
+    final cipher = <String, String>{
+      for (var i = 0; i < 3751; i++) '$i': '$i',
+      '宦': '啊',
+    }..remove('0');
+    final api = SfacgApi(
+      client: MockClient((request) async {
+        requests++;
+        expect(request.method, 'GET');
+        expect(request.url.path, '/Chaps/7940328');
+        expect(request.url.queryParameters['autoOrder'], 'false');
+        expect(
+          request.headers['Cookie'],
+          '.SFCommunity=synthetic; session_APP=synthetic',
+        );
+        return ok({
+          'chapOrder': true,
+          'isVip': true,
+          'expand': {
+            'content': '宦\n[img=https://rss.sfacg.com/宦.jpg]\n末段',
+            'isContentEncrypted': false,
+          },
+        });
+      }),
+    )..setCookie('.SFCommunity=synthetic; session_APP=synthetic');
+    addTearDown(api.close);
+    final content = await SfacgSource(api, cipher: cipher).readChapter(
+      const Book(id: '657818', title: '', author: '', chapters: []),
+      const Chapter(id: '7940328', title: '', vip: true),
+    );
+    expect(content.paragraphs.map((p) => p.image ?? p.text), [
+      '啊',
+      'https://rss.sfacg.com/宦.jpg',
+      '末段',
+    ]);
+    expect(api.hasSession, isTrue);
+    expect(requests, 1);
+  });
+  test('正文 507 表示请求配置被拒绝，提示不误导为需要购买或反复登录', () async {
+    final api = SfacgApi(
+      client: MockClient(
+        (_) async => http.Response(
+          jsonEncode({
+            'status': {'httpCode': 401, 'errorCode': 507, 'msg': '没有访问接口的权限'},
+            'data': null,
+          }),
+          401,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        ),
+      ),
+    )..setCookie('.SFCommunity=synthetic; session_APP=synthetic');
+    addTearDown(api.close);
+    await expectLater(
+      api.get('Chaps/7940328'),
+      throwsA(
+        isA<SourceException>()
+            .having((e) => e.code, 'HTTP status', 401)
+            .having((e) => e.errorCode, 'API error', 507)
+            .having((e) => e.message, '提示', contains('App 请求配置')),
+      ),
+    );
+    expect(api.hasSession, isTrue);
+  });
+  test('未订阅 VIP 的 403 保留阅读权限提示且不自动购买', () async {
+    var requests = 0;
+    final api = SfacgApi(
+      client: MockClient((request) async {
+        requests++;
+        expect(request.method, 'GET');
+        expect(request.url.queryParameters['autoOrder'], 'false');
+        return http.Response(
+          jsonEncode({
+            'status': {'httpCode': 403, 'errorCode': 402, 'msg': '尚未订阅本章'},
+            'data': null,
+          }),
+          403,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        );
+      }),
+    )..setCookie('.SFCommunity=synthetic; session_APP=synthetic');
+    addTearDown(api.close);
+    await expectLater(
+      SfacgSource(api).readChapter(
+        const Book(id: '1', title: '', author: '', chapters: []),
+        const Chapter(id: '2', title: '', vip: true),
+      ),
+      throwsA(
+        isA<SourceException>()
+            .having((e) => e.code, 'HTTP status', 403)
+            .having((e) => e.errorCode, 'API error', 402)
+            .having((e) => e.message, '提示', contains('尚未订阅本章')),
+      ),
+    );
+    expect(requests, 1);
+    expect(api.hasSession, isTrue);
+  });
   test('图片 URL 不经过汉字字符替换', () {
     final source = SfacgSource(SfacgApi(), cipher: {'宦': '啊'});
     expect(
