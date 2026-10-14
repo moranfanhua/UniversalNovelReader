@@ -93,6 +93,8 @@ void main() {
       ),
     );
     expect(find.textContaining('无法恢复本机菠萝包会话'), findsOneWidget);
+    await tester.tap(find.text('账号密码登录'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('登录菠萝包'));
     await tester.pumpAndSettle();
     expect(find.text('请填写账号和密码'), findsOneWidget);

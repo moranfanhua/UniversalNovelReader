@@ -3,10 +3,12 @@ import '../sources/fanqie/fanqie_api.dart';
 import '../sources/fanqie/fanqie_session.dart';
 import '../sources/session_helper.dart';
 import 'session_helper_page.dart';
+import 'account_login_method.dart';
 
 class FanqieAccountPage extends StatefulWidget {
-  const FanqieAccountPage({super.key, required this.api});
+  const FanqieAccountPage({super.key, required this.api, this.method});
   final FanqieApi api;
+  final AccountLoginMethod? method;
   @override
   State<FanqieAccountPage> createState() => _FanqieAccountPageState();
 }
@@ -15,6 +17,17 @@ class _FanqieAccountPageState extends State<FanqieAccountPage> {
   final cookie = TextEditingController();
   bool busy = false;
   String? message;
+
+  Future<void> _openMethod(AccountLoginMethod method) async {
+    await Navigator.push<void>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => FanqieAccountPage(api: widget.api, method: method),
+      ),
+    );
+    if (mounted) setState(() {});
+  }
+
   @override
   void dispose() {
     cookie.dispose();
@@ -88,7 +101,11 @@ class _FanqieAccountPageState extends State<FanqieAccountPage> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('番茄小说账号')),
+    appBar: AppBar(
+      title: Text(
+        widget.method == null ? '番茄小说账号' : '番茄小说 · ${widget.method!.label}',
+      ),
+    ),
     body: Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 660),
@@ -97,42 +114,58 @@ class _FanqieAccountPageState extends State<FanqieAccountPage> {
           children: [
             Text(widget.api.hasSession ? '已保存番茄登录会话' : '未登录 · 可阅读免费正文及公开段评'),
             const SizedBox(height: 12),
-            if (SessionHelper.supported) ...[
+            if (widget.method == null)
+              AccountLoginMethodList(
+                onWeb: !SessionHelper.supported || busy
+                    ? null
+                    : () => _openMethod(AccountLoginMethod.web),
+                onVpn: !SessionHelper.supported || busy
+                    ? null
+                    : () => _webLogin(vpn: true),
+                onImport: SessionHelper.supported || busy
+                    ? null
+                    : () => _openMethod(AccountLoginMethod.manual),
+              ),
+            if (widget.method == AccountLoginMethod.web) ...[
               FilledButton.icon(
                 onPressed: busy ? null : () => _webLogin(),
                 icon: const Icon(Icons.public),
-                label: const Text('网页登录'),
-              ),
-              TextButton(
-                onPressed: busy ? null : () => _webLogin(vpn: true),
-                child: const Text('VPN 会话辅助'),
+                label: const Text('打开官网登录'),
               ),
               const SizedBox(height: 12),
             ],
-            const Text('网页登录或手动导入会话后，验证成功才会保存在本机安全存储中。'),
-            const SizedBox(height: 20),
-            TextField(
-              controller: cookie,
-              obscureText: true,
-              autocorrect: false,
-              enableSuggestions: false,
-              decoration: const InputDecoration(
-                labelText: '番茄 Cookie（包含 sessionid）',
-                border: OutlineInputBorder(),
+            if (widget.method != null) ...[
+              const Text('会话验证成功后保存在本机安全存储中。'),
+              const SizedBox(height: 20),
+              ExpansionTile(
+                title: const Text('手动导入会话'),
+                initiallyExpanded: widget.method == AccountLoginMethod.manual,
+                children: [
+                  TextField(
+                    controller: cookie,
+                    obscureText: true,
+                    autocorrect: false,
+                    enableSuggestions: false,
+                    decoration: const InputDecoration(
+                      labelText: '番茄 Cookie（包含 sessionid）',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  FilledButton(
+                    onPressed: busy ? null : _import,
+                    child: const Text('验证并保存会话'),
+                  ),
+                ],
               ),
-            ),
-            const SizedBox(height: 12),
-            FilledButton(
-              onPressed: busy ? null : _import,
-              child: const Text('验证并保存会话'),
-            ),
+            ],
             if (busy) const LinearProgressIndicator(),
             if (message != null || widget.api.sessionNotice != null)
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 12),
                 child: Text(message ?? widget.api.sessionNotice!),
               ),
-            if (widget.api.hasSession)
+            if (widget.method == null && widget.api.hasSession)
               TextButton(
                 onPressed: busy ? null : _logout,
                 child: const Text('退出登录'),

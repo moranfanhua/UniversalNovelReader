@@ -5,6 +5,7 @@ import '../sources/fanqie/fanqie_source.dart';
 import '../sources/session_helper.dart';
 import 'fanqie_account.dart';
 import 'session_helper_page.dart';
+import 'account_login_method.dart';
 
 class AccountSettingsPage extends StatelessWidget {
   const AccountSettingsPage({super.key, required this.library});
@@ -78,8 +79,9 @@ class AccountSettingsPage extends StatelessWidget {
 }
 
 class AccountPage extends StatefulWidget {
-  const AccountPage({super.key, required this.library});
+  const AccountPage({super.key, required this.library, this.method});
   final Library library;
+  final AccountLoginMethod? method;
   @override
   State<AccountPage> createState() => _AccountPageState();
 }
@@ -90,6 +92,20 @@ class _AccountPageState extends State<AccountPage> {
       cookie = TextEditingController();
   bool busy = false;
   String? message;
+
+  Future<void> _openMethod(AccountLoginMethod method) async {
+    await Navigator.push<void>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => Scaffold(
+          appBar: AppBar(title: Text('菠萝包 · ${method.label}')),
+          body: AccountPage(library: widget.library, method: method),
+        ),
+      ),
+    );
+    if (mounted) setState(() {});
+  }
+
   @override
   void dispose() {
     account.dispose();
@@ -166,59 +182,74 @@ class _AccountPageState extends State<AccountPage> {
                 : '未登录 · 可阅读免费正文及公开段评',
           ),
           const SizedBox(height: 12),
-          if (SessionHelper.supported) ...[
+          if (widget.method == null)
+            AccountLoginMethodList(
+              onPassword: busy
+                  ? null
+                  : () => _openMethod(AccountLoginMethod.password),
+              onWeb: !SessionHelper.supported || busy
+                  ? null
+                  : () => _openMethod(AccountLoginMethod.web),
+              onVpn: !SessionHelper.supported || busy
+                  ? null
+                  : () => _webLogin(vpn: true),
+            ),
+          if (widget.method == AccountLoginMethod.web) ...[
             OutlinedButton.icon(
               onPressed: busy ? null : () => _webLogin(),
               icon: const Icon(Icons.public),
-              label: const Text('网页登录'),
-            ),
-            TextButton(
-              onPressed: busy ? null : () => _webLogin(vpn: true),
-              child: const Text('VPN 会话辅助'),
+              label: const Text('打开官网登录'),
             ),
             const SizedBox(height: 12),
           ],
-          TextField(
-            controller: account,
-            decoration: const InputDecoration(
-              labelText: '账号',
-              border: OutlineInputBorder(),
+          if (widget.method == AccountLoginMethod.password) ...[
+            TextField(
+              controller: account,
+              decoration: const InputDecoration(
+                labelText: '账号',
+                border: OutlineInputBorder(),
+              ),
             ),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: password,
-            obscureText: true,
-            decoration: const InputDecoration(
-              labelText: '密码',
-              border: OutlineInputBorder(),
+            const SizedBox(height: 12),
+            TextField(
+              controller: password,
+              obscureText: true,
+              decoration: const InputDecoration(
+                labelText: '密码',
+                border: OutlineInputBorder(),
+              ),
             ),
-          ),
-          const SizedBox(height: 12),
-          FilledButton(
-            onPressed: busy ? null : () => authenticate(),
-            child: const Text('登录菠萝包'),
-          ),
-          const SizedBox(height: 8),
-          const Text('付费章节使用账号已有阅读权限。登录验证或验证码请在官方 App 完成。'),
-          ExpansionTile(
-            title: const Text('导入 App 会话'),
-            children: [
-              TextField(
-                controller: cookie,
-                obscureText: true,
-                decoration: const InputDecoration(
-                  labelText: '.SFCommunity=…; session_APP=…',
-                  border: OutlineInputBorder(),
+            const SizedBox(height: 12),
+            FilledButton(
+              onPressed: busy ? null : () => authenticate(),
+              child: const Text('登录菠萝包'),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              SessionHelper.supported
+                  ? '如需验证码或安全验证，请返回选择网页登录。'
+                  : '如需验证码或安全验证，请在官方 App 完成后导入会话。',
+            ),
+          ],
+          if (widget.method != null)
+            ExpansionTile(
+              title: const Text('导入 App 会话'),
+              children: [
+                TextField(
+                  controller: cookie,
+                  obscureText: true,
+                  decoration: const InputDecoration(
+                    labelText: '.SFCommunity=…; session_APP=…',
+                    border: OutlineInputBorder(),
+                  ),
                 ),
-              ),
-              const SizedBox(height: 12),
-              OutlinedButton(
-                onPressed: busy ? null : () => authenticate(useCookie: true),
-                child: const Text('验证并保存会话'),
-              ),
-            ],
-          ),
+                const SizedBox(height: 12),
+                OutlinedButton(
+                  onPressed: busy ? null : () => authenticate(useCookie: true),
+                  child: const Text('验证并保存会话'),
+                ),
+              ],
+            ),
           if (busy) const LinearProgressIndicator(),
           if (message != null ||
               widget.library.source.api.sessionNotice != null)
@@ -226,7 +257,7 @@ class _AccountPageState extends State<AccountPage> {
               padding: const EdgeInsets.symmetric(vertical: 12),
               child: Text(message ?? widget.library.source.api.sessionNotice!),
             ),
-          if (widget.library.source.api.hasSession)
+          if (widget.method == null && widget.library.source.api.hasSession)
             TextButton(
               onPressed: busy
                   ? null

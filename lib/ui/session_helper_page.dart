@@ -133,14 +133,14 @@ class _SessionHelperPageState extends State<SessionHelperPage>
         phase == 'starting' || phase == 'capturing' || phase == 'stopping';
     final canOpen = phase == 'capturing' || phase == 'captured';
     return Scaffold(
-      appBar: AppBar(title: Text('${widget.name}会话辅助')),
+      appBar: AppBar(title: Text('${widget.name} · VPN 辅助登录')),
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 660),
           child: ListView(
             padding: const EdgeInsets.all(24),
             children: [
-              const Text('优先使用账号页的“网页登录”，无需安装证书。网页登录后无法自动取得会话时，可尝试此 VPN 辅助。'),
+              const Text('网页登录无法自动取得会话时，可使用此 VPN 辅助。'),
               const SizedBox(height: 16),
               const Text(
                 '仅处理本阅读器中所选平台的网页登录请求，不抓取其他 App。会临时占用系统 VPN，取得会话或退出后自动停止。',

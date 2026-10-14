@@ -17,6 +17,7 @@ import 'package:unr/sources/sfacg/sfacg_source.dart';
 import 'package:unr/ui/account.dart';
 import 'package:unr/ui/home.dart';
 import 'package:unr/ui/fanqie_account.dart';
+import 'package:unr/ui/account_login_method.dart';
 
 const bookId = '7143038691944959011';
 const chapterId = '7173216089122439711';
@@ -434,7 +435,11 @@ void main() {
     final api = FanqieApi(client: MockClient((_) async => jsonResponse({})))
       ..setCookie('sessionid=original');
     addTearDown(api.close);
-    await tester.pumpWidget(MaterialApp(home: FanqieAccountPage(api: api)));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: FanqieAccountPage(api: api, method: AccountLoginMethod.manual),
+      ),
+    );
     await tester.enterText(find.byType(TextField), 'sessionid=candidate');
     await tester.tap(find.text('验证并保存会话'));
     await tester.pumpAndSettle();
@@ -480,6 +485,7 @@ void main() {
     await tester.tap(find.text('番茄小说'));
     await tester.pumpAndSettle();
     expect(find.text('番茄小说账号'), findsOneWidget);
-    expect(find.text('验证并保存会话'), findsOneWidget);
+    expect(find.text('选择登录方式'), findsOneWidget);
+    expect(find.byType(TextField), findsNothing);
   });
 }

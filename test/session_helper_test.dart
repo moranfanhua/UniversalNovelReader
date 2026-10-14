@@ -159,10 +159,14 @@ void main() {
       await tester.pumpWidget(MaterialApp(home: FanqieAccountPage(api: api)));
       await tester.tap(find.text('网页登录'));
       await tester.pumpAndSettle();
+      expect(methods, isEmpty);
+      expect(find.text('VPN 辅助登录'), findsNothing);
+      await tester.tap(find.text('打开官网登录'));
+      await tester.pumpAndSettle();
       expect(api.cookie, 'sessionid=old');
       expect(saves, 0);
       returnedCookie = 'sessionid=synthetic-web';
-      await tester.tap(find.text('网页登录'));
+      await tester.tap(find.text('打开官网登录'));
       await tester.pumpAndSettle();
       expect(api.cookie, 'sessionid=synthetic-web');
       expect(saves, 1);
@@ -193,6 +197,9 @@ void main() {
       ),
     );
     await tester.tap(find.text('网页登录'));
+    await tester.pumpAndSettle();
+    expect(find.text('登录菠萝包'), findsNothing);
+    await tester.tap(find.text('打开官网登录'));
     await tester.pumpAndSettle();
     expect(api.websiteSession, isTrue);
     expect(saves, 1);
@@ -272,7 +279,9 @@ void main() {
       addTearDown(api.close);
       await tester.pumpWidget(MaterialApp(home: FanqieAccountPage(api: api)));
       expect(find.text('网页登录'), findsNothing);
-      expect(find.text('VPN 会话辅助'), findsNothing);
+      expect(find.text('VPN 辅助登录'), findsNothing);
+      await tester.tap(find.text('导入会话'));
+      await tester.pumpAndSettle();
       expect(find.text('验证并保存会话'), findsOneWidget);
     },
     variant: TargetPlatformVariant({TargetPlatform.windows}),
