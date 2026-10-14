@@ -69,6 +69,39 @@ class SettingsPage extends StatelessWidget {
                       key: const PageStorageKey('settings-shelf'),
                       children: [
                         Text(
+                          '显示方式',
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
+                        const SizedBox(height: 12),
+                        SegmentedButton<ShelfLayout>(
+                          key: const ValueKey('shelf-layout'),
+                          segments: const [
+                            ButtonSegment(
+                              value: ShelfLayout.grid,
+                              icon: Icon(Icons.grid_view),
+                              label: Text('宫格'),
+                            ),
+                            ButtonSegment(
+                              value: ShelfLayout.list,
+                              icon: Icon(Icons.view_list_outlined),
+                              label: Text('列表'),
+                            ),
+                          ],
+                          selected: {library.shelfLayout},
+                          onSelectionChanged: (selected) async {
+                            try {
+                              await library.setShelfLayout(selected.single);
+                            } catch (e) {
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text('显示方式保存失败：$e')),
+                                );
+                              }
+                            }
+                          },
+                        ),
+                        const SizedBox(height: 28),
+                        Text(
                           '书架排序',
                           style: Theme.of(context).textTheme.titleLarge,
                         ),

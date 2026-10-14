@@ -19,6 +19,8 @@ enum ReadingMode { scroll, paged }
 
 enum ShelfSort { updated, name, lastActive }
 
+enum ShelfLayout { grid, list }
+
 extension ShelfSortLabel on ShelfSort {
   String get label => switch (this) {
     ShelfSort.updated => '按更新时间',
@@ -64,6 +66,7 @@ class Library extends ChangeNotifier {
   final List<Book> books = [];
   final List<Bookshelf> shelves = [];
   ShelfSort shelfSort = ShelfSort.lastActive;
+  ShelfLayout shelfLayout = ShelfLayout.grid;
   final Map<String, int> updatedTimes = {}, lastActiveTimes = {};
   final Map<String, String> _nameSortKeys = {};
   static String _nameSortKey(String title) {
@@ -185,6 +188,10 @@ class Library extends ChangeNotifier {
         (sort) => sort.name == data['shelfSort'],
         orElse: () => ShelfSort.lastActive,
       );
+      library.shelfLayout = ShelfLayout.values.firstWhere(
+        (layout) => layout.name == data['shelfLayout'],
+        orElse: () => ShelfLayout.grid,
+      );
       for (final entry in (data['updatedTimes'] as Map? ?? {}).entries) {
         if (entry.value is num) {
           library.updatedTimes['${entry.key}'] = (entry.value as num).toInt();
@@ -290,6 +297,7 @@ class Library extends ChangeNotifier {
       'verticalMargin': verticalMargin,
       'lineHeight': lineHeight,
       'shelfSort': shelfSort.name,
+      'shelfLayout': shelfLayout.name,
       'updatedTimes': updatedTimes,
       'lastActiveTimes': lastActiveTimes,
     });
@@ -432,6 +440,18 @@ class Library extends ChangeNotifier {
       await save();
     } catch (_) {
       shelfSort = old;
+      notifyListeners();
+      rethrow;
+    }
+  }
+
+  Future<void> setShelfLayout(ShelfLayout layout) async {
+    final old = shelfLayout;
+    shelfLayout = layout;
+    try {
+      await save();
+    } catch (_) {
+      shelfLayout = old;
       notifyListeners();
       rethrow;
     }

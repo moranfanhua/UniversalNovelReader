@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -203,6 +204,212 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  Future<void> _toggleShelfLayout() async {
+    try {
+      await library.setShelfLayout(
+        library.shelfLayout == ShelfLayout.grid
+            ? ShelfLayout.list
+            : ShelfLayout.grid,
+      );
+    } catch (e) {
+      if (mounted) setState(() => error = '显示方式保存失败：$e');
+    }
+  }
+
+  Widget _shelfGrid(List<Book> shelf) => LayoutBuilder(
+    builder: (context, constraints) {
+      const spacing = 18.0, desiredWidth = 150.0;
+      final available = math.max(1.0, constraints.maxWidth - 40);
+      final columns = math.min(
+        shelf.length,
+        math.max(1, ((available + spacing) / (desiredWidth + spacing)).floor()),
+      );
+      final width = math.min(
+        desiredWidth,
+        (available - (columns - 1) * spacing) / columns,
+      );
+      final scale = width / desiredWidth;
+      final titleSize = 13.0 * scale, detailSize = 11.5 * scale;
+      final textScaler = MediaQuery.textScalerOf(context);
+      final height =
+          width * 1.5 +
+          14 * scale +
+          (textScaler.scale(titleSize) * 1.3).ceilToDouble() * 2 +
+          (textScaler.scale(detailSize) * 1.4).ceilToDouble() * 2 +
+          4;
+      return Center(
+        child: SizedBox(
+          width: columns * width + (columns - 1) * spacing,
+          child: GridView.builder(
+            key: const PageStorageKey('shelf-grid'),
+            padding: const EdgeInsets.symmetric(vertical: 20),
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: columns,
+              mainAxisSpacing: 20,
+              crossAxisSpacing: spacing,
+              mainAxisExtent: height,
+            ),
+            itemCount: shelf.length,
+            itemBuilder: (context, i) {
+              final book = shelf[i];
+              return InkWell(
+                key: ValueKey('shelf-book-${book.key}'),
+                borderRadius: BorderRadius.circular(14),
+                onTap: () => _openShelfBook(book),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    SizedBox(
+                      height: width * 1.5,
+                      child: BookCover(book: book, library: library),
+                    ),
+                    SizedBox(height: 10 * scale),
+                    Text(
+                      book.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: titleSize,
+                        height: 1.3,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    SizedBox(height: 4 * scale),
+                    Text(
+                      book.author,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: detailSize,
+                        height: 1.4,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    Text(
+                      '${library.sourceName(book)} · ${book.chapters.length} 章',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: detailSize,
+                        height: 1.4,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
+      );
+    },
+  );
+
+  String _readingStatus(Book book) {
+    final saved = library.progress[book.key];
+    if (saved == null || saved.isEmpty) return '未读过';
+    if (book.chapters.isEmpty) return '暂无章节目录';
+    final index = saved.first.clamp(0, book.chapters.length - 1);
+    final remaining = book.chapters.length - index - 1;
+    return '已读至第 ${index + 1} 章${remaining > 0 ? ' · $remaining 章未读' : ''}';
+  }
+
+  String _updateSummary(Book book) {
+    if (book.source == 'local') return '本地小说 · 共 ${book.chapters.length} 章';
+    final updated = book.updatedAt;
+    var label = '更新时间未知';
+    if (updated != null) {
+      final age = library.clock().difference(updated);
+      if (age.isNegative || age.inDays >= 30) {
+        final date = updated.toLocal();
+        label =
+            '${date.year}/${date.month.toString().padLeft(2, '0')}/${date.day.toString().padLeft(2, '0')}更新';
+      } else if (age.inDays > 0) {
+        label = '${age.inDays}天前更新';
+      } else if (age.inHours > 0) {
+        label = '${age.inHours}小时前更新';
+      } else if (age.inMinutes > 0) {
+        label = '${age.inMinutes}分钟前更新';
+      } else {
+        label = '刚刚更新';
+      }
+    }
+    if (book.chapters.isEmpty) return '$label · 暂无章节目录';
+    final latest = book.chapters.last;
+    return '$label · 第${book.chapters.length}章 ${latest.title}${latest.wordCount == null ? '' : '（${latest.wordCount}字）'}';
+  }
+
+  Widget _shelfList(List<Book> shelf) => Center(
+    child: ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 900),
+      child: ListView.separated(
+        key: const PageStorageKey('shelf-list'),
+        padding: const EdgeInsets.all(20),
+        itemCount: shelf.length,
+        separatorBuilder: (_, _) => const SizedBox(height: 20),
+        itemBuilder: (context, i) {
+          final book = shelf[i];
+          final secondary = Theme.of(context).colorScheme.onSurfaceVariant;
+          return InkWell(
+            key: ValueKey('shelf-book-${book.key}'),
+            borderRadius: BorderRadius.circular(14),
+            onTap: () => _openShelfBook(book),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SizedBox(
+                    width: 64,
+                    height: 96,
+                    child: BookCover(book: book, library: library),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          book.title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            height: 1.35,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          _readingStatus(book),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(fontSize: 13, color: secondary),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          _updateSummary(book),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(fontSize: 12, color: secondary),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  const Icon(Icons.chevron_right, size: 20),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    ),
+  );
+
   @override
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: library,
@@ -255,23 +462,41 @@ class _HomePageState extends State<HomePage> {
         if (tab == 0)
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-            child: DropdownButton<String>(
-              key: const ValueKey('bookshelf-selector'),
-              isExpanded: true,
-              value: selectedShelf ?? '',
-              items: [
-                const DropdownMenuItem(value: '', child: Text('全部作品')),
-                for (final shelf in library.shelves)
-                  DropdownMenuItem(
-                    value: shelf.id,
-                    child: Text(
-                      '${shelf.name}（${shelf.bookKeys.length}）',
-                      overflow: TextOverflow.ellipsis,
-                    ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: DropdownButton<String>(
+                    key: const ValueKey('bookshelf-selector'),
+                    isExpanded: true,
+                    value: selectedShelf ?? '',
+                    items: [
+                      const DropdownMenuItem(value: '', child: Text('全部作品')),
+                      for (final shelf in library.shelves)
+                        DropdownMenuItem(
+                          value: shelf.id,
+                          child: Text(
+                            '${shelf.name}（${shelf.bookKeys.length}）',
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                    ],
+                    onChanged: (id) =>
+                        setState(() => selectedShelf = id == '' ? null : id),
                   ),
+                ),
+                IconButton(
+                  key: const ValueKey('shelf-layout-toggle'),
+                  tooltip: library.shelfLayout == ShelfLayout.grid
+                      ? '切换为列表'
+                      : '切换为宫格',
+                  onPressed: busy ? null : _toggleShelfLayout,
+                  icon: Icon(
+                    library.shelfLayout == ShelfLayout.grid
+                        ? Icons.view_list_outlined
+                        : Icons.grid_view,
+                  ),
+                ),
               ],
-              onChanged: (id) =>
-                  setState(() => selectedShelf = id == '' ? null : id),
             ),
           ),
         if (busy) const LinearProgressIndicator(),
@@ -327,52 +552,9 @@ class _HomePageState extends State<HomePage> {
                         ),
                       ),
                     )
-                  : GridView.builder(
-                      padding: const EdgeInsets.all(20),
-                      gridDelegate:
-                          const SliverGridDelegateWithMaxCrossAxisExtent(
-                            maxCrossAxisExtent: 230,
-                            mainAxisSpacing: 20,
-                            crossAxisSpacing: 18,
-                            childAspectRatio: .64,
-                          ),
-                      itemCount: shelf.length,
-                      itemBuilder: (context, i) {
-                        final book = shelf[i];
-                        return InkWell(
-                          borderRadius: BorderRadius.circular(16),
-                          onTap: () => _openShelfBook(book),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Expanded(
-                                child: BookCover(book: book, library: library),
-                              ),
-                              const SizedBox(height: 10),
-                              Text(
-                                book.title,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                book.author,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: Theme.of(context).textTheme.bodySmall,
-                              ),
-                              Text(
-                                '${library.sourceName(book)} · ${book.chapters.length} 章',
-                                style: Theme.of(context).textTheme.bodySmall,
-                              ),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
+                  : library.shelfLayout == ShelfLayout.grid
+                  ? _shelfGrid(shelf)
+                  : _shelfList(shelf),
               Center(
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 800),
