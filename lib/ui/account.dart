@@ -49,10 +49,14 @@ class AccountSettingsPage extends StatelessWidget {
                 margin: const EdgeInsets.only(top: 16),
                 clipBehavior: Clip.antiAlias,
                 child: ListTile(
-                  leading: const Icon(
-                    Icons.menu_book,
-                    color: Colors.deepOrange,
-                    size: 44,
+                  leading: ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: Image.asset(
+                      'assets/fanqie_icon.webp',
+                      width: 44,
+                      height: 44,
+                      excludeFromSemantics: true,
+                    ),
                   ),
                   title: Text(source.name),
                   trailing: const Icon(Icons.chevron_right),
