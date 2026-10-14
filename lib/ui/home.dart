@@ -218,17 +218,24 @@ class _HomePageState extends State<HomePage> {
 
   Widget _shelfGrid(List<Book> shelf) => LayoutBuilder(
     builder: (context, constraints) {
-      const spacing = 18.0, desiredWidth = 150.0;
+      final compact = constraints.maxWidth < 600;
+      final spacing = compact ? 12.0 : 18.0;
+      final desiredWidth = compact ? 100.0 : 150.0;
       final available = math.max(1.0, constraints.maxWidth - 40);
       final columns = math.min(
         shelf.length,
-        math.max(1, ((available + spacing) / (desiredWidth + spacing)).floor()),
+        compact
+            ? 3
+            : math.max(
+                1,
+                ((available + spacing) / (desiredWidth + spacing)).floor(),
+              ),
       );
       final width = math.min(
         desiredWidth,
         (available - (columns - 1) * spacing) / columns,
       );
-      final scale = width / desiredWidth;
+      final scale = width / 150;
       final titleSize = 13.0 * scale, detailSize = 11.5 * scale;
       final textScaler = MediaQuery.textScalerOf(context);
       final height =

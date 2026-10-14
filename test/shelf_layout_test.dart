@@ -119,6 +119,41 @@ void main() {
     expect(tester.takeException(), isNull);
   }, variant: platforms);
 
+  testWidgets('常见手机宽度每行三本，封面和文字等比例缩小', (tester) async {
+    viewport(tester, width: 360);
+    final model = library()
+      ..books.addAll(List.generate(6, (i) => shelfBook('$i', '作品$i')));
+    await tester.pumpWidget(UnrApp(library: model));
+    for (final width in [320.0, 360.0, 390.0]) {
+      tester.view.physicalSize = Size(width, 900);
+      await tester.pumpAndSettle();
+      Rect cover(int index) => tester.getRect(
+        find.descendant(
+          of: find.byKey(ValueKey('shelf-book-sfacg:$index')),
+          matching: find.byType(BookCover),
+        ),
+      );
+      final first = cover(0),
+          second = cover(1),
+          third = cover(2),
+          fourth = cover(3);
+      expect(first.top, closeTo(second.top, .01));
+      expect(first.top, closeTo(third.top, .01));
+      expect(third.right, lessThanOrEqualTo(width));
+      expect(fourth.top, greaterThan(first.bottom));
+      expect(first.width, lessThanOrEqualTo(100));
+      expect(first.height / first.width, closeTo(1.5, .01));
+      final title = tester.widget<Text>(
+        find.descendant(
+          of: find.byKey(const ValueKey('shelf-book-sfacg:0')),
+          matching: find.byWidgetPredicate((w) => w is Text && w.maxLines == 2),
+        ),
+      );
+      expect(title.style!.fontSize! / 13, closeTo(first.width / 150, .01));
+      expect(tester.takeException(), isNull);
+    }
+  });
+
   testWidgets('列表显示阅读状态和真实更新信息，切换和打开作品保留排序', (tester) async {
     viewport(tester);
     final model = library();
