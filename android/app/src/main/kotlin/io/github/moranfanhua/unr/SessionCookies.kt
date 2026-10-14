@@ -25,7 +25,7 @@ enum class SessionPlatform(val id: String, val title: String, val loginUrl: Stri
     } catch (_: Exception) { false }
 
     val cookieUrls: List<String> get() = when (this) {
-        SFACG -> listOf("https://m.sfacg.com/", "https://book.sfacg.com/", "https://api.sfacg.com/")
+        SFACG -> listOf("https://passport.sfacg.com/", "https://m.sfacg.com/", "https://book.sfacg.com/", "https://api.sfacg.com/")
         FANQIE -> listOf("https://fanqienovel.com/", "https://www.fanqienovel.com/")
     }
 

@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
 import '../../domain/models.dart';
 import 'sfacg_signature.dart';
+import 'sfacg_website.dart';
 
 class SfacgApi {
   SfacgApi({http.Client? client, String? device, String? nonce})
@@ -22,6 +23,10 @@ class SfacgApi {
   bool get hasSession =>
       cookies['.SFCommunity']?.isNotEmpty == true &&
       (websiteSession || cookies['session_APP']?.isNotEmpty == true);
+  SfacgWebsite get website => SfacgWebsite(
+    client,
+    cookies.entries.map((entry) => '${entry.key}=${entry.value}').join('; '),
+  );
 
   void setCookie(String value, {bool website = false}) {
     if (RegExp(r'[\x00-\x1f\x7f]').hasMatch(value)) {
@@ -55,14 +60,18 @@ class SfacgApi {
     final candidate = SfacgApi(client: client, device: device)
       ..clockOffset = clockOffset
       ..setCookie(value, website: website);
-    final user = await candidate.get('user');
-    final userId = user is Map
-        ? int.tryParse(
-            '${user['accountId'] ?? user['userId'] ?? user['id'] ?? ''}',
-          )
-        : null;
-    if (userId == null || userId <= 0) {
-      throw const SourceException('菠萝包会话未登录或已失效，请重新登录');
+    if (website) {
+      await candidate.website.validateSession();
+    } else {
+      final user = await candidate.get('user');
+      final userId = user is Map
+          ? int.tryParse(
+              '${user['accountId'] ?? user['userId'] ?? user['id'] ?? ''}',
+            )
+          : null;
+      if (userId == null || userId <= 0) {
+        throw const SourceException('菠萝包会话未登录或已失效，请重新登录');
+      }
     }
     cookies
       ..clear()
@@ -84,6 +93,11 @@ class SfacgApi {
     bool retry = true,
     String? method,
   }) async {
+    if (websiteSession &&
+        (body != null ||
+            method != null && method != 'GET' && method != 'HEAD')) {
+      throw const SourceException('段评发送、回复和点赞需要 App 会话，请使用账号密码登录或导入 App 会话');
+    }
     final uri = Uri.https(
       'api.sfacg.com',
       path.startsWith('/') ? path : '/$path',
@@ -108,7 +122,7 @@ class SfacgApi {
             'boluobao/5.2.44(android;35)/UNR/${device.toLowerCase()}/UNR',
         'sfsecurity':
             'nonce=$nonce&timestamp=$timestamp&devicetoken=$device&sign=${sfacgSign(nonce, timestamp, device)}',
-        if (hasSession)
+        if (hasSession && !websiteSession)
           'Cookie': cookies.entries
               .map((e) => '${e.key}=${e.value}')
               .join('; '),
@@ -136,7 +150,7 @@ class SfacgApi {
           response.statusCode >= 200 &&
           response.statusCode < 300) {
         final setCookie = response.headers['set-cookie'];
-        if (setCookie != null) {
+        if (setCookie != null && !websiteSession) {
           for (final m in RegExp(
             r'(?:^|,\s*)(\.SFCommunity|session_APP)=([^;,]*)',
           ).allMatches(setCookie)) {

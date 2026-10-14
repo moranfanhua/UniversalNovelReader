@@ -40,11 +40,12 @@ void main() {
     var valid = false, authenticated = false, saves = 0;
     final api = SfacgApi(
       client: MockClient((request) async {
-        expect(request.url.path, '/user');
+        expect(request.url.host, 'passport.sfacg.com');
+        expect(request.url.path, '/Ajax/GetLoginInfo.ashx');
         expect(request.headers['cookie'], '.SFCommunity=synthetic-web');
-        return sfResponse(
-          authenticated ? {'accountId': 42} : {},
-          status: valid ? 200 : 401,
+        return http.Response(
+          'unrLoginInfo([{login:"$authenticated"}])',
+          valid ? 200 : 401,
         );
       }),
     )..setCookie('.SFCommunity=old; session_APP=old-app');
@@ -94,7 +95,7 @@ void main() {
     ]) {
       user = invalid;
       await expectLater(
-        api.importCookie('.SFCommunity=website', website: true),
+        api.importCookie('.SFCommunity=candidate; session_APP=candidate-app'),
         throwsA(isA<SourceException>()),
       );
       expect(api.cookies['.SFCommunity'], 'original');
@@ -103,9 +104,14 @@ void main() {
     }
     for (final accountId in [42, '42']) {
       user = {'accountId': accountId};
-      await api.importCookie('.SFCommunity=website', website: true);
-      expect(api.websiteSession, isTrue);
-      expect(api.cookies, {'.SFCommunity': 'website'});
+      await api.importCookie(
+        '.SFCommunity=candidate; session_APP=candidate-app',
+      );
+      expect(api.websiteSession, isFalse);
+      expect(api.cookies, {
+        '.SFCommunity': 'candidate',
+        'session_APP': 'candidate-app',
+      });
     }
     expect(saves, 2);
   });
@@ -184,7 +190,13 @@ void main() {
     });
     var saves = 0;
     final api = SfacgApi(
-      client: MockClient((_) async => sfResponse({'userId': 42})),
+      client: MockClient((request) async {
+        expect(request.url.host, 'passport.sfacg.com');
+        return http.Response(
+          'unrLoginInfo([{login:"true",name:"synthetic"}])',
+          200,
+        );
+      }),
     );
     addTearDown(api.close);
     api.onSessionChanged = () async {

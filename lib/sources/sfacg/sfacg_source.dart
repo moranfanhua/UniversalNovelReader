@@ -31,13 +31,13 @@ class SfacgSource extends CommentSource implements SearchableNovelSource {
   @override
   bool get hasSession => api.hasSession;
   @override
-  CommentCapabilities get commentCapabilities => const CommentCapabilities(
+  CommentCapabilities get commentCapabilities => CommentCapabilities(
     counts: true,
-    post: true,
+    post: !api.websiteSession,
     replies: true,
-    reply: true,
-    replyToReply: true,
-    likes: true,
+    reply: !api.websiteSession,
+    replyToReply: !api.websiteSession,
+    likes: !api.websiteSession,
     sorts: {CommentSort.hot, CommentSort.latest},
   );
   @override
@@ -178,6 +178,14 @@ class SfacgSource extends CommentSource implements SearchableNovelSource {
       return parsePublicChapter(utf8.decode(response.bodyBytes));
     }
     if (!api.hasSession) throw const SourceException('此章节需要在“我的 → 账号设置”中登录菠萝包');
+    if (api.websiteSession) {
+      final page = await api.website.chapterHtml(chapter.id);
+      final document = html.parse(page);
+      if (document.querySelector('.pay-section') != null) {
+        throw const SourceException('官网未授予此章节阅读权限，请在官网确认已购章节或账号状态');
+      }
+      return parsePublicChapter(page);
+    }
     final data =
         await api.get(
               'Chaps/${chapter.id}',

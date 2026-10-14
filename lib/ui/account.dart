@@ -132,7 +132,13 @@ class _AccountPageState extends State<AccountPage> {
       password.clear();
       cookie.clear();
       if (mounted) {
-        setState(() => message = api.sessionNotice ?? '菠萝包登录成功，会话已保存在本机安全存储中');
+        setState(
+          () => message =
+              api.sessionNotice ??
+              (api.websiteSession
+                  ? '菠萝包官网登录成功，会话已保存在本机安全存储中'
+                  : '菠萝包登录成功，会话已保存在本机安全存储中'),
+        );
       }
     } catch (e) {
       if (mounted) setState(() => message = '$e');
@@ -181,6 +187,11 @@ class _AccountPageState extends State<AccountPage> {
                 ? '已保存登录会话'
                 : '未登录 · 可阅读免费正文及公开段评',
           ),
+          if (widget.library.source.api.websiteSession)
+            const Padding(
+              padding: EdgeInsets.only(top: 12),
+              child: Text('官网会话使用官网已有章节阅读权限；发送段评、回复和点赞需要账号密码登录或导入 App 会话。'),
+            ),
           const SizedBox(height: 12),
           if (widget.method == null)
             AccountLoginMethodList(
