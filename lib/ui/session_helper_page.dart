@@ -114,10 +114,11 @@ class _SessionHelperPageState extends State<SessionHelperPage>
 
   Future<void> _complete() => _run(() async {
     final cookie = await SessionHelper.captureResult(widget.source);
-    if (mounted && cookie != null)
+    if (mounted && cookie != null) {
       Navigator.pop(context, cookie);
-    else if (mounted)
+    } else if (mounted) {
       setState(() => _message = '尚未取得完整 App 会话，请在官方 App 登录或进入账号页后返回');
+    }
   });
 
   @override

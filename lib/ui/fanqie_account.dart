@@ -42,8 +42,9 @@ class _FanqieAccountPageState extends State<FanqieAccountPage> {
     final candidate = FanqieApi(client: widget.api.client);
     try {
       candidate.setCookie(cookie.text);
-      if (appSession && widget.api.app.deviceId.isNotEmpty)
+      if (appSession && widget.api.app.deviceId.isNotEmpty) {
         candidate.app.restore(widget.api.app.toJson());
+      }
       await candidate.validateSession(appSession: appSession);
       widget.api.setCookie(candidate.cookie);
       if (appSession) widget.api.app.restore(candidate.app.toJson());
@@ -96,12 +97,13 @@ class _FanqieAccountPageState extends State<FanqieAccountPage> {
         await _import(appSession: vpn);
       }
     } catch (_) {
-      if (mounted)
+      if (mounted) {
         setState(
           () => message = vpn
               ? '无法打开 App 会话辅助，请重试或手动导入会话'
               : '无法打开网页登录，请重试或手动导入会话',
         );
+      }
     } finally {
       if (mounted) setState(() => busy = false);
     }

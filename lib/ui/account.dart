@@ -167,12 +167,13 @@ class _AccountPageState extends State<AccountPage> {
         await authenticate(useCookie: true, website: !vpn);
       }
     } catch (_) {
-      if (mounted)
+      if (mounted) {
         setState(
           () => message = vpn
               ? '无法打开 App 会话辅助，请重试或使用其他登录方式'
               : '无法打开网页登录，请重试或使用账号密码登录',
         );
+      }
     } finally {
       if (mounted) setState(() => busy = false);
     }
