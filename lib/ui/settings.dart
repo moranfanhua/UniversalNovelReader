@@ -46,57 +46,115 @@ class SettingsPage extends StatelessWidget {
   final ValueChanged<bool> onEncodingChanged;
 
   @override
-  Widget build(BuildContext context) => AnimatedBuilder(
-    animation: library,
-    builder: (context, _) => Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 660),
-        child: ListView(
-          padding: const EdgeInsets.all(24),
-          children: [
-            Text('书架排序', style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 12),
-            DropdownButton<ShelfSort>(
-              key: const ValueKey('shelf-sort'),
-              value: library.shelfSort,
-              isExpanded: true,
-              items: [
-                for (final sort in ShelfSort.values)
-                  DropdownMenuItem(value: sort, child: Text(sort.label)),
-              ],
-              onChanged: (sort) async {
-                if (sort == null) return;
-                try {
-                  await library.setShelfSort(sort);
-                } catch (e) {
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(
-                      context,
-                    ).showSnackBar(SnackBar(content: Text('书架排序保存失败：$e')));
-                  }
-                }
-              },
-            ),
-            Text(switch (library.shelfSort) {
-              ShelfSort.updated => '按已获取的作品更新时间排序，本地小说按导入时间排序。',
-              ShelfSort.name => '中文书名按无声调拼音的字典序升序排列，忽略英文大小写。',
-              ShelfSort.lastActive => '最近打开或阅读的作品优先。',
-            }),
-            const Divider(height: 40),
-            Text('阅读偏好', style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 12),
-            ReadingSettings(library: library),
-            const Divider(height: 40),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('按 GBK 编码导入 TXT'),
-              subtitle: const Text('默认识别 UTF-8 / UTF-16 文本'),
-              value: gbk,
-              onChanged: onEncodingChanged,
-            ),
-          ],
+  Widget build(BuildContext context) => DefaultTabController(
+    length: 3,
+    child: AnimatedBuilder(
+      animation: library,
+      builder: (context, _) => Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 660),
+          child: Column(
+            children: [
+              const TabBar(
+                tabs: [
+                  Tab(key: ValueKey('settings-shelf-tab'), text: '书架'),
+                  Tab(key: ValueKey('settings-reading-tab'), text: '阅读'),
+                  Tab(key: ValueKey('settings-import-tab'), text: '导入'),
+                ],
+              ),
+              Expanded(
+                child: TabBarView(
+                  children: [
+                    _SettingsSection(
+                      key: const PageStorageKey('settings-shelf'),
+                      children: [
+                        Text(
+                          '书架排序',
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
+                        const SizedBox(height: 12),
+                        DropdownButton<ShelfSort>(
+                          key: const ValueKey('shelf-sort'),
+                          value: library.shelfSort,
+                          isExpanded: true,
+                          items: [
+                            for (final sort in ShelfSort.values)
+                              DropdownMenuItem(
+                                value: sort,
+                                child: Text(sort.label),
+                              ),
+                          ],
+                          onChanged: (sort) async {
+                            if (sort == null) return;
+                            try {
+                              await library.setShelfSort(sort);
+                            } catch (e) {
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text('书架排序保存失败：$e')),
+                                );
+                              }
+                            }
+                          },
+                        ),
+                        Text(switch (library.shelfSort) {
+                          ShelfSort.updated => '按已获取的作品更新时间排序，本地小说按导入时间排序。',
+                          ShelfSort.name => '中文书名按无声调拼音的字典序升序排列，忽略英文大小写。',
+                          ShelfSort.lastActive => '最近打开或阅读的作品优先。',
+                        }),
+                      ],
+                    ),
+                    _SettingsSection(
+                      key: const PageStorageKey('settings-reading'),
+                      children: [
+                        Text(
+                          '阅读偏好',
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
+                        const SizedBox(height: 12),
+                        ReadingSettings(library: library),
+                      ],
+                    ),
+                    _SettingsSection(
+                      key: const PageStorageKey('settings-import'),
+                      children: [
+                        SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('按 GBK 编码导入 TXT'),
+                          subtitle: const Text('默认识别 UTF-8 / UTF-16 文本'),
+                          value: gbk,
+                          onChanged: onEncodingChanged,
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     ),
   );
+}
+
+class _SettingsSection extends StatefulWidget {
+  const _SettingsSection({super.key, required this.children});
+  final List<Widget> children;
+  @override
+  State<_SettingsSection> createState() => _SettingsSectionState();
+}
+
+class _SettingsSectionState extends State<_SettingsSection>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    return ListView(
+      padding: const EdgeInsets.all(24),
+      children: widget.children,
+    );
+  }
 }

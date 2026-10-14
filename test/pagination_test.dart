@@ -109,6 +109,8 @@ void main() {
         ),
       ),
     );
+    await tester.tap(find.byKey(const ValueKey('settings-reading-tab')));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('翻页阅读'));
     await tester.pump();
     expect(library.readingMode, ReadingMode.paged);

@@ -114,8 +114,19 @@ void main() {
     await tester.tap(find.text('软件设置'));
     await tester.pumpAndSettle();
     expect(find.text('书架排序'), findsOneWidget);
-    expect(find.text('阅读偏好'), findsOneWidget);
+    expect(
+      tester
+          .widget<TabBar>(find.byType(TabBar))
+          .tabs
+          .map((tab) => (tab as Tab).text),
+      ['书架', '阅读', '导入'],
+    );
+    expect(find.text('阅读偏好').hitTestable(), findsNothing);
     expect(find.byType(NavigationBar), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('settings-reading-tab')));
+    await tester.pumpAndSettle();
+    expect(find.text('阅读偏好').hitTestable(), findsOneWidget);
+    expect(find.text('书架排序').hitTestable(), findsNothing);
     expect(
       find.byKey(const ValueKey('reading-volume-keys')),
       defaultTargetPlatform == TargetPlatform.android
@@ -126,13 +137,9 @@ void main() {
     await tester.pumpAndSettle();
     expect(library.readingMode, ReadingMode.paged);
 
-    final settingsList = find.descendant(
-      of: find.byType(SettingsPage),
-      matching: find.byType(ListView),
-    );
-    final encoding = find.widgetWithText(SwitchListTile, '按 GBK 编码导入 TXT');
-    await tester.drag(settingsList, const Offset(0, -2000));
+    await tester.tap(find.byKey(const ValueKey('settings-import-tab')));
     await tester.pumpAndSettle();
+    final encoding = find.widgetWithText(SwitchListTile, '按 GBK 编码导入 TXT');
     expect(tester.widget<SwitchListTile>(encoding).value, isFalse);
     await tester.tap(encoding);
     await tester.pumpAndSettle();
@@ -146,12 +153,16 @@ void main() {
     await tester.tap(find.text('软件设置'));
     await tester.pumpAndSettle();
     expect(library.readingMode, ReadingMode.paged);
-    await tester.drag(settingsList, const Offset(0, -2000));
+    await tester.tap(find.byKey(const ValueKey('settings-import-tab')));
     await tester.pumpAndSettle();
     expect(tester.widget<SwitchListTile>(encoding).value, isTrue);
     await tester.tap(encoding);
     await tester.pumpAndSettle();
     expect(tester.widget<SwitchListTile>(encoding).value, isFalse);
+    await tester.tap(find.byKey(const ValueKey('settings-shelf-tab')));
+    await tester.pumpAndSettle();
+    expect(find.text('书架排序').hitTestable(), findsOneWidget);
+    expect(encoding.hitTestable(), findsNothing);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
   }, variant: platforms);
