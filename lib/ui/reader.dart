@@ -15,6 +15,7 @@ import 'volume_page_turner.dart';
 import 'reading_tap_zones.dart';
 import 'chapter_page_layout.dart';
 import 'book_page_progress.dart';
+import 'chapter_directory.dart';
 
 class ReaderPage extends StatefulWidget {
   const ReaderPage({
@@ -745,6 +746,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   }
 
   Future<void> _directory() async {
+    final cached = library.cachedContents(widget.book);
     final index = await showModalBottomSheet<int>(
       context: context,
       isScrollControlled: true,
@@ -761,17 +763,18 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
               ),
             ),
             Expanded(
-              child: ListView.builder(
-                itemCount: widget.book.chapters.length,
-                itemBuilder: (context, i) => ListTile(
-                  selected: i == chapter,
-                  title: Text(widget.book.chapters[i].title),
-                  leading: Text('${i + 1}'),
-                  trailing: widget.book.chapters[i].vip
-                      ? const Icon(Icons.lock_outline, size: 18)
-                      : null,
-                  onTap: () => Navigator.pop(context, i),
-                ),
+              child: CustomScrollView(
+                slivers: [
+                  FutureBuilder<Map<String, ChapterContent>>(
+                    future: cached,
+                    builder: (context, snapshot) => ChapterDirectory(
+                      chapters: widget.book.chapters,
+                      selectedChapter: chapter,
+                      cachedChapterIds: snapshot.data?.keys.toSet() ?? {},
+                      onChapterSelected: (i) => Navigator.pop(context, i),
+                    ),
+                  ),
+                ],
               ),
             ),
           ],
@@ -1210,9 +1213,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
           child: Row(
             children: [
               TextButton.icon(
-                onPressed: chapter > 0
-                    ? () => _go(chapter - 1)
-                    : null,
+                onPressed: chapter > 0 ? () => _go(chapter - 1) : null,
                 icon: const Icon(Icons.chevron_left),
                 label: const Text('上一章'),
               ),

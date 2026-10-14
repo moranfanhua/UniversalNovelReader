@@ -5,6 +5,7 @@ import '../domain/models.dart';
 import '../formats/ebook.dart';
 import 'reader.dart';
 import 'home.dart';
+import 'chapter_directory.dart';
 
 class BookPage extends StatefulWidget {
   const BookPage({super.key, required this.library, required this.book});
@@ -253,37 +254,28 @@ class _BookPageState extends State<BookPage> {
                       ),
                     ),
                   ),
-                  SliverList.builder(
-                    itemCount: book.chapters.length,
-                    itemBuilder: (context, i) {
-                      final c = book.chapters[i];
-                      return ListTile(
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 24,
-                        ),
-                        leading: Text('${i + 1}'),
-                        title: Text(c.title),
-                        subtitle: Text(c.volume),
-                        trailing: c.vip
-                            ? const Icon(Icons.lock_outline, size: 18)
-                            : null,
-                        onTap: busy
-                            ? null
-                            : () async {
-                                await Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (_) => ReaderPage(
-                                      library: widget.library,
-                                      book: book,
-                                      initialChapter: i,
-                                    ),
-                                  ),
-                                );
-                                _refreshCached();
-                              },
-                      );
-                    },
+                  FutureBuilder<Map<String, ChapterContent>>(
+                    future: cached,
+                    builder: (context, snapshot) => ChapterDirectory(
+                      chapters: book.chapters,
+                      cachedChapterIds: snapshot.data?.keys.toSet() ?? {},
+                      selectedChapter:
+                          widget.library.progress[book.key]?.firstOrNull,
+                      enabled: !busy,
+                      onChapterSelected: (i) async {
+                        await Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => ReaderPage(
+                              library: widget.library,
+                              book: book,
+                              initialChapter: i,
+                            ),
+                          ),
+                        );
+                        _refreshCached();
+                      },
+                    ),
                   ),
                 ],
               ),
