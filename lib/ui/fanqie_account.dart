@@ -190,7 +190,13 @@ class _FanqieAccountPageState extends State<FanqieAccountPage> {
         child: ListView(
           padding: const EdgeInsets.all(24),
           children: [
-            Text(widget.api.hasSession ? '已保存番茄登录会话' : '未登录 · 可阅读免费正文及公开段评'),
+            Text(
+              pendingSmsSession
+                  ? '本次登录尚未完成会话验证'
+                  : widget.api.hasSession
+                  ? '已保存番茄登录会话'
+                  : '未登录 · 可阅读免费正文及公开段评',
+            ),
             const SizedBox(height: 12),
             if (widget.method == null)
               AccountLoginMethodList(

@@ -191,12 +191,17 @@ void main() {
               ? success()
               : success(cookie: 'sessionid=new-account; Path=/; HttpOnly');
         }
-        expect(request.url.path, '/reading/user/info/v/');
+        expect(
+          request.url.path,
+          isIn(['/reading/user/info/v/', '/api/reader/user/info']),
+        );
         expect(request.headers['Cookie'], contains('sessionid=new-account'));
         return http.Response(
           jsonEncode({
             'code': 0,
-            'data': valid ? {'user_id': 'encoded-user-Q7=='} : {},
+            'data': valid && request.url.host == 'fanqienovel.com'
+                ? {'id': '42'}
+                : {},
           }),
           200,
         );
@@ -224,15 +229,19 @@ void main() {
     await tester.pumpAndSettle();
     expect(api.cookie, 'sessionid=old-account');
     expect(saves, 0);
+    expect(find.text('本次登录尚未完成会话验证'), findsOneWidget);
+    expect(find.text('已保存番茄登录会话'), findsNothing);
     expect(find.text('重新验证登录会话'), findsOneWidget);
     final callsBeforeRetry = calls;
     valid = true;
     await tester.ensureVisible(find.text('重新验证登录会话'));
     await tester.tap(find.text('重新验证登录会话'));
     await tester.pumpAndSettle();
-    expect(calls, callsBeforeRetry + 1);
+    expect(calls, callsBeforeRetry + 2);
     expect(api.cookie, contains('sessionid=new-account'));
     expect(saves, 1);
+    expect(find.text('本次登录尚未完成会话验证'), findsNothing);
+    expect(find.text('已保存番茄登录会话'), findsOneWidget);
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);

@@ -143,17 +143,23 @@ class FanqieApi {
 
   Future<void> validateSession({bool appSession = false}) async {
     if (!hasSession) throw const SourceException('请先导入番茄官网会话');
-    final data = appSession
-        ? await app.request('/reading/user/info/v/')
-        : await get('/api/reader/user/info');
+    if (appSession) {
+      final data = await app.request('/reading/user/info/v/');
+      final id = data['user_id'] ?? data['userId'] ?? data['id'];
+      if (_validAppUserId(id)) return;
+      // Passport sessions can authenticate on the website even when the App
+      // profile is unavailable. Require an authenticated website ID as proof.
+    }
+    final data = await get('/api/reader/user/info');
     final id = data['user_id'] ?? data['userId'] ?? data['id'];
-    final valid = appSession
-        ? _validAppUserId(id)
-        : RegExp(r'^[1-9]\d*$').hasMatch('$id');
-    if (!valid) {
+    if (!_validWebsiteUserId(id)) {
       throw const SourceException('番茄会话未登录或已失效');
     }
   }
+
+  static bool _validWebsiteUserId(Object? value) =>
+      (value is int || value is String) &&
+      RegExp(r'^[1-9]\d*$').hasMatch('$value');
 
   static bool _validAppUserId(Object? value) {
     if (value is int) return value > 0;
