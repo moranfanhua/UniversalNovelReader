@@ -8,6 +8,8 @@ import '../sources/novel_search.dart';
 import 'book_page.dart';
 import 'image_bytes.dart';
 import 'my.dart';
+import 'import_shelf.dart';
+import '../domain/bookshelf.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key, required this.library});
@@ -22,6 +24,7 @@ class _HomePageState extends State<HomePage> {
   String? error;
   final query = TextEditingController();
   List<Book>? results;
+  String? selectedShelf;
   Library get library => widget.library;
   @override
   void dispose() {
@@ -127,7 +130,10 @@ class _HomePageState extends State<HomePage> {
       ));
       await library.import(imported);
       if (mounted) {
-        setState(() => tab = 0);
+        setState(() {
+          tab = 0;
+          selectedShelf = null;
+        });
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('已导入《${imported.book.title}》')));
@@ -136,6 +142,49 @@ class _HomePageState extends State<HomePage> {
       if (mounted) setState(() => error = '$e');
     } finally {
       if (mounted) setState(() => busy = false);
+    }
+  }
+
+  Future<void> _chooseImport() async {
+    final method = await showModalBottomSheet<String>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.apps),
+              title: const Text('从软件导入'),
+              onTap: () => Navigator.pop(context, 'software'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.file_open_outlined),
+              title: const Text('从本地导入'),
+              subtitle: const Text('EPUB / TXT'),
+              onTap: () => Navigator.pop(context, 'local'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted) return;
+    if (method == 'local') {
+      await _import();
+    } else if (method == 'software') {
+      final shelf = await Navigator.push<Bookshelf>(
+        context,
+        MaterialPageRoute(builder: (_) => ImportShelfPage(library: library)),
+      );
+      if (mounted && shelf != null) {
+        setState(() => selectedShelf = shelf.id);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '已导入书架“${shelf.name}”，共 ${shelf.bookKeys.length} 本作品',
+            ),
+          ),
+        );
+      }
     }
   }
 
@@ -155,8 +204,24 @@ class _HomePageState extends State<HomePage> {
   }
 
   @override
-  Widget build(BuildContext context) =>
-      _buildPage(context, library.sortedBooks);
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: library,
+    builder: (context, _) => _buildLibrary(context),
+  );
+
+  Widget _buildLibrary(BuildContext context) {
+    final keys = library.shelves
+        .where((s) => s.id == selectedShelf)
+        .firstOrNull
+        ?.bookKeys
+        .toSet();
+    return _buildPage(
+      context,
+      library.sortedBooks
+          .where((b) => keys == null || keys.contains(b.key))
+          .toList(),
+    );
+  }
 
   Widget _buildPage(BuildContext context, List<Book> shelf) => Scaffold(
     appBar: AppBar(
@@ -179,14 +244,36 @@ class _HomePageState extends State<HomePage> {
         ),
         if (tab == 0)
           IconButton(
-            tooltip: '导入 EPUB / TXT',
-            onPressed: busy ? null : _import,
+            tooltip: '导入',
+            onPressed: busy ? null : _chooseImport,
             icon: const Icon(Icons.add),
           ),
       ],
     ),
     body: Column(
       children: [
+        if (tab == 0)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+            child: DropdownButton<String>(
+              key: const ValueKey('bookshelf-selector'),
+              isExpanded: true,
+              value: selectedShelf ?? '',
+              items: [
+                const DropdownMenuItem(value: '', child: Text('全部作品')),
+                for (final shelf in library.shelves)
+                  DropdownMenuItem(
+                    value: shelf.id,
+                    child: Text(
+                      '${shelf.name}（${shelf.bookKeys.length}）',
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+              ],
+              onChanged: (id) =>
+                  setState(() => selectedShelf = id == '' ? null : id),
+            ),
+          ),
         if (busy) const LinearProgressIndicator(),
         if (error != null)
           MaterialBanner(
@@ -216,18 +303,18 @@ class _HomePageState extends State<HomePage> {
                             ),
                             const SizedBox(height: 24),
                             Text(
-                              '把故事放进你的书库',
+                              selectedShelf == null ? '把故事放进你的书库' : '这个书架暂无作品',
                               style: Theme.of(context).textTheme.headlineSmall,
                               textAlign: TextAlign.center,
                             ),
                             const SizedBox(height: 12),
                             const Text(
-                              '导入一本 EPUB / TXT，或从书源开始阅读。',
+                              '从软件导入书架、导入 EPUB / TXT，或从书源开始阅读。',
                               textAlign: TextAlign.center,
                             ),
                             const SizedBox(height: 28),
                             FilledButton.icon(
-                              onPressed: busy ? null : _import,
+                              onPressed: busy ? null : _chooseImport,
                               icon: const Icon(Icons.file_open_outlined),
                               label: const Text('导入小说'),
                             ),

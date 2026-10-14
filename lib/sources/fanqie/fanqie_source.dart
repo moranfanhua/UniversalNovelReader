@@ -3,9 +3,11 @@ import 'package:html/dom.dart';
 import 'package:html/parser.dart' as html;
 import '../../domain/models.dart';
 import '../novel_source.dart';
+import '../bookshelf_source.dart';
 import 'fanqie_comments.dart';
 
-class FanqieSource extends FanqieComments implements SearchableNovelSource {
+class FanqieSource extends FanqieComments
+    implements SearchableNovelSource, BookshelfSource {
   FanqieSource(super.api, {Map<String, String>? cipher})
     : cipher = cipher ?? {};
   final Map<String, String> cipher;
@@ -13,6 +15,102 @@ class FanqieSource extends FanqieComments implements SearchableNovelSource {
   String get id => 'fanqie';
   @override
   String get name => '番茄小说';
+  @override
+  Future<List<RemoteBookshelf>> getShelves() async {
+    if (!hasSession) throw const SourceException('请先在“我的 → 账号设置”登录番茄小说');
+    final result = <RemoteBookshelf>[
+      const RemoteBookshelf(id: 'default', name: '默认书架'),
+    ];
+    var offset = 0;
+    final seen = <String>{};
+    for (var page = 0; page < 200; page++) {
+      final data = await api.app.request(
+        '/reading/distribution/bookshelf_folder/list/v1/',
+        body: {
+          'offset': offset,
+          'count': 50,
+          'has_detail': false,
+          'preview_items_limit': 0,
+        },
+      );
+      final folders = data['folders'];
+      if (folders is! List) throw const SourceException('番茄书架列表格式已变化');
+      for (final folder in folders) {
+        if (folder is! Map) throw const SourceException('番茄书架列表格式已变化');
+        final id = '${folder['folder_id']}';
+        if (!RegExp(r'^[1-9]\d*$').hasMatch(id)) {
+          throw const SourceException('番茄书架编号无效');
+        }
+        if (seen.add(id)) {
+          result.add(
+            RemoteBookshelf(
+              id: id,
+              name: '${folder['folder_name'] ?? '未命名书架'}',
+            ),
+          );
+        }
+      }
+      if (data['has_more'] != true) return result;
+      final next = int.tryParse('${data['next_offset']}');
+      if (next == null || next <= offset) {
+        throw const SourceException('番茄书架分页未前进，请重试');
+      }
+      offset = next;
+    }
+    throw const SourceException('番茄书架数量过多，未能完整获取');
+  }
+
+  @override
+  Future<List<String>> getShelfBookIds(RemoteBookshelf shelf) async {
+    if (!hasSession) throw const SourceException('请先登录番茄小说');
+    if (shelf.id == 'default') {
+      final data = await api.app.request('/reading/bookapi/bookshelf/info/v/');
+      final list = data['book_shelf_info'] ?? data['book_list'];
+      if (list is! List) throw const SourceException('番茄默认书架数据格式已变化');
+      final ids = <String>{};
+      for (final item in list) {
+        if (item is Map) {
+          if ('${item['book_type'] ?? 0}' != '0') continue;
+          ids.add(bookId('${item['book_id']}'));
+        } else {
+          ids.add(bookId('$item'));
+        }
+      }
+      return ids.toList();
+    }
+    if (!RegExp(r'^[1-9]\d*$').hasMatch(shelf.id)) {
+      throw const SourceException('番茄书架编号无效');
+    }
+    var offset = 0;
+    final ids = <String>{};
+    for (var page = 0; page < 200; page++) {
+      final data = await api.app.request(
+        '/reading/distribution/bookshelf_folder/detail/v1/',
+        body: {
+          'folder_id': int.parse(shelf.id),
+          'offset': offset,
+          'limit': 50,
+          'has_detail': false,
+        },
+      );
+      final items = data['items'];
+      if (items is! List) throw const SourceException('番茄书架作品列表格式已变化');
+      for (final item in items) {
+        if (item is! Map) throw const SourceException('番茄书架作品列表格式已变化');
+        // ReadingBookType.Read = 0; audio, videos and posts are separate media.
+        if ('${item['book_type'] ?? 0}' != '0') continue;
+        ids.add(bookId('${item['item_id']}'));
+      }
+      if (data['has_more'] != true) return ids.toList();
+      final next = int.tryParse('${data['next_offset']}');
+      if (next == null || next <= offset) {
+        throw const SourceException('番茄书架分页未前进，请重试');
+      }
+      offset = next;
+    }
+    throw const SourceException('番茄书架作品过多，未能完整获取');
+  }
+
   static final _id = RegExp(r'^[1-9]\d{14,19}$');
   static const _hosts = {
     'fanqienovel.com',

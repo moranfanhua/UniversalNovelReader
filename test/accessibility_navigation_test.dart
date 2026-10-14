@@ -119,7 +119,7 @@ void main() {
       final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
       await mouse.addPointer(location: Offset.zero);
       for (var cycle = 0; cycle < 4; cycle++) {
-        await mouse.moveTo(tester.getCenter(find.byTooltip('导入 EPUB / TXT')));
+        await mouse.moveTo(tester.getCenter(find.byTooltip('导入')));
         await tester.pump(const Duration(milliseconds: 600));
         await mouse.moveTo(tester.getCenter(find.text('测试书').last));
         await tester.tap(find.text('测试书').last);

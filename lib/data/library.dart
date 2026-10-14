@@ -7,6 +7,8 @@ import 'package:path_provider/path_provider.dart';
 import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
 import '../domain/models.dart';
+import '../domain/bookshelf.dart';
+import '../sources/bookshelf_source.dart';
 import '../sources/sfacg/sfacg_source.dart';
 import '../sources/comment_source.dart';
 import '../sources/novel_source.dart';
@@ -48,6 +50,8 @@ class Library extends ChangeNotifier {
   NovelSource? sourceFor(Book book) => _novelSources[book.source];
   List<SearchableNovelSource> get searchSources =>
       _novelSources.values.whereType<SearchableNovelSource>().toList();
+  List<BookshelfSource> get bookshelfSources =>
+      _novelSources.values.whereType<BookshelfSource>().toList();
   String sourceName(Book book) =>
       sourceFor(book)?.name ?? (book.source == 'local' ? '本地小说' : '未知书源');
   final Map<String, CommentSource> _commentSources;
@@ -57,6 +61,7 @@ class Library extends ChangeNotifier {
   final Directory root;
   final SfacgSource source;
   final List<Book> books = [];
+  final List<Bookshelf> shelves = [];
   ShelfSort shelfSort = ShelfSort.lastActive;
   final Map<String, int> updatedTimes = {}, lastActiveTimes = {};
   int _updatedTime(Book book) => book.source == 'local'
@@ -127,6 +132,11 @@ class Library extends ChangeNotifier {
       library.books.addAll(
         (data['books'] as List).map(
           (j) => Book.fromJson(Map<String, dynamic>.from(j)),
+        ),
+      );
+      library.shelves.addAll(
+        (data['shelves'] as List? ?? []).map(
+          (j) => Bookshelf.fromJson(Map<String, dynamic>.from(j)),
         ),
       );
       library.fontSize = (data['fontSize'] as num? ?? 20).toDouble().clamp(
@@ -231,6 +241,7 @@ class Library extends ChangeNotifier {
   Future<void> save() {
     final json = jsonEncode({
       'books': books.map((b) => b.toJson()).toList(),
+      'shelves': shelves.map((s) => s.toJson()).toList(),
       'progress': progress,
       'fontSize': fontSize,
       'night': night,
@@ -323,6 +334,59 @@ class Library extends ChangeNotifier {
       books[index] = book;
     }
     await save();
+  }
+
+  Future<Bookshelf> importShelf({
+    required String name,
+    required BookshelfSource source,
+    required RemoteBookshelf remote,
+    required List<Book> imported,
+  }) async {
+    final label = name.trim();
+    if (label.isEmpty) throw const SourceException('请填写书架名称');
+    if (shelves.any((s) => s.name == label) || label == '全部作品') {
+      throw const SourceException('书架名称已存在，请使用其他名称');
+    }
+    if (imported.any((b) => b.source != source.id)) {
+      throw const SourceException('导入作品的平台与书架不一致');
+    }
+    final oldBooks = books.toList();
+    final oldUpdated = Map<String, int>.from(updatedTimes);
+    final oldActive = Map<String, int>.from(lastActiveTimes);
+    final shelf = Bookshelf(
+      id: const Uuid().v4(),
+      name: label,
+      source: source.id,
+      remoteId: remote.id,
+      bookKeys: imported.map((b) => b.key).toSet().toList(),
+    );
+    final now = clock().millisecondsSinceEpoch;
+    for (final book in imported) {
+      // Reuse an existing book so its cached directory and reading positions
+      // remain aligned. Refreshing that book is a separate reader action.
+      if (books.any((b) => b.key == book.key)) continue;
+      books.add(book);
+      updatedTimes[book.key] = book.updatedAt?.millisecondsSinceEpoch ?? 0;
+      lastActiveTimes[book.key] = now;
+    }
+    shelves.add(shelf);
+    try {
+      await save();
+    } catch (_) {
+      shelves.remove(shelf);
+      books
+        ..clear()
+        ..addAll(oldBooks);
+      updatedTimes
+        ..clear()
+        ..addAll(oldUpdated);
+      lastActiveTimes
+        ..clear()
+        ..addAll(oldActive);
+      notifyListeners();
+      rethrow;
+    }
+    return shelf;
   }
 
   Future<void> setShelfSort(ShelfSort sort) async {
