@@ -1,10 +1,12 @@
 import 'dart:convert';
 import 'dart:async';
+
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:html/dom.dart';
 import 'package:html/parser.dart' as html;
+
 import '../../domain/models.dart';
 import '../novel_source.dart';
 import '../bookshelf_source.dart';
@@ -148,15 +150,14 @@ class SfacgSource extends CommentSource
   @override
   Future<Book> getBook(String input) async {
     final id = bookId(input);
-    final info =
-        await api.get('novels/$id', query: {'expand': 'bigNovelCover,intro'})
-            as Map;
-    final dirs =
-        await api.get(
-              'novels/$id/dirs',
-              query: {'expand': 'originNeedFireMoney'},
-            )
-            as Map;
+    final info = await api.get(
+      'novels/$id',
+      query: {'expand': 'bigNovelCover,intro'},
+    ) as Map;
+    final dirs = await api.get(
+      'novels/$id/dirs',
+      query: {'expand': 'originNeedFireMoney'},
+    ) as Map;
     final chapters = <Chapter>[];
     final seen = <String>{};
     for (final v in (dirs['volumeList'] as List? ?? [])) {
@@ -207,6 +208,9 @@ class SfacgSource extends CommentSource
 
   @override
   Future<ChapterContent> readChapter(Book book, Chapter chapter) async {
+    // Free chapters can be unavailable on the website while the App still
+    // serves them. Use the same signed App flow for every authenticated read.
+    if (api.hasSession) return _readAppChapter(chapter);
     if (!chapter.vip) {
       final response = await api.client
           .get(
@@ -222,24 +226,19 @@ class SfacgSource extends CommentSource
       }
       return parsePublicChapter(utf8.decode(response.bodyBytes));
     }
-    if (!api.hasSession) throw const SourceException('此章节需要在“我的 → 账号设置”中登录菠萝包');
-    if (api.websiteSession) {
-      final page = await api.website.chapterHtml(chapter.id);
-      final document = html.parse(page);
-      if (document.querySelector('.pay-section') != null) {
-        throw const SourceException('官网未授予此章节阅读权限，请在官网确认已购章节或账号状态');
-      }
-      return parsePublicChapter(page);
-    }
-    final data =
-        await api.get(
-              'Chaps/${chapter.id}',
-              query: {'expand': 'content,expand.content', 'autoOrder': 'false'},
-            )
-            as Map;
+    throw const SourceException('此章节需要在“我的 → 账号设置”中登录菠萝包');
+  }
+
+  Future<ChapterContent> _readAppChapter(Chapter chapter) async {
+    final data = await api.get(
+      'Chaps/${chapter.id}',
+      query: {'expand': 'content,expand.content', 'autoOrder': 'false'},
+    ) as Map;
     final raw = '${data['content'] ?? ''}${data['expand']?['content'] ?? ''}';
     if (raw.trim().isEmpty) throw const SourceException('未取得正文，请检查已有章节阅读权限');
     if (cipher.length != 3751) throw const SourceException('菠萝包正文字符表不完整');
+    // isContentEncrypted describes a different encryption layer. The verified
+    // free-chapter response still substitutes Han characters when it is false.
     return parseAppContent(decode(raw));
   }
 
@@ -304,9 +303,9 @@ class SfacgSource extends CommentSource
           paragraphs.add(
             Paragraph(
               '',
-              image: Uri.parse(
-                'https://book.sfacg.com/',
-              ).resolve(src.trim()).toString(),
+              image: Uri.parse('https://book.sfacg.com/')
+                  .resolve(src.trim())
+                  .toString(),
               remoteIndex: currentRow,
             ),
           );
@@ -331,9 +330,10 @@ class SfacgSource extends CommentSource
   static ChapterContent parseAppContent(String value) {
     final paragraphs = <Paragraph>[];
     final normalized = value.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
-    final newlines = RegExp(
-      '\n',
-    ).allMatches(normalized).map((m) => m.start).toList();
+    final newlines = RegExp('\n')
+        .allMatches(normalized)
+        .map((m) => m.start)
+        .toList();
     int rowAt(int offset) {
       var low = 0, high = newlines.length;
       while (low < high) {
@@ -653,13 +653,11 @@ class SfacgSource extends CommentSource
     final requestKey = '$key:$epoch';
     return _countRequests.putIfAbsent(requestKey, () async {
       try {
-        final headers =
-            await api.request(
-                  'chaps/0/${chapter.id}/tsukkomis',
-                  head: true,
-                  query: {'row': '$row'},
-                )
-                as Map<String, String>;
+        final headers = await api.request(
+          'chaps/0/${chapter.id}/tsukkomis',
+          head: true,
+          query: {'row': '$row'},
+        ) as Map<String, String>;
         final count = int.tryParse(headers['x-total-count'] ?? '');
         if (count == null || count < 0) {
           throw const SourceException('菠萝包未返回段评数量');

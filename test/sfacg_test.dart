@@ -1,4 +1,5 @@
 import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -172,8 +173,7 @@ void main() {
             }),
             200,
             headers: {
-              'set-cookie':
-                  '.SFCommunity=new-community; Path=/user; Expires=Wed, 21 Oct 2037 07:28:00 GMT, session_APP=new-session; Path=/sessions',
+              'set-cookie': '.SFCommunity=new-community; Path=/user; Expires=Wed, 21 Oct 2037 07:28:00 GMT, session_APP=new-session; Path=/sessions',
             },
           );
         }
@@ -203,8 +203,7 @@ void main() {
             'status': {
               'httpCode': 401,
               'errorCode': 407,
-              'msg':
-                  'synthetic-account synthetic-password 13800138000 user@example.test 登录失败',
+              'msg': 'synthetic-account synthetic-password 13800138000 user@example.test 登录失败',
             },
             'data': null,
           }),
@@ -243,8 +242,7 @@ void main() {
             }),
             200,
             headers: {
-              'set-cookie':
-                  '.SFCommunity=candidate; Path=/, session_APP=candidate-session; Path=/',
+              'set-cookie': '.SFCommunity=candidate; Path=/, session_APP=candidate-session; Path=/',
             },
           );
         }
@@ -362,9 +360,8 @@ void main() {
         ]);
       }),
     );
-    final result = await SfacgSource(
-      api,
-    ).comments(const Chapter(id: '123', title: '章节'), 23);
+    final result = await SfacgSource(api)
+        .comments(const Chapter(id: '123', title: '章节'), 23);
     expect(result.single.author, '读者甲');
     expect(result.single.likes, 2);
     expect(result.single.replyCount, 2);
@@ -430,6 +427,39 @@ void main() {
     );
     expect(result.paragraphs.first.text, '啊😀');
     api.close();
+  });
+  test('已登录免费章节走 App 接口，false 加密标记仍还原字符且保留段落编号', () async {
+    final cipher = <String, String>{
+      for (var i = 0; i < 3751; i++) '$i': '$i',
+      '宦': '啊',
+    }..remove('0');
+    final api = SfacgApi(
+      client: MockClient((request) async {
+        expect(request.url.host, 'api.sfacg.com');
+        expect(request.url.path, '/Chaps/8016101');
+        expect(request.url.queryParameters['autoOrder'], 'false');
+        expect(request.url.queryParameters['expand'], 'content,expand.content');
+        expect(request.headers['User-Agent'], contains('boluobao/5.2.16'));
+        expect(
+          request.headers['sfsecurity'],
+          contains('devicetoken=${SfacgApi.compatibilityDevice}'),
+        );
+        return ok({
+          'expand': {'content': '宦\n\n第二段', 'isContentEncrypted': false},
+        });
+      }),
+    )..setCookie('.SFCommunity=synthetic; session_APP=synthetic');
+    addTearDown(api.close);
+    final content = await SfacgSource(api, cipher: cipher).readChapter(
+      const Book(id: '669015', title: '', author: '', chapters: []),
+      const Chapter(
+        id: '8016101',
+        title: '',
+        url: 'https://book.sfacg.com/unavailable/',
+      ),
+    );
+    expect(content.paragraphs.map((p) => p.text), ['啊', '第二段']);
+    expect(content.paragraphs.map((p) => p.remoteIndex), [1, 3]);
   });
   test('图片 URL 不经过汉字字符替换', () {
     final source = SfacgSource(SfacgApi(), cipher: {'宦': '啊'});

@@ -1,10 +1,12 @@
 import 'dart:convert';
 import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:unr/data/library.dart';
+import 'package:unr/sources/sfacg/sfacg_api.dart';
 import 'package:unr/sources/sfacg/sfacg_session.dart';
 import 'package:unr/formats/ebook.dart';
 import 'package:unr/sources/sfacg/sfacg_source.dart';
@@ -27,6 +29,46 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(() => FlutterSecureStorage.setMockInitialValues({}));
   const key = 'unr.sfacg.session.v1';
+  test('旧随机设备配置迁移到正文接口兼容配置，保留 Cookie 和 nonce', () async {
+    const nonce = '8BB4D95F-7BE3-40D4-BC98-E4DF0B5D4568';
+    FlutterSecureStorage.setMockInitialValues({
+      key: jsonEncode({
+        'device': 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE',
+        'nonce': nonce,
+        'cookie': '.SFCommunity=synthetic; session_APP=synthetic-session',
+      }),
+    });
+    final api = await SfacgSession.open();
+    addTearDown(api.close);
+    expect(api.device, SfacgApi.compatibilityDevice);
+    expect(api.nonce, nonce);
+    expect(api.hasSession, isTrue);
+    final saved = jsonDecode(
+      (await const FlutterSecureStorage().read(key: key))!,
+    );
+    expect(saved['device'], SfacgApi.compatibilityDevice);
+    expect(saved['protocolProfile'], SfacgApi.protocolProfile);
+    expect(
+      saved['cookie'],
+      '.SFCommunity=synthetic; session_APP=synthetic-session',
+    );
+  });
+  test('已有 App 请求标识的导入会话保留原设备身份', () async {
+    const device = 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE';
+    const agent =
+        'boluobao/5.2.84(android;36)/OPPO/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee/OPPO';
+    FlutterSecureStorage.setMockInitialValues({
+      key: jsonEncode({
+        'device': device,
+        'appUserAgent': agent,
+        'cookie': '.SFCommunity=synthetic; session_APP=synthetic-session',
+      }),
+    });
+    final api = await SfacgSession.open();
+    addTearDown(api.close);
+    expect(api.device, device);
+    expect(api.appUserAgent, agent);
+  });
   test('安全存储不可读时继续启动，提示恢复失败且不覆盖旧会话', () async {
     FlutterSecureStorage.setMockInitialValues({key: '保留旧数据'});
     final api = await SfacgSession.open(storage: UnavailableStorage());
