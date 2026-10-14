@@ -84,29 +84,24 @@ void main() {
     await open(tester, library, chapter: 1);
     await tapReadingSide(tester, -1);
     await settle(tester);
-    expect(find.text('1 / 3'), findsOneWidget);
+    expect(readingChapter(tester), 0);
     expect(find.textContaining('上一章结尾标记').hitTestable(), findsOneWidget);
     expect(library.progress[transitionBook.key]!.last, greaterThan(20));
-    final label = tester
-        .widget<Text>(find.textContaining(RegExp(r'^第 \d+ / \d+ 页$')))
-        .data!;
-    final numbers = RegExp(
-      r'\d+',
-    ).allMatches(label).map((m) => int.parse(m[0]!)).toList();
-    expect(numbers.first, numbers.last);
+    final pager = readingPager(tester);
+    expect(pager.page, pager.pages.length - 1);
     await tapReadingSide(tester, 1);
     await settle(tester);
-    expect(find.text('2 / 3'), findsOneWidget);
+    expect(readingChapter(tester), 1);
     expect(find.text('　　第二章正文'), findsOneWidget);
     await tester.sendKeyEvent(LogicalKeyboardKey.pageDown);
     await settle(tester);
-    expect(find.text('3 / 3'), findsOneWidget);
+    expect(readingChapter(tester), 2);
     await tapReadingSide(tester, 1);
     await settle(tester);
-    expect(find.text('3 / 3'), findsOneWidget);
+    expect(readingChapter(tester), 2);
     await tester.sendKeyEvent(LogicalKeyboardKey.pageUp);
     await settle(tester);
-    expect(find.text('2 / 3'), findsOneWidget);
+    expect(readingChapter(tester), 1);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
   });
@@ -120,20 +115,20 @@ void main() {
         expect(find.text('　　第三章正文').hitTestable(), findsOneWidget);
         await tapReadingSide(tester, 1);
         await settle(tester);
-        expect(find.text('2 / 3'), findsOneWidget);
+        expect(readingChapter(tester), 1);
         await tester.drag(find.byType(PageView), const Offset(320, 0));
         await settle(tester);
-        expect(find.text('1 / 3'), findsOneWidget);
+        expect(readingChapter(tester), 0);
         expect(find.textContaining('上一章结尾标记').hitTestable(), findsOneWidget);
         await tester.pumpWidget(const SizedBox.shrink());
         return;
       }
       await tester.drag(find.byType(PageView), const Offset(-320, 0));
       await settle(tester);
-      expect(find.text('3 / 3'), findsOneWidget);
+      expect(readingChapter(tester), 2);
       await tester.drag(find.byType(PageView), const Offset(320, 0));
       await settle(tester);
-      expect(find.text('2 / 3'), findsOneWidget);
+      expect(readingChapter(tester), 1);
       expect(find.text('　　第二章正文').hitTestable(), findsOneWidget);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
@@ -151,7 +146,7 @@ void main() {
     final controller = tester.widget<SingleChildScrollView>(view).controller!;
     controller.jumpTo(controller.position.maxScrollExtent);
     await settle(tester);
-    expect(find.text('1 / 3'), findsOneWidget);
+    expect(readingChapter(tester), 0);
     expect(library.requests, ['1', '2']);
     expect(find.text('　　第二章正文'), findsOneWidget);
     await Scrollable.ensureVisible(
@@ -159,13 +154,13 @@ void main() {
       alignment: 0,
     );
     await settle(tester);
-    expect(find.text('2 / 3'), findsOneWidget);
+    expect(readingChapter(tester), 1);
     await Scrollable.ensureVisible(
       tester.element(find.text('　　上一章结尾标记')),
       alignment: 0,
     );
     await settle(tester);
-    expect(find.text('1 / 3'), findsOneWidget);
+    expect(readingChapter(tester), 0);
     expect(find.text('　　上一章结尾标记').hitTestable(), findsOneWidget);
     expect(library.progress[transitionBook.key]!.last, greaterThan(20));
     expect(tester.takeException(), isNull);
@@ -197,7 +192,7 @@ void main() {
     expect(controller.offset, closeTo(end, .01));
     await wheel(-30);
     expect(controller.offset, closeTo(end - 30, .01));
-    expect(find.text('1 / 3'), findsOneWidget);
+    expect(readingChapter(tester), 0);
     expect(find.text('　　上一章结尾标记').hitTestable(), findsOneWidget);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
@@ -214,7 +209,7 @@ void main() {
     await tester.fling(view, const Offset(0, -300), 4000);
     await settle(tester);
     expect(controller.offset, closeTo(end, 0.01));
-    expect(find.text('1 / 3'), findsOneWidget);
+    expect(readingChapter(tester), 0);
     expect(library.requests, ['1', '2']);
     expect(find.text('　　上一章结尾标记').hitTestable(), findsOneWidget);
     expect(find.text('　　第二章正文'), findsOneWidget);
@@ -241,7 +236,7 @@ void main() {
     await tester.tap(find.text('重试'));
     await settle(tester);
     expect(find.text('　　第二章正文'), findsOneWidget);
-    expect(find.text('2 / 3'), findsOneWidget);
+    expect(readingChapter(tester), 1);
     expect(library.requests, ['3', '2', '2']);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());

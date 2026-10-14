@@ -13,6 +13,8 @@ import 'reading_layout.dart';
 import 'boundary_scroll.dart';
 import 'volume_page_turner.dart';
 import 'reading_tap_zones.dart';
+import 'chapter_page_layout.dart';
+import 'book_page_progress.dart';
 
 class ReaderPage extends StatefulWidget {
   const ReaderPage({
@@ -48,6 +50,10 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   bool leaving = false;
   bool turningPage = false;
   bool settingsOpen = false;
+  bool controlsVisible = false;
+  ChapterPageLayout? pageLayout;
+  final pagePosition = ValueNotifier<ReaderPagePosition?>(null);
+  final knownContents = <int, ChapterContent>{};
   bool openAtEnd = false, pagedStartAtEnd = false;
   bool restoreScheduled = false, restoreAtEnd = false;
   int restoreParagraph = 0;
@@ -124,6 +130,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       if (!mounted || generation != loadGeneration) return value;
       keys = List.generate(value.paragraphs.length, (_) => GlobalKey());
       loadedParagraphs = value.paragraphs;
+      knownContents[chapter] = value;
       scrollChapters.add(_ScrollChapter(chapter, value, keys));
       openAtEnd = false;
       if (atEnd && value.paragraphs.isNotEmpty) {
@@ -207,6 +214,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       }
       final oldChapter = chapter;
       _updateScrollAnchor();
+      _publishPagePosition();
       if (oldChapter != chapter) setState(() {});
     });
     WidgetsBinding.instance.ensureVisualUpdate();
@@ -605,7 +613,11 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     final index = chapter + 1;
     final generation = loadGeneration;
     final value = await library.read(widget.book, widget.book.chapters[index]);
-    if (mounted && generation == loadGeneration) previewContent = value;
+    if (mounted && generation == loadGeneration) {
+      previewContent = value;
+      knownContents[index] = value;
+      _publishPagePosition();
+    }
     return ChapterPreview(
       content: value,
       title: widget.book.chapters[index].title,
@@ -805,6 +817,39 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     });
   }
 
+  void _toggleControls() {
+    if (settingsOpen || ModalRoute.isCurrentOf(context) == false) return;
+    setState(() => controlsVisible = !controlsVisible);
+  }
+
+  void _publishPagePosition() {
+    final layout = pageLayout;
+    if (!mounted || layout == null) return;
+    for (final block in scrollChapters) {
+      knownContents[block.index] = block.content;
+    }
+    final pager = library.readingMode == ReadingMode.paged
+        ? pagedKey.currentState
+        : null;
+    pagePosition.value = ReaderPagePosition(
+      layout: layout,
+      chapter: chapter,
+      paragraph: paragraph,
+      offset: characterOffset,
+      localPage: pager == null ? null : pager.page + 1,
+      localPages: pager == null || pager.pages.isEmpty
+          ? null
+          : pager.pages.length,
+    );
+  }
+
+  Widget _controlTapArea(Widget child) => ReadingTapZones(
+    revision: loadGeneration,
+    onTurn: (_) {},
+    onCenterTap: _toggleControls,
+    child: child,
+  );
+
   @override
   void dispose() {
     chapterCooldown?.cancel();
@@ -812,6 +857,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     debounce?.cancel();
     scroll.dispose();
+    pagePosition.dispose();
     super.dispose();
   }
 
@@ -952,6 +998,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
         onTurn: (delta) => unawaited(_turnPage(delta)),
         child: CallbackShortcuts(
           bindings: {
+            const SingleActivator(LogicalKeyboardKey.escape): _toggleControls,
             const SingleActivator(LogicalKeyboardKey.pageUp): () =>
                 unawaited(_turnPage(-1)),
             const SingleActivator(LogicalKeyboardKey.pageDown): () =>
@@ -968,167 +1015,223 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
           child: Focus(
             autofocus: true,
             child: Scaffold(
-              appBar: AppBar(
-                title: Text(
-                  widget.book.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                actions: [
-                  IconButton(
-                    tooltip: '目录',
-                    onPressed: _directory,
-                    icon: const Icon(Icons.format_list_bulleted),
+              body: Stack(
+                fit: StackFit.expand,
+                children: [
+                  SafeArea(
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        final layout = ChapterPageLayout(
+                          context,
+                          constraints.biggest,
+                          fontSize: library.fontSize,
+                          fontFamily: library.readingFontFamily,
+                          horizontalMargin: library.horizontalMargin,
+                          verticalMargin: library.verticalMargin,
+                          lineHeight: library.lineHeight,
+                          comments: comments != null,
+                          paged: library.readingMode == ReadingMode.paged,
+                        );
+                        final changed =
+                            pageLayout?.signature != layout.signature;
+                        pageLayout = layout;
+                        if (changed) {
+                          WidgetsBinding.instance.addPostFrameCallback(
+                            (_) => _publishPagePosition(),
+                          );
+                        }
+                        return _readingBody(context);
+                      },
+                    ),
                   ),
-                  IconButton(
-                    tooltip: '阅读设置',
-                    onPressed: _settings,
-                    icon: const Icon(Icons.settings_outlined),
-                  ),
-                  IconButton(
-                    tooltip: '日夜模式',
-                    onPressed: () {
-                      library.night = !library.night;
-                      _preferences();
-                    },
-                    icon: Icon(
-                      library.night
-                          ? Icons.light_mode_outlined
-                          : Icons.dark_mode_outlined,
+                  if (controlsVisible)
+                    Positioned(
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      child: SizedBox(
+                        height:
+                            MediaQuery.paddingOf(context).top + kToolbarHeight,
+                        child: _topBar(context),
+                      ),
+                    ),
+                  Positioned(
+                    bottom: 0,
+                    left: 0,
+                    right: 0,
+                    child: Visibility(
+                      visible: controlsVisible,
+                      maintainState: true,
+                      child: Material(
+                        color: Theme.of(context).scaffoldBackgroundColor,
+                        child: _bottomBar(context),
+                      ),
                     ),
                   ),
                 ],
               ),
-              body: FutureBuilder<ChapterContent>(
-                future: content,
-                builder: (context, snapshot) {
-                  if (snapshot.hasError) {
-                    return Center(
-                      child: Padding(
-                        padding: const EdgeInsets.all(24),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(Icons.cloud_off_outlined, size: 48),
-                            const SizedBox(height: 16),
-                            Text(
-                              '${snapshot.error}',
-                              textAlign: TextAlign.center,
-                            ),
-                            TextButton(
-                              onPressed: () => setState(_load),
-                              child: const Text('重试'),
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  }
-                  if (snapshot.connectionState != ConnectionState.done ||
-                      !snapshot.hasData) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
-                  _restorePosition();
-                  if (library.readingMode == ReadingMode.paged) {
-                    return PagedChapter(
-                      key: pagedKey,
-                      content: snapshot.data!,
-                      title: widget.book.chapters[chapter].title,
-                      fontSize: library.fontSize,
-                      fontFamily: library.readingFontFamily,
-                      horizontalMargin: library.horizontalMargin,
-                      verticalMargin: library.verticalMargin,
-                      lineHeight: library.lineHeight,
-                      initialParagraph: paragraph,
-                      initialOffset: characterOffset,
-                      comments: comments != null,
-                      startAtEnd: pagedStartAtEnd,
-                      skipFirstPage: skipFirstPage,
-                      onTapTurn: (delta) => unawaited(_turnPage(delta)),
-                      loadNextChapter: chapter + 1 < widget.book.chapters.length
-                          ? _previewNextChapter
-                          : null,
-                      onContinueChapter: _advancePaged,
-                      onPreviewRows: (rows) {
-                        previewRows = rows;
-                        _scheduleCounts();
-                      },
-                      onPreviousChapter: chapter > 0 ? _previousPaged : null,
-                      onNextChapter: chapter + 1 < widget.book.chapters.length
-                          ? _advancePaged
-                          : null,
-                      onPosition: (index, offset, rows) {
-                        if (settingsOpen) return;
-                        final pager = pagedKey.currentState;
-                        if (pager?.columns == 2) {
-                          skipFirstPage = pager!.firstPage == 1;
-                          final entry =
-                              library.pagedChapterEntries[_entryKey(chapter)];
-                          if (entry != null && entry.isNotEmpty) {
-                            entry[0] = skipFirstPage ? 1 : 0;
-                          }
-                        }
-                        paragraph = index;
-                        characterOffset = offset;
-                        pageRows = rows;
-                        _track();
-                      },
-                      imageBuilder: (url) => BookImage(
-                        library: library,
-                        book: widget.book,
-                        url: url,
-                      ),
-                      commentBuilder: _commentButton,
-                    );
-                  }
-                  return _scrollBody();
-                },
-              ),
-              bottomNavigationBar: SafeArea(
-                top: false,
-                child: Align(
-                  heightFactor: 1,
-                  child: ConstrainedBox(
-                    constraints: BoxConstraints(
-                      maxWidth: ReadingLayout.canvasWidth(
-                        MediaQuery.sizeOf(context).width,
-                        paged: library.readingMode == ReadingMode.paged,
-                      ),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 8,
-                      ),
-                      child: Row(
-                        children: [
-                          TextButton.icon(
-                            onPressed: chapter > 0
-                                ? () => _go(chapter - 1, atEnd: true)
-                                : null,
-                            icon: const Icon(Icons.chevron_left),
-                            label: const Text('上一章'),
-                          ),
-                          Expanded(
-                            child: Text(
-                              '${chapter + 1} / ${widget.book.chapters.length}',
-                              textAlign: TextAlign.center,
-                            ),
-                          ),
-                          TextButton.icon(
-                            onPressed: chapter + 1 < widget.book.chapters.length
-                                ? () => _go(chapter + 1)
-                                : null,
-                            icon: const Icon(Icons.chevron_right),
-                            label: const Text('下一章'),
-                          ),
-                        ],
-                      ),
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+  Widget _topBar(BuildContext context) => AppBar(
+    title: Text(
+      widget.book.title,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+    ),
+    actions: [
+      IconButton(
+        tooltip: '目录',
+        onPressed: _directory,
+        icon: const Icon(Icons.format_list_bulleted),
+      ),
+      IconButton(
+        tooltip: '阅读设置',
+        onPressed: _settings,
+        icon: const Icon(Icons.settings_outlined),
+      ),
+      IconButton(
+        tooltip: '日夜模式',
+        onPressed: () {
+          library.night = !library.night;
+          _preferences();
+        },
+        icon: Icon(
+          library.night ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
+        ),
+      ),
+    ],
+  );
+
+  Widget _readingBody(BuildContext context) => FutureBuilder<ChapterContent>(
+    future: content,
+    builder: (context, snapshot) {
+      if (snapshot.hasError) {
+        return _controlTapArea(
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.cloud_off_outlined, size: 48),
+                  const SizedBox(height: 16),
+                  Text('${snapshot.error}', textAlign: TextAlign.center),
+                  ExcludeReadingTap(
+                    child: TextButton(
+                      onPressed: () => setState(_load),
+                      child: const Text('重试'),
                     ),
                   ),
-                ),
+                ],
               ),
             ),
+          ),
+        );
+      }
+      if (snapshot.connectionState != ConnectionState.done ||
+          !snapshot.hasData) {
+        return _controlTapArea(
+          const Center(child: CircularProgressIndicator()),
+        );
+      }
+      _restorePosition();
+      if (library.readingMode == ReadingMode.paged) {
+        return PagedChapter(
+          key: pagedKey,
+          content: snapshot.data!,
+          title: widget.book.chapters[chapter].title,
+          fontSize: library.fontSize,
+          fontFamily: library.readingFontFamily,
+          horizontalMargin: library.horizontalMargin,
+          verticalMargin: library.verticalMargin,
+          lineHeight: library.lineHeight,
+          initialParagraph: paragraph,
+          initialOffset: characterOffset,
+          comments: comments != null,
+          startAtEnd: pagedStartAtEnd,
+          skipFirstPage: skipFirstPage,
+          showPageIndicator: false,
+          onCenterTap: _toggleControls,
+          onTapTurn: (delta) => unawaited(_turnPage(delta)),
+          loadNextChapter: chapter + 1 < widget.book.chapters.length
+              ? _previewNextChapter
+              : null,
+          onContinueChapter: _advancePaged,
+          onPreviewRows: (rows) {
+            previewRows = rows;
+            _scheduleCounts();
+          },
+          onPreviousChapter: chapter > 0 ? _previousPaged : null,
+          onNextChapter: chapter + 1 < widget.book.chapters.length
+              ? _advancePaged
+              : null,
+          onPosition: (index, offset, rows) {
+            if (settingsOpen) return;
+            final pager = pagedKey.currentState;
+            if (pager?.columns == 2) {
+              skipFirstPage = pager!.firstPage == 1;
+              final entry = library.pagedChapterEntries[_entryKey(chapter)];
+              if (entry != null && entry.isNotEmpty) {
+                entry[0] = skipFirstPage ? 1 : 0;
+              }
+            }
+            paragraph = index;
+            characterOffset = offset;
+            pageRows = rows;
+            _publishPagePosition();
+            _track();
+          },
+          imageBuilder: (url) =>
+              BookImage(library: library, book: widget.book, url: url),
+          commentBuilder: _commentButton,
+        );
+      }
+      return _controlTapArea(_scrollBody());
+    },
+  );
+
+  Widget _bottomBar(BuildContext context) => SafeArea(
+    top: false,
+    child: Align(
+      heightFactor: 1,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: ReadingLayout.canvasWidth(
+            MediaQuery.sizeOf(context).width,
+            paged: library.readingMode == ReadingMode.paged,
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Row(
+            children: [
+              TextButton.icon(
+                onPressed: chapter > 0
+                    ? () => _go(chapter - 1, atEnd: true)
+                    : null,
+                icon: const Icon(Icons.chevron_left),
+                label: const Text('上一章'),
+              ),
+              Expanded(
+                child: BookPageProgress(
+                  library: library,
+                  book: widget.book,
+                  position: pagePosition,
+                  contents: knownContents,
+                ),
+              ),
+              TextButton.icon(
+                onPressed: chapter + 1 < widget.book.chapters.length
+                    ? () => _go(chapter + 1)
+                    : null,
+                icon: const Icon(Icons.chevron_right),
+                label: const Text('下一章'),
+              ),
+            ],
           ),
         ),
       ),

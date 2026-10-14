@@ -60,6 +60,7 @@ void main() {
     await tester.pumpAndSettle();
     text = tester.getRect(find.text('　　短页正文'));
     expect(text.width, inInclusiveRange(1000, 1080));
+    await showReadingControls(tester);
     expect(tester.getCenter(find.text('上一章')).dx, greaterThan(400));
     expect(tester.getCenter(find.text('下一章')).dx, lessThan(1520));
     expect(tester.takeException(), isNull);
@@ -127,7 +128,8 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.textContaining(RegExp(r'^第 1–2 /')), findsOneWidget);
+    expect(readingPager(tester).columns, 2);
+    expect(readingPager(tester).page, 0);
     await tapReadingSide(tester, 1);
     await tester.pumpAndSettle();
     await tester.pump(const Duration(milliseconds: 700));

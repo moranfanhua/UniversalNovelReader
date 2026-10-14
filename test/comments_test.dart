@@ -147,7 +147,19 @@ void main() {
     }
     expect(find.text('7'), findsWidgets);
     expect(requested, isNotEmpty);
-    expect(requested.length, lessThan(12));
+    final viewport = tester.getRect(find.byType(SingleChildScrollView));
+    for (final row in requested) {
+      final bounds = tester.getRect(
+        find.byWidgetPredicate(
+          (widget) =>
+              widget is SelectableText &&
+              widget.data == '　　${'第$row段正文内容。' * 3}',
+        ),
+      );
+      expect(bounds.top, lessThan(viewport.bottom + 150));
+      expect(bounds.bottom, greaterThan(viewport.top - 150));
+    }
+    expect(requested.length, lessThan(40));
     expect(requested.toSet().length, requested.length);
     final before = requested.length;
     await tester.drag(

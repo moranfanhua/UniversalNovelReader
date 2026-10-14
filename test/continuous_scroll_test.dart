@@ -9,6 +9,7 @@ import 'package:unr/sources/sfacg/sfacg_api.dart';
 import 'package:unr/sources/sfacg/sfacg_source.dart';
 import 'package:unr/ui/reader.dart';
 import 'chapter_preview_test.dart' show PreviewComments;
+import 'helpers/reading_taps.dart';
 
 final scrollBook = Book(
   id: 'continuous-scroll',
@@ -102,14 +103,14 @@ void main() {
       alignment: 0,
     );
     await settle(tester);
-    expect(find.text('2 / 6'), findsOneWidget);
+    expect(readingChapter(tester), 1);
     expect(library.progress[scrollBook.key], [1, 5]);
     await Scrollable.ensureVisible(
       tester.element(find.text('　　第1章段落29')),
       alignment: 0,
     );
     await settle(tester);
-    expect(find.text('1 / 6'), findsOneWidget);
+    expect(readingChapter(tester), 0);
     expect(library.requests, ['1', '2']);
     await tester.pumpWidget(const SizedBox.shrink());
   });
@@ -145,13 +146,15 @@ void main() {
     controller(tester).jumpTo(controller(tester).position.maxScrollExtent);
     await tester.pump();
     await tester.pump();
+    await showReadingControls(tester);
     await tester.tap(find.text('下一章'));
     await tester.pump();
+    await showReadingControls(tester);
     await tester.tap(find.text('下一章'));
     await settle(tester);
     library.pending!.complete(library.contents['2']);
     await settle(tester);
-    expect(find.text('3 / 6'), findsOneWidget);
+    expect(readingChapter(tester), 2);
     expect(find.text('　　第3章段落0'), findsOneWidget);
     expect(find.text('　　第2章段落0'), findsNothing);
     expect(tester.takeException(), isNull);
@@ -174,7 +177,7 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
     await mount(tester, library);
     expect(library.progress[scrollBook.key], saved);
-    expect(find.text('2 / 6'), findsOneWidget);
+    expect(readingChapter(tester), 1);
     await tester.pumpWidget(const SizedBox.shrink());
   });
 

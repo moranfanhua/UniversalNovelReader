@@ -8,6 +8,7 @@ import 'package:unr/domain/models.dart';
 import 'package:unr/main.dart';
 import 'package:unr/sources/sfacg/sfacg_api.dart';
 import 'package:unr/sources/sfacg/sfacg_source.dart';
+import 'helpers/reading_taps.dart';
 
 class TreeRecorder {
   final nodes = <int, List<int>>{};
@@ -125,8 +126,10 @@ void main() {
         await tester.pumpAndSettle();
         await tester.tap(find.text('继续阅读'));
         await tester.pumpAndSettle();
+        await showReadingControls(tester);
         await mouse.moveTo(tester.getCenter(find.byTooltip('阅读设置')));
         await tester.pump(const Duration(milliseconds: 600));
+        await showReadingControls(tester);
         await tester.tap(find.byTooltip('阅读设置'));
         await tester.pumpAndSettle();
         final slider = find

@@ -17,6 +17,31 @@ http.Response ok(dynamic data) => http.Response(
 );
 
 void main() {
+  test('作品与目录字数保留在本地书库，旧书无字数仍可恢复', () async {
+    final api = SfacgApi(
+      client: MockClient((request) async {
+        return request.url.path.endsWith('/dirs')
+            ? ok({
+                'volumeList': [
+                  {
+                    'volumeId': 1,
+                    'chapterList': [
+                      {'chapId': 10, 'title': '第一章', 'charCount': '2500'},
+                    ],
+                  },
+                ],
+              })
+            : ok({'novelName': '字数测试', 'charCount': 100000});
+      }),
+    );
+    addTearDown(api.close);
+    final book = await SfacgSource(api).getBook('123');
+    final restored = Book.fromJson(book.toJson());
+    expect(restored.wordCount, 100000);
+    expect(restored.chapters.single.wordCount, 2500);
+    final legacy = book.toJson()..remove('wordCount');
+    expect(Book.fromJson(legacy).wordCount, isNull);
+  });
   test('搜索保留平台收藏数，兼容字符串和缺失计数', () async {
     final api = SfacgApi(
       client: MockClient((request) async {

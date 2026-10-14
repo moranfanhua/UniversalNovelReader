@@ -7,15 +7,18 @@ class Chapter {
     this.volume = '',
     this.vip = false,
     this.url = '',
+    this.wordCount,
   });
   final String id, title, volume, url;
   final bool vip;
+  final int? wordCount;
   Map<String, dynamic> toJson() => {
     'id': id,
     'title': title,
     'volume': volume,
     'vip': vip,
     'url': url,
+    if (wordCount != null) 'wordCount': wordCount,
   };
   factory Chapter.fromJson(Map<String, dynamic> j) => Chapter(
     id: j['id'],
@@ -23,6 +26,7 @@ class Chapter {
     volume: j['volume'] ?? '',
     vip: j['vip'] ?? false,
     url: j['url'] ?? '',
+    wordCount: Book.parseWordCount(j['wordCount']),
   );
 }
 
@@ -37,14 +41,21 @@ class Book {
     this.description = '',
     this.favoriteCount,
     this.updatedAt,
+    this.wordCount,
   });
   final String id, title, author, source, cover, description;
   final List<Chapter> chapters;
   final int? favoriteCount;
+  final int? wordCount;
   final DateTime? updatedAt;
   static int? parseFavoriteCount(Object? value) {
     final count = int.tryParse('$value');
     return count != null && count >= 0 ? count : null;
+  }
+
+  static int? parseWordCount(Object? value) {
+    final count = int.tryParse('$value');
+    return count != null && count > 0 ? count : null;
   }
 
   String get key => '$source:$id';
@@ -56,6 +67,7 @@ class Book {
     'cover': cover,
     'description': description,
     if (favoriteCount != null) 'favoriteCount': favoriteCount,
+    if (wordCount != null) 'wordCount': wordCount,
     'updatedAt': updatedAt?.toUtc().toIso8601String(),
     'chapters': chapters.map((c) => c.toJson()).toList(),
   };
@@ -67,6 +79,7 @@ class Book {
     cover: j['cover'] ?? '',
     description: j['description'] ?? '',
     favoriteCount: parseFavoriteCount(j['favoriteCount']),
+    wordCount: parseWordCount(j['wordCount']),
     updatedAt: DateTime.tryParse('${j['updatedAt'] ?? ''}')?.toUtc(),
     chapters: (j['chapters'] as List)
         .map((c) => Chapter.fromJson(Map<String, dynamic>.from(c)))

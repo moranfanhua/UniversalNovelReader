@@ -9,6 +9,7 @@ import 'package:unr/sources/sfacg/sfacg_source.dart';
 import 'package:unr/ui/paged_chapter.dart';
 import 'package:unr/ui/reader.dart';
 import 'package:unr/ui/reading_settings.dart';
+import 'helpers/reading_taps.dart';
 
 class FakeFonts extends ReaderFonts {
   FakeFonts() : super(Directory.systemTemp);
@@ -125,6 +126,7 @@ void main() {
       const Offset(0, -800),
     );
     await tester.pumpAndSettle();
+    await showReadingControls(tester);
     await tester.tap(find.byTooltip('阅读设置'));
     await tester.pumpAndSettle();
     final saved = library.progress[book.key]!.last;

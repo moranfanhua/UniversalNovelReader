@@ -10,6 +10,7 @@ import 'package:unr/sources/sfacg/sfacg_api.dart';
 import 'package:unr/sources/sfacg/sfacg_source.dart';
 import 'package:unr/ui/reader.dart';
 import 'package:unr/formats/ebook.dart';
+import 'helpers/reading_taps.dart';
 
 class MemoryLibrary extends Library {
   MemoryLibrary() : super(Directory.systemTemp, SfacgSource(SfacgApi()));
@@ -70,13 +71,14 @@ void main() {
         (w) => w is SelectableText && w.data == '　　正文段落 0',
       ),
     );
-    expect(first.top, greaterThan(50));
+    expect(first.top, greaterThanOrEqualTo(0));
     expect(first.bottom, lessThan(580));
     await tester.drag(
       find.byType(SingleChildScrollView),
       const Offset(0, -700),
     );
     await tester.pump(const Duration(milliseconds: 10));
+    await showReadingControls(tester);
     await tester.tap(find.byType(BackButton));
     await tester.pumpAndSettle();
     expect(find.text('打开'), findsOneWidget);
@@ -100,6 +102,7 @@ void main() {
         home: ReaderPage(library: library, book: book),
       ),
     );
+    await showReadingControls(tester);
     await tester.tap(find.text('下一章'));
     await tester.pump();
     library.second.complete(const ChapterContent([Paragraph('第二章正文')]));
@@ -111,7 +114,7 @@ void main() {
       ),
     );
     final footerRect = tester.getRect(find.text('下一章'));
-    expect(bodyRect.top, greaterThan(50));
+    expect(bodyRect.top, greaterThanOrEqualTo(0));
     expect(bodyRect.bottom, lessThan(footerRect.top));
     expect(
       tester.getSize(find.byType(SingleChildScrollView)).height,
@@ -126,6 +129,7 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(find.byTooltip('字号增大'), findsNothing);
     expect(find.byTooltip('字号减小'), findsNothing);
+    await showReadingControls(tester);
     await tester.tap(find.byTooltip('阅读设置'));
     await tester.pumpAndSettle();
     final size = tester.widget<Slider>(

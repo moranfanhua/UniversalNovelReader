@@ -126,6 +126,7 @@ class FanqieSource extends FanqieComments implements SearchableNovelSource {
             .replaceFirst(RegExp(r'^//'), 'https://'),
         description: html.parseFragment('${info['abstract'] ?? ''}').text ?? '',
         favoriteCount: favorites[bid],
+        wordCount: Book.parseWordCount(info['word_number']),
         chapters: [],
       );
     }).toList();
@@ -157,6 +158,7 @@ class FanqieSource extends FanqieComments implements SearchableNovelSource {
       author: '${info['author'] ?? ''}',
       cover: '${info['thumbUrl'] ?? ''}',
       description: '${info['abstract'] ?? ''}',
+      wordCount: Book.parseWordCount(info['wordNumber'] ?? info['word_number']),
       chapters: chapters,
       updatedAt: seconds == null || seconds <= 0
           ? null
@@ -182,6 +184,9 @@ class FanqieSource extends FanqieComments implements SearchableNovelSource {
           Chapter(
             id: cid,
             title: '${raw['title'] ?? cid}',
+            wordCount: Book.parseWordCount(
+              raw['wordNumber'] ?? raw['word_number'],
+            ),
             volume: '${raw['volume_name'] ?? '正文'}',
             vip:
                 raw['isChapterLock'] == true ||

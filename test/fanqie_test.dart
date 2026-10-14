@@ -36,7 +36,13 @@ Map<String, dynamic> directory() => {
   'allItemIds': [chapterId, nextId],
   'chapterListWithVolume': [
     [
-      {'itemId': chapterId, 'title': '第一章', 'volume_name': '第一卷', 'needPay': 0},
+      {
+        'itemId': chapterId,
+        'title': '第一章',
+        'volume_name': '第一卷',
+        'needPay': 0,
+        'wordNumber': '2500',
+      },
     ],
     [
       {
@@ -186,6 +192,7 @@ void main() {
                   'author': '作者',
                   'abstract': '简介',
                   'lastPublishTime': '1670144602',
+                  'wordNumber': '3201288',
                 },
               }),
               200,
@@ -225,6 +232,11 @@ void main() {
     final full = await source.getBook(results.single.id);
     expect(full.key, 'fanqie:$bookId');
     expect(full.chapters.length, 2);
+    expect(full.wordCount, 3201288);
+    expect(full.chapters.first.wordCount, 2500);
+    final restored = Book.fromJson(full.toJson());
+    expect(restored.wordCount, full.wordCount);
+    expect(restored.chapters.first.wordCount, 2500);
     expect(full.updatedAt?.isUtc, isTrue);
   });
 

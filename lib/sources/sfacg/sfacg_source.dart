@@ -95,6 +95,7 @@ class SfacgSource extends CommentSource implements SearchableNovelSource {
             author: j['authorName'] ?? '',
             cover: j['novelCover'] ?? '',
             favoriteCount: Book.parseFavoriteCount(j['markCount']),
+            wordCount: Book.parseWordCount(j['charCount']),
             updatedAt: _updateTime(j['lastUpdateTime']),
             chapters: [],
           ),
@@ -130,6 +131,7 @@ class SfacgSource extends CommentSource implements SearchableNovelSource {
             title: c['title'] ?? cid,
             volume: '${v['title'] ?? '正文'}',
             vip: vip,
+            wordCount: Book.parseWordCount(c['charCount']),
             url: vip
                 ? 'https://book.sfacg.com/vip/c/$cid/'
                 : 'https://book.sfacg.com/Novel/$id/${v['volumeId']}/$cid/',
@@ -144,6 +146,7 @@ class SfacgSource extends CommentSource implements SearchableNovelSource {
       author: info['authorName'] ?? '',
       cover: info['novelCover'] ?? '',
       description: info['expand']?['intro'] ?? '',
+      wordCount: Book.parseWordCount(info['charCount']),
       updatedAt:
           _updateTime(dirs['lastUpdateTime']) ??
           _updateTime(info['lastUpdateTime']),
