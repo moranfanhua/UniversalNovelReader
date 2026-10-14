@@ -106,6 +106,10 @@ public abstract class SSLCodec {
         this.mPlaintextBuffers = new ConcurrentLinkedDeque<>();
     }
 
+    protected final boolean isHandshakeFinished() {
+        return mHandshakeFinished;
+    }
+
     /**
      * Create an {@link SSLEngine} instance to encode and decode SSL packets.
      *

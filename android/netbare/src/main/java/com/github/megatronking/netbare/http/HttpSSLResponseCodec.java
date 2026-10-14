@@ -68,12 +68,11 @@ import javax.net.ssl.SSLEngine;
     @Override
     public void decode(ByteBuffer buffer, @NonNull CodecCallback callback) throws IOException {
         super.decode(buffer, callback);
-        // ALPN is put in ServerHello, once we receive the remote server packet, the ALPN must be
-        // resolved.
-        if (!mSelectedAlpnResolved) {
+        // Modern SSLEngine implementations expose ALPN only after the handshake completes.
+        if (!mSelectedAlpnResolved && isHandshakeFinished()) {
             mAlpnCallback.onResult(getAlpnSelectedProtocol());
+            mSelectedAlpnResolved = true;
         }
-        mSelectedAlpnResolved = true;
     }
 
     public void setSelectedAlpnResolved() {
