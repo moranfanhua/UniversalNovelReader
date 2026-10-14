@@ -24,6 +24,56 @@ http.Response success({String? cookie, Map<String, Object> data = const {}}) =>
     );
 
 void main() {
+  test('App 校验接受编码账号 ID，官网仍要求数字 ID；匿名和错误形状不通过', () async {
+    Object? id;
+    final api = FanqieApi(
+      client: MockClient((request) async {
+        final appRequest = request.url.host != 'fanqienovel.com';
+        expect(
+          request.url.path,
+          appRequest ? '/reading/user/info/v/' : '/api/reader/user/info',
+        );
+        return http.Response(
+          jsonEncode({
+            'code': 0,
+            'data': {'user_id': id},
+          }),
+          200,
+        );
+      }),
+    )..setCookie('sessionid=synthetic');
+    registered(api);
+    addTearDown(api.close);
+    for (final valid in ['encoded-user-Q7==', 'encoded/user+Q7=', '42', 42]) {
+      id = valid;
+      await api.validateSession(appSession: true);
+    }
+    for (final invalid in [
+      null,
+      '',
+      '0',
+      0,
+      '-1',
+      -1,
+      false,
+      'null',
+      'guest',
+      <String, Object>{},
+      ['42'],
+      'bad\r\nvalue',
+    ]) {
+      id = invalid;
+      await expectLater(
+        api.validateSession(appSession: true),
+        throwsA(isA<SourceException>()),
+      );
+    }
+    id = 'encoded-user-Q7==';
+    await expectLater(api.validateSession(), throwsA(isA<SourceException>()));
+    id = '42';
+    await api.validateSession();
+  });
+
   test('验证码请求按官方 SDK 混淆参数，不携带现有账号 Cookie 或自动重试', () async {
     final paths = <String>[];
     final api = FanqieApi(
@@ -146,7 +196,7 @@ void main() {
         return http.Response(
           jsonEncode({
             'code': 0,
-            'data': valid ? {'user_id': '42'} : {},
+            'data': valid ? {'user_id': 'encoded-user-Q7=='} : {},
           }),
           200,
         );
@@ -174,10 +224,13 @@ void main() {
     await tester.pumpAndSettle();
     expect(api.cookie, 'sessionid=old-account');
     expect(saves, 0);
+    expect(find.text('重新验证登录会话'), findsOneWidget);
+    final callsBeforeRetry = calls;
     valid = true;
-    await tester.enterText(find.widgetWithText(TextField, '短信验证码'), '123456');
-    await tester.tap(find.text('登录并保存会话'));
+    await tester.ensureVisible(find.text('重新验证登录会话'));
+    await tester.tap(find.text('重新验证登录会话'));
     await tester.pumpAndSettle();
+    expect(calls, callsBeforeRetry + 1);
     expect(api.cookie, contains('sessionid=new-account'));
     expect(saves, 1);
     await tester.pumpWidget(const SizedBox.shrink());

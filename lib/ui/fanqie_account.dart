@@ -24,6 +24,7 @@ class _FanqieAccountPageState extends State<FanqieAccountPage> {
   Timer? cooldown;
   int remaining = 0;
   String? sentPhone;
+  bool pendingSmsSession = false;
   bool busy = false;
   String? message;
 
@@ -87,6 +88,7 @@ class _FanqieAccountPageState extends State<FanqieAccountPage> {
       final value = await auth.verifyCode(phone.text, code.text);
       if (mounted) {
         cookie.text = value;
+        pendingSmsSession = true;
         await _import(appSession: true);
       }
     } catch (error) {
@@ -115,6 +117,7 @@ class _FanqieAccountPageState extends State<FanqieAccountPage> {
       if (appSession) widget.api.app.restore(candidate.app.toJson());
       await widget.api.onSessionChanged?.call();
       cookie.clear();
+      pendingSmsSession = false;
       if (mounted) {
         setState(
           () => message = widget.api.sessionNotice ?? '番茄会话已验证并保存在本机安全存储中',
@@ -246,6 +249,11 @@ class _FanqieAccountPageState extends State<FanqieAccountPage> {
                 onPressed: busy ? null : _smsLogin,
                 child: const Text('登录并保存会话'),
               ),
+              if (pendingSmsSession)
+                OutlinedButton(
+                  onPressed: busy ? null : () => _import(appSession: true),
+                  child: const Text('重新验证登录会话'),
+                ),
               TextButton(
                 onPressed: busy || !SessionHelper.supported
                     ? null

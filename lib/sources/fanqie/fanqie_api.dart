@@ -146,10 +146,31 @@ class FanqieApi {
     final data = appSession
         ? await app.request('/reading/user/info/v/')
         : await get('/api/reader/user/info');
-    final id = '${data['user_id'] ?? data['userId'] ?? data['id'] ?? ''}';
-    if (!RegExp(r'^[1-9]\d*$').hasMatch(id)) {
+    final id = data['user_id'] ?? data['userId'] ?? data['id'];
+    final valid = appSession
+        ? _validAppUserId(id)
+        : RegExp(r'^[1-9]\d*$').hasMatch('$id');
+    if (!valid) {
       throw const SourceException('番茄会话未登录或已失效');
     }
+  }
+
+  static bool _validAppUserId(Object? value) {
+    if (value is int) return value > 0;
+    if (value is! String || value.isEmpty || value.length > 256) return false;
+    final numeric = BigInt.tryParse(value);
+    if (numeric != null) return numeric > BigInt.zero;
+    // The official App stores InfoData.user_id as encodeUserId. It is an
+    // opaque string; the website's positive-decimal-ID rule does not apply.
+    if (const {
+      'null',
+      'undefined',
+      'false',
+      'guest',
+      'anonymous',
+    }.contains(value.toLowerCase()))
+      return false;
+    return RegExp(r'^[A-Za-z0-9_+/=-]+$').hasMatch(value);
   }
 
   void close() => client.close();
