@@ -1,4 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'dart:async';
+import '../sources/fanqie/fanqie_auth.dart';
+import '../domain/models.dart';
 import '../sources/fanqie/fanqie_api.dart';
 import '../sources/fanqie/fanqie_session.dart';
 import '../sources/session_helper.dart';
@@ -15,6 +19,11 @@ class FanqieAccountPage extends StatefulWidget {
 
 class _FanqieAccountPageState extends State<FanqieAccountPage> {
   final cookie = TextEditingController();
+  final phone = TextEditingController(), code = TextEditingController();
+  late final auth = FanqieAuth(widget.api.client, widget.api.app);
+  Timer? cooldown;
+  int remaining = 0;
+  String? sentPhone;
   bool busy = false;
   String? message;
 
@@ -31,7 +40,63 @@ class _FanqieAccountPageState extends State<FanqieAccountPage> {
   @override
   void dispose() {
     cookie.dispose();
+    phone.dispose();
+    code.dispose();
+    cooldown?.cancel();
+    auth.clear();
     super.dispose();
+  }
+
+  Future<void> _sendCode() async {
+    if (busy || remaining > 0) return;
+    setState(() {
+      busy = true;
+      message = null;
+    });
+    try {
+      final normalized = FanqieAuth.mobile(phone.text);
+      final seconds = await auth.sendCode(normalized);
+      if (!mounted) return;
+      setState(() {
+        sentPhone = normalized;
+        remaining = seconds;
+        message = '验证码已发送，请查看短信';
+      });
+      cooldown?.cancel();
+      cooldown = Timer.periodic(const Duration(seconds: 1), (timer) {
+        if (!mounted || remaining <= 1) timer.cancel();
+        if (mounted) setState(() => remaining--);
+      });
+    } catch (error) {
+      if (mounted) setState(() => message = '$error');
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  Future<void> _smsLogin() async {
+    if (busy) return;
+    setState(() {
+      busy = true;
+      message = null;
+    });
+    try {
+      if (FanqieAuth.mobile(phone.text) != sentPhone) {
+        throw const SourceException('请先为当前手机号获取验证码');
+      }
+      final value = await auth.verifyCode(phone.text, code.text);
+      if (mounted) {
+        cookie.text = value;
+        await _import(appSession: true);
+      }
+    } catch (error) {
+      if (mounted) setState(() => message = '$error');
+    } finally {
+      if (mounted) {
+        code.clear();
+        setState(() => busy = false);
+      }
+    }
   }
 
   Future<void> _import({bool appSession = false}) async {
@@ -126,6 +191,7 @@ class _FanqieAccountPageState extends State<FanqieAccountPage> {
             const SizedBox(height: 12),
             if (widget.method == null)
               AccountLoginMethodList(
+                onSms: busy ? null : () => _openMethod(AccountLoginMethod.sms),
                 onWeb: !SessionHelper.supported || busy
                     ? null
                     : () => _openMethod(AccountLoginMethod.web),
@@ -136,6 +202,59 @@ class _FanqieAccountPageState extends State<FanqieAccountPage> {
                     ? null
                     : () => _openMethod(AccountLoginMethod.manual),
               ),
+            if (widget.method == AccountLoginMethod.sms) ...[
+              TextField(
+                controller: phone,
+                enabled: !busy,
+                keyboardType: TextInputType.phone,
+                autocorrect: false,
+                autofillHints: const [AutofillHints.telephoneNumberNational],
+                decoration: const InputDecoration(
+                  labelText: '手机号',
+                  prefixText: '+86 ',
+                  border: OutlineInputBorder(),
+                ),
+                onChanged: (_) {
+                  code.clear();
+                  setState(() => message = null);
+                },
+              ),
+              const SizedBox(height: 12),
+              OutlinedButton(
+                onPressed: busy || remaining > 0 ? null : _sendCode,
+                child: Text(remaining > 0 ? '$remaining 秒后重新获取' : '获取验证码'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: code,
+                enabled: !busy,
+                keyboardType: TextInputType.number,
+                inputFormatters: [
+                  FilteringTextInputFormatter.digitsOnly,
+                  LengthLimitingTextInputFormatter(8),
+                ],
+                autofillHints: const [AutofillHints.oneTimeCode],
+                autocorrect: false,
+                enableSuggestions: false,
+                decoration: const InputDecoration(
+                  labelText: '短信验证码',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              FilledButton(
+                onPressed: busy ? null : _smsLogin,
+                child: const Text('登录并保存会话'),
+              ),
+              TextButton(
+                onPressed: busy || !SessionHelper.supported
+                    ? null
+                    : () => _webLogin(),
+                child: const Text('改用网页登录'),
+              ),
+              const Text('如提示访问频繁或要求安全验证，请稍后重试或使用网页登录。'),
+              const SizedBox(height: 12),
+            ],
             if (widget.method == AccountLoginMethod.web) ...[
               FilledButton.icon(
                 onPressed: busy ? null : () => _webLogin(),

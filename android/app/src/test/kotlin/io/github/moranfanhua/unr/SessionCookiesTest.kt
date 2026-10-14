@@ -21,11 +21,15 @@ class SessionCookiesTest {
         assertEquals("com.dragon.read", platform.appPackage)
         assertEquals("com.sfacg", SessionPlatform.SFACG.appPackage)
         assertTrue(platform.acceptsAppHost("api5-normal-lf.fqnovel.com"))
+        assertTrue(platform.acceptsAppHost("security.snssdk.com"))
+        assertFalse(platform.acceptsAppHost("security.snssdk.com.evil.test"))
         assertFalse(platform.acceptsAppHost("fqnovel.com.evil.test"))
         val collector = SessionCookies(platform)
         assertNull(collector.addAppSetCookie("sfacg.com", "sessionid=other-platform"))
         assertNull(collector.addAppSetCookie("api5-normal-lf.fqnovel.com", "sessionid=bad\r\nInjected=header"))
         assertEquals("sessionid=app-session", collector.addAppSetCookie("api5-normal-lf.fqnovel.com", "sessionid=app-session; Path=/; Secure; HttpOnly, tracking_id=ignored; Path=/"))
+        collector.clear()
+        assertEquals("sessionid=login-session", collector.addAppSetCookie("security.snssdk.com", "sessionid=login-session; Domain=.snssdk.com; Secure; HttpOnly"))
     }
 
     @Test fun capturesOnlySelectedPlatformAndAuthCookies() {

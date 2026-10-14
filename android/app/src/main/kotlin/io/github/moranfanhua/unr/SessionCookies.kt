@@ -13,7 +13,7 @@ enum class SessionPlatform(val id: String, val title: String, val loginUrl: Stri
     }
     val appHosts get() = when (this) {
         SFACG -> listOf("api.sfacg.com")
-        FANQIE -> listOf("fqnovel.com", "fanqienovel.com", "reading.snssdk.com", "novel.snssdk.com")
+        FANQIE -> listOf("fqnovel.com", "fanqienovel.com", "reading.snssdk.com", "novel.snssdk.com", "security.snssdk.com")
     }
     fun acceptsAppHost(host: String): Boolean {
         val normalized = host.lowercase().trimEnd('.')

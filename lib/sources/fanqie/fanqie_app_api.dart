@@ -64,6 +64,7 @@ class FanqieAppApi {
     'host_abi': 'arm64-v8a',
     'compliance_status': '0',
   };
+  Map<String, String> get loginParameters => Map.unmodifiable(_params);
   Future<http.Response> _send(
     Uri uri, {
     List<int>? body,

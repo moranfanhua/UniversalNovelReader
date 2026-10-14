@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 enum AccountLoginMethod {
   password('账号密码登录'),
+  sms('手机号验证码登录'),
   web('网页登录'),
   manual('导入会话');
 
@@ -13,12 +14,13 @@ class AccountLoginMethodList extends StatelessWidget {
   const AccountLoginMethodList({
     super.key,
     this.onPassword,
+    this.onSms,
     this.onWeb,
     this.onVpn,
     this.onImport,
   });
 
-  final VoidCallback? onPassword, onWeb, onVpn, onImport;
+  final VoidCallback? onPassword, onSms, onWeb, onVpn, onImport;
 
   @override
   Widget build(BuildContext context) => Column(
@@ -31,6 +33,7 @@ class AccountLoginMethodList extends StatelessWidget {
         ),
       ),
       if (onPassword != null) _entry('账号密码登录', Icons.password, onPassword!),
+      if (onSms != null) _entry('手机号验证码登录', Icons.sms, onSms!),
       if (onWeb != null) _entry('网页登录', Icons.public, onWeb!),
       if (onVpn != null) _entry('VPN 辅助登录', Icons.vpn_lock, onVpn!),
       if (onImport != null) _entry('导入会话', Icons.key, onImport!),
