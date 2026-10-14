@@ -4,7 +4,7 @@ import java.net.URI
 
 enum class SessionPlatform(val id: String, val title: String, val loginUrl: String) {
     SFACG("sfacg", "菠萝包", "https://m.sfacg.com/login/"),
-    FANQIE("fanqie", "番茄小说", "https://fanqienovel.com/");
+    FANQIE("fanqie", "番茄小说", "https://fanqienovel.com/main/writer/login");
 
     val userAgentMarker get() = "UNRSessionLogin/$id"
 

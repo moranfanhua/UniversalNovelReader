@@ -143,6 +143,7 @@ import javax.net.ssl.SSLHandshakeException;
                                     callback.onWrite();
                                 }
                             } catch (IOException e) {
+                                NetBareLog.transport("tcp_error:" + e.getClass().getSimpleName());
                                 NioTunnel tunnel = callback.getTunnel();
                                 String ip = null;
                                 InetAddress address = ((Socket)tunnel.socket()).getInetAddress();
@@ -165,6 +166,7 @@ import javax.net.ssl.SSLHandshakeException;
     }
 
     private void onAccept() throws IOException {
+        NetBareLog.transport("tcp_accept");
         SocketChannel clientChannel = mServerSocketChannel.accept();
         Socket clientSocket = clientChannel.socket();
 

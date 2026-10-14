@@ -28,6 +28,14 @@ public final class NetBareLog {
     private static final String TAG = "NetBare";
 
     private static boolean sDebug;
+    private static boolean sTransportDebug;
+
+    public static void setTransportDebug(boolean debug) { sTransportDebug = debug; }
+
+    // Transport diagnostics contain stage names only, never headers, URLs or bodies.
+    public static void transport(String stage) {
+        if (sTransportDebug) Log.d("UNR.VPN", stage);
+    }
 
     private NetBareLog() {
     }

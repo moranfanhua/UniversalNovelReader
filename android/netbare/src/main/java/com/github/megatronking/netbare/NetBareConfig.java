@@ -117,7 +117,7 @@ public final class NetBareConfig {
         public Builder() {
             this.mConfig = new NetBareConfig();
             this.mConfig.routes = new HashSet<>();
-            this.mConfig.dnsServers = new HashSet<>();
+            this.mConfig.dnsServers = new java.util.LinkedHashSet<>();
             this.mConfig.allowedApplications = new HashSet<>();
             this.mConfig.disallowedApplications = new HashSet<>();
             this.mConfig.allowedHosts = new HashSet<>();

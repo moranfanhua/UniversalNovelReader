@@ -29,6 +29,12 @@ class WebLoginActivity : Activity() {
         platform = try { SessionPlatform.fromId(intent.getStringExtra("source")) } catch (_: Exception) { finish(); return }
         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         val layout = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(Color.WHITE) }
+        layout.setOnApplyWindowInsetsListener { view, insets ->
+            @Suppress("DEPRECATION")
+            view.setPadding(insets.systemWindowInsetLeft, insets.systemWindowInsetTop,
+                insets.systemWindowInsetRight, insets.systemWindowInsetBottom)
+            insets
+        }
         val bar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(8, 4, 8, 4) }
         val back = Button(this).apply { text = "返回"; setOnClickListener { finish() } }
         val host = TextView(this).apply { text = platform.title + "官网登录"; setTextColor(Color.BLACK); setPadding(8, 0, 8, 0) }
@@ -70,6 +76,7 @@ class WebLoginActivity : Activity() {
         }
         layout.addView(web, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         setContentView(layout)
+        layout.requestApplyInsets()
         CookieManager.getInstance().apply {
             setAcceptCookie(true)
             setAcceptThirdPartyCookies(web, true)

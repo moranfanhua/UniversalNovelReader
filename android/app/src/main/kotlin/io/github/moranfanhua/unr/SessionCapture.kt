@@ -3,6 +3,8 @@ package io.github.moranfanhua.unr
 import android.app.Application
 import android.content.Context
 import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.os.Handler
 import android.os.Looper
 import com.github.megatronking.netbare.NetBare
@@ -12,6 +14,7 @@ import com.github.megatronking.netbare.http.*
 import com.github.megatronking.netbare.ssl.JKS
 import java.io.File
 import java.nio.ByteBuffer
+import java.net.Inet4Address
 import java.security.KeyStore
 import java.security.SecureRandom
 import java.security.cert.CertificateFactory
@@ -37,6 +40,8 @@ object SessionCapture {
         context = application.applicationContext
         // Captured headers must never be printed, including in debug APKs.
         NetBare.get().attachApplication(application, false)
+        com.github.megatronking.netbare.NetBareLog.setTransportDebug(
+            application.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0)
         NetBare.get().registerNetBareListener(object : NetBareListener {
             override fun onServiceStarted() { main.post {
                 if (phase == "starting") { phase = "capturing"; publish() }
@@ -115,6 +120,16 @@ object SessionCapture {
         check(phase in listOf("idle", "stopped", "error") && !NetBare.get().isActive) { "请先停止当前抓取" }
         val store = checkNotNull(jks) { "请先准备并安装证书" }
         check(store.isInstalled) { "请先安装本机抓包 CA 证书" }
+        val connectivity = context.getSystemService(ConnectivityManager::class.java)
+        val network = connectivity.activeNetwork?.takeIf {
+            connectivity.getNetworkCapabilities(it)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == false
+        } ?: connectivity.allNetworks.firstOrNull {
+            val capabilities = connectivity.getNetworkCapabilities(it)
+            capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true && !capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
+        }
+        val dnsServers = network?.let { connectivity.getLinkProperties(it)?.dnsServers }
+            .orEmpty().filterIsInstance<Inet4Address>().mapNotNull { it.hostAddress }
+        check(dnsServers.isNotEmpty()) { "未取得系统 IPv4 DNS，请检查当前网络" }
         generation++
         val token = generation
         platform = source
@@ -151,14 +166,15 @@ object SessionCapture {
             }
             override fun intercept(chain: HttpResponseChain, buffer: ByteBuffer, index: Int) { chain.process(buffer) }
         } }
-        val config = NetBareConfig.defaultHttpConfig(store, listOf(factory)).newBuilder()
+        val builder = NetBareConfig.defaultHttpConfig(store, listOf(factory)).newBuilder()
             .setSession("UNR 会话辅助")
             .addAllowedApplication(context.packageName)
             .addAllowedHost(if (source == SessionPlatform.SFACG) "*.sfacg.com" else "*.fanqienovel.com")
             .addAllowedHost(if (source == SessionPlatform.SFACG) "sfacg.com" else "fanqienovel.com")
             .excludeSelf(false)
             .blockQuic(true)
-            .build()
+        dnsServers.forEach { builder.addDnsServer(it) }
+        val config = builder.build()
         try {
             NetBare.get().start(config, SessionVpnService::class.java)
             main.postDelayed({
@@ -190,7 +206,10 @@ object SessionCapture {
             phase = if (active) "stopping" else "stopped"
             message = null
         }
-        if (!context.stopService(Intent(context, SessionVpnService::class.java)) && phase == "stopping") phase = "stopped"
+        if (!SessionVpnService.stopRunning()) {
+            context.stopService(Intent(context, SessionVpnService::class.java))
+            if (phase == "stopping") phase = "stopped"
+        }
         publish()
     }
 

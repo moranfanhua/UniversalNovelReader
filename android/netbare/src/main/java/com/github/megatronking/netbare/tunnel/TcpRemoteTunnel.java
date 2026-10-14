@@ -57,6 +57,7 @@ public class TcpRemoteTunnel extends TcpTunnel {
 
     @Override
     public void onConnected() throws IOException {
+        com.github.megatronking.netbare.NetBareLog.transport("tcp_upstream_connected");
         mLog.i("Remote tunnel is connected.");
         super.onConnected();
     }

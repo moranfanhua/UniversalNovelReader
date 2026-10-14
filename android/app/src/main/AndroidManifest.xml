@@ -21,6 +21,7 @@
         </service>
         <activity
             android:name=".WebLoginActivity"
+            android:windowSoftInputMode="adjustResize"
             android:exported="false"
             android:excludeFromRecents="true"
             android:configChanges="orientation|screenSize|keyboardHidden"

@@ -9,8 +9,19 @@ import android.os.Build
 import com.github.megatronking.netbare.NetBareService
 
 class SessionVpnService : NetBareService() {
+    companion object {
+        private var instance: SessionVpnService? = null
+        fun stopRunning(): Boolean {
+            val service = instance ?: return false
+            service.stopCapture()
+            return true
+        }
+    }
     private var started = false
-    override fun onCreate() { super.onCreate(); SessionCapture.attach(application) }
+    override fun onCreate() { super.onCreate(); instance = this; SessionCapture.attach(application) }
+    private fun stopCapture() {
+        super.onStartCommand(Intent(this, SessionVpnService::class.java).setAction(ACTION_STOP), 0, 0)
+    }
     override fun notificationId() = 5132
 
     override fun createNotification(): Notification {
@@ -33,10 +44,13 @@ class SessionVpnService : NetBareService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) { SessionCapture.stop(); stopSelf(); return START_NOT_STICKY }
-        if (intent?.action == ACTION_START) started = true
+        if (intent?.action == ACTION_START) {
+            if (SessionCapture.snapshot()["phase"] != "starting") { stopCapture(); return START_NOT_STICKY }
+            started = true
+        }
         return super.onStartCommand(intent, flags, startId)
     }
 
     override fun onRevoke() { SessionCapture.stop(); super.onRevoke() }
-    override fun onDestroy() { super.onDestroy(); if (!started) SessionCapture.serviceDestroyed() }
+    override fun onDestroy() { instance = null; super.onDestroy(); if (!started) SessionCapture.serviceDestroyed() }
 }
