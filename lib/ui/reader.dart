@@ -1211,7 +1211,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
             children: [
               TextButton.icon(
                 onPressed: chapter > 0
-                    ? () => _go(chapter - 1, atEnd: true)
+                    ? () => _go(chapter - 1)
                     : null,
                 icon: const Icon(Icons.chevron_left),
                 label: const Text('上一章'),
