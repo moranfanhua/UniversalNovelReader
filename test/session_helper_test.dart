@@ -43,7 +43,7 @@ void main() {
         expect(request.url.path, '/user');
         expect(request.headers['cookie'], '.SFCommunity=synthetic-web');
         return sfResponse(
-          authenticated ? {'userId': 42} : {},
+          authenticated ? {'accountId': 42} : {},
           status: valid ? 200 : 401,
         );
       }),
@@ -74,6 +74,40 @@ void main() {
       () => api.setCookie('.SFCommunity=x\u0000', website: true),
       throwsA(isA<SourceException>()),
     );
+  });
+
+  test('菠萝包按官方 accountId 校验会话，拒绝匿名及无效账号且保留原会话', () async {
+    Object? user;
+    var saves = 0;
+    final api = SfacgApi(client: MockClient((_) async => sfResponse(user!)))
+      ..setCookie('.SFCommunity=original; session_APP=original-app');
+    addTearDown(api.close);
+    api.onSessionChanged = () async {
+      saves++;
+    };
+    for (final invalid in [
+      <String, Object>{},
+      {'accountId': 0},
+      {'accountId': -1},
+      {'accountId': 'invalid'},
+      {'accountId': 0, 'userId': 42},
+    ]) {
+      user = invalid;
+      await expectLater(
+        api.importCookie('.SFCommunity=website', website: true),
+        throwsA(isA<SourceException>()),
+      );
+      expect(api.cookies['.SFCommunity'], 'original');
+      expect(api.websiteSession, isFalse);
+      expect(saves, 0);
+    }
+    for (final accountId in [42, '42']) {
+      user = {'accountId': accountId};
+      await api.importCookie('.SFCommunity=website', website: true);
+      expect(api.websiteSession, isTrue);
+      expect(api.cookies, {'.SFCommunity': 'website'});
+    }
+    expect(saves, 2);
   });
 
   test('网页登录会话标识随安全存储恢复，退出清除；旧的不完整 App 会话仍拒绝', () async {

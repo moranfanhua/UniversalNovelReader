@@ -57,7 +57,9 @@ class SfacgApi {
       ..setCookie(value, website: website);
     final user = await candidate.get('user');
     final userId = user is Map
-        ? int.tryParse('${user['userId'] ?? user['id'] ?? ''}')
+        ? int.tryParse(
+            '${user['accountId'] ?? user['userId'] ?? user['id'] ?? ''}',
+          )
         : null;
     if (userId == null || userId <= 0) {
       throw const SourceException('菠萝包会话未登录或已失效，请重新登录');
