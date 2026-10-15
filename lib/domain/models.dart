@@ -161,9 +161,10 @@ class ImportedBook {
 }
 
 class SourceException implements Exception {
-  const SourceException(this.message, {this.code = 0});
+  const SourceException(this.message, {this.code = 0, this.errorCode});
   final String message;
   final int code;
+  final int? errorCode;
   @override
   String toString() => message;
 }

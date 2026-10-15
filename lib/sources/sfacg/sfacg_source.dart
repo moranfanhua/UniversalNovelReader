@@ -1,10 +1,12 @@
 import 'dart:convert';
 import 'dart:async';
+
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:html/dom.dart';
 import 'package:html/parser.dart' as html;
+
 import '../../domain/models.dart';
 import '../novel_source.dart';
 import '../bookshelf_source.dart';
@@ -207,30 +209,17 @@ class SfacgSource extends CommentSource
 
   @override
   Future<ChapterContent> readChapter(Book book, Chapter chapter) async {
-    if (!chapter.vip) {
-      final response = await api.client
-          .get(
-            Uri.parse(chapter.url),
-            headers: {
-              'User-Agent': 'Mozilla/5.0',
-              'Referer': 'https://book.sfacg.com/',
-            },
-          )
-          .timeout(const Duration(seconds: 25));
-      if (response.statusCode != 200) {
-        throw SourceException('官网章节暂时无法访问（HTTP ${response.statusCode}）');
-      }
-      return parsePublicChapter(utf8.decode(response.bodyBytes));
+    // All chapter reads use the signed App API, including anonymous free reads.
+    // A website-only session cannot grant authenticated App reading access.
+    if (chapter.vip && (!api.hasSession || api.websiteSession)) {
+      throw const SourceException(
+        '此章节需要 App 会话，请在“我的 → 账号设置”使用账号密码登录或导入 App 会话',
+      );
     }
-    if (!api.hasSession) throw const SourceException('此章节需要在“我的 → 账号设置”中登录菠萝包');
-    if (api.websiteSession) {
-      final page = await api.website.chapterHtml(chapter.id);
-      final document = html.parse(page);
-      if (document.querySelector('.pay-section') != null) {
-        throw const SourceException('官网未授予此章节阅读权限，请在官网确认已购章节或账号状态');
-      }
-      return parsePublicChapter(page);
-    }
+    return _readAppChapter(chapter);
+  }
+
+  Future<ChapterContent> _readAppChapter(Chapter chapter) async {
     final data =
         await api.get(
               'Chaps/${chapter.id}',
@@ -240,6 +229,8 @@ class SfacgSource extends CommentSource
     final raw = '${data['content'] ?? ''}${data['expand']?['content'] ?? ''}';
     if (raw.trim().isEmpty) throw const SourceException('未取得正文，请检查已有章节阅读权限');
     if (cipher.length != 3751) throw const SourceException('菠萝包正文字符表不完整');
+    // isContentEncrypted describes a different encryption layer. The verified
+    // free-chapter response still substitutes Han characters when it is false.
     return parseAppContent(decode(raw));
   }
 

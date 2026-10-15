@@ -1,19 +1,30 @@
 // Signature and session protocol adapted from SFacgExporter, AGPL-3.0.
 import 'dart:convert';
 import 'dart:io';
+
 import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
+
 import '../../domain/models.dart';
 import 'sfacg_signature.dart';
 import 'sfacg_website.dart';
 
 class SfacgApi {
-  SfacgApi({http.Client? client, String? device, String? nonce})
-    : client = client ?? http.Client(),
-      device = device ?? const Uuid().v4().toUpperCase(),
-      nonce = nonce ?? const Uuid().v4().toUpperCase();
+  // The API checks the App protocol profile on chapter reads. A random UUID
+  // paired with the UNR User-Agent can pass /user but is rejected with 507.
+  static const compatibilityDevice = '910D166A-736E-3231-8B21-8D12DFD75F16';
+  static const protocolProfile = 'android-5.2.16-v1';
+  SfacgApi({
+    http.Client? client,
+    String? device,
+    String? nonce,
+    this.appUserAgent,
+  }) : client = client ?? http.Client(),
+       device = device ?? compatibilityDevice,
+       nonce = nonce ?? const Uuid().v4().toUpperCase();
   final http.Client client;
   final String device;
+  final String? appUserAgent;
   String nonce;
   int clockOffset = 0;
   String? sessionNotice;
@@ -57,9 +68,10 @@ class SfacgApi {
   }
 
   Future<void> importCookie(String value, {bool website = false}) async {
-    final candidate = SfacgApi(client: client, device: device)
-      ..clockOffset = clockOffset
-      ..setCookie(value, website: website);
+    final candidate =
+        SfacgApi(client: client, device: device, appUserAgent: appUserAgent)
+          ..clockOffset = clockOffset
+          ..setCookie(value, website: website);
     if (website) {
       await candidate.website.validateSession();
     } else {
@@ -119,7 +131,8 @@ class SfacgApi {
         'Accept': 'application/vnd.sfacg.api+json;version=1',
         'Accept-Charset': 'UTF-8',
         'User-Agent':
-            'boluobao/5.2.44(android;35)/UNR/${device.toLowerCase()}/UNR',
+            appUserAgent ??
+            'boluobao/5.2.16(android;35)/OPPO/${device.toLowerCase()}/OPPO',
         'sfsecurity':
             'nonce=$nonce&timestamp=$timestamp&devicetoken=$device&sign=${sfacgSign(nonce, timestamp, device)}',
         if (hasSession && !websiteSession)
@@ -203,9 +216,18 @@ class SfacgApi {
       message = message
           .replaceAll(RegExp(r'1[3-9]\d{9}'), '[手机号已隐藏]')
           .replaceAll(RegExp(r'[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}'), '[邮箱已隐藏]');
+      final errorCode = int.tryParse('${status['errorCode']}');
+      if (uri.path.startsWith('/Chaps/') && code == 401 && errorCode == 507) {
+        throw const SourceException(
+          '菠萝包正文接口拒绝当前 App 请求配置（错误码 507），请检查 App 版本和设备标识；登录成功不代表正文接口可用',
+          code: 401,
+          errorCode: 507,
+        );
+      }
       throw SourceException(
         '$endpoint失败（HTTP ${response.statusCode}，状态 $code，错误码 ${status['errorCode'] ?? 0}）${message.isEmpty ? '' : '：$message'}',
         code: code,
+        errorCode: errorCode,
       );
     }
     throw const SourceException('菠萝包暂时无法访问');
@@ -217,8 +239,11 @@ class SfacgApi {
     }
     // Authenticate independently: an expired Cookie must not be sent to the
     // login endpoint, and failed credentials must not replace a valid session.
-    final candidate = SfacgApi(client: client, device: device)
-      ..clockOffset = clockOffset;
+    final candidate = SfacgApi(
+      client: client,
+      device: device,
+      appUserAgent: appUserAgent,
+    )..clockOffset = clockOffset;
     await candidate.request(
       'sessions',
       body: {'username': account.trim(), 'password': password, 'shuMeiId': ''},

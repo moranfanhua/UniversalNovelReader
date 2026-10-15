@@ -196,7 +196,7 @@ class _AccountPageState extends State<AccountPage> {
           if (widget.library.source.api.websiteSession)
             const Padding(
               padding: EdgeInsets.only(top: 12),
-              child: Text('官网会话使用官网已有章节阅读权限；发送段评、回复和点赞需要账号密码登录或导入 App 会话。'),
+              child: Text('正文统一使用 App 接口；VIP 正文、发送段评、回复和点赞需要账号密码登录或导入 App 会话。'),
             ),
           const SizedBox(height: 12),
           if (widget.method == null)

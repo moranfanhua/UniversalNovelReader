@@ -11,6 +11,16 @@ import 'package:unr/sources/sfacg/sfacg_api.dart';
 import 'package:unr/sources/sfacg/sfacg_source.dart';
 
 void main() {
+  SfacgSource source(SfacgApi api) =>
+      SfacgSource(api, cipher: {for (var i = 0; i < 3751; i++) '$i': '$i'});
+  http.Response chapterResponse(String content) => http.Response(
+    jsonEncode({
+      'status': {'httpCode': 200},
+      'data': {'content': content},
+    }),
+    200,
+    headers: {'content-type': 'application/json; charset=utf-8'},
+  );
   late Directory root;
   setUp(() async {
     root = await Directory.systemTemp.createTemp('unr-cache-test-');
@@ -36,6 +46,8 @@ void main() {
     cover: 'https://rs.sfacg.com/cover.png',
   );
   const illustration = 'https://rs.sfacg.com/illustration.png';
+  const chapterApiUrl =
+      'https://api.sfacg.com/Chaps/1?expand=content%2Cexpand.content&autoOrder=false';
 
   test('下载包含封面和插图，断网重开后可阅读并导出 EPUB 和 TXT', () async {
     final calls = <String, int>{};
@@ -43,23 +55,23 @@ void main() {
       client: MockClient((request) async {
         final url = request.url.toString();
         calls[url] = (calls[url] ?? 0) + 1;
-        if (url == chapter.url) {
-          return http.Response(
-            '<div id="ChapterBody"><p>离线正文</p><p><img src="$illustration"></p></div>',
-            200,
-            headers: {'content-type': 'text/html; charset=utf-8'},
-          );
+        if (url == chapterApiUrl) {
+          return chapterResponse('离线正文\n[img=$illustration]');
         }
         expect([illustratedBook.cover, illustration], contains(url));
         return http.Response.bytes(png, 200);
       }),
     );
-    final library = Library(root, SfacgSource(api));
+    final library = Library(root, source(api));
     await library.add(illustratedBook);
     final content = await library.read(illustratedBook, chapter);
     await library.cacheImages(illustratedBook, content);
     await library.cacheImages(illustratedBook, content);
-    expect(calls, {chapter.url: 1, illustration: 1, illustratedBook.cover: 1});
+    expect(calls, {
+      chapterApiUrl: 1,
+      illustration: 1,
+      illustratedBook.cover: 1,
+    });
     api.close();
 
     var offlineRequests = 0;
@@ -70,10 +82,7 @@ void main() {
       }),
     );
     addTearDown(offlineApi.close);
-    final reopened = await Library.open(
-      SfacgSource(offlineApi),
-      directory: root,
-    );
+    final reopened = await Library.open(source(offlineApi), directory: root);
     final savedBook = reopened.books.single;
     final savedContent = await reopened.read(
       savedBook,
@@ -111,7 +120,7 @@ void main() {
       }),
     );
     addTearDown(api.close);
-    final library = Library(root, SfacgSource(api));
+    final library = Library(root, source(api));
     const content = ChapterContent([
       Paragraph('缓存正文'),
       Paragraph('', image: illustration),
@@ -142,16 +151,10 @@ void main() {
         return response.future;
       }),
     );
-    final library = Library(root, SfacgSource(api));
+    final library = Library(root, source(api));
     final first = library.read(book, chapter),
         second = library.read(book, chapter);
-    response.complete(
-      http.Response(
-        '<div id="ChapterBody"><p>缓存正文</p></div>',
-        200,
-        headers: {'content-type': 'text/html; charset=utf-8'},
-      ),
-    );
+    response.complete(chapterResponse('缓存正文'));
     final result = await Future.wait([first, second]);
     expect(calls, 1);
     expect(result[0], same(result[1]));
@@ -164,14 +167,10 @@ void main() {
     final api = SfacgApi(
       client: MockClient((_) async {
         calls++;
-        return http.Response(
-          calls == 1 ? '' : '<div id="ChapterBody"><p>成功正文</p></div>',
-          calls == 1 ? 503 : 200,
-          headers: {'content-type': 'text/html; charset=utf-8'},
-        );
+        return calls == 1 ? http.Response('', 503) : chapterResponse('成功正文');
       }),
     );
-    final library = Library(root, SfacgSource(api));
+    final library = Library(root, source(api));
     await expectLater(
       library.read(book, chapter),
       throwsA(isA<SourceException>()),
