@@ -73,6 +73,14 @@ class SettingsPage extends StatelessWidget {
           const SizedBox(height: 16),
           _entry(
             context,
+            'search',
+            '搜索',
+            Icons.search,
+            (_) => _SearchSettingsPage(library: library),
+          ),
+          const SizedBox(height: 16),
+          _entry(
+            context,
             'import',
             '导入',
             Icons.file_open_outlined,
@@ -174,6 +182,61 @@ class _ShelfSettingsPage extends StatelessWidget {
           ShelfSort.name => '中文书名按无声调拼音的字典序升序排列，忽略英文大小写。',
           ShelfSort.lastActive => '最近打开或阅读的作品优先。',
         }),
+      ],
+    ),
+  );
+}
+
+class _SearchSettingsPage extends StatefulWidget {
+  const _SearchSettingsPage({required this.library});
+  final Library library;
+
+  @override
+  State<_SearchSettingsPage> createState() => _SearchSettingsPageState();
+}
+
+class _SearchSettingsPageState extends State<_SearchSettingsPage> {
+  bool saving = false;
+  String? error;
+
+  Future<void> _toggle(String id, bool enabled) async {
+    if (saving) return;
+    setState(() {
+      saving = true;
+      error = null;
+    });
+    try {
+      await widget.library.setSearchSourceEnabled(id, enabled);
+    } catch (e) {
+      if (mounted) setState(() => error = '搜索设置保存失败：$e');
+    } finally {
+      if (mounted) setState(() => saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: widget.library,
+    builder: (context, _) => _SettingsSection(
+      title: '搜索设置',
+      children: [
+        const Text('选择搜索书名或作者时参与搜索的平台'),
+        const SizedBox(height: 12),
+        for (final source in widget.library.searchSources)
+          SwitchListTile(
+            key: ValueKey('search-source-${source.id}'),
+            contentPadding: EdgeInsets.zero,
+            title: Text(source.name),
+            value: widget.library.isSearchSourceEnabled(source.id),
+            onChanged: saving ? null : (value) => _toggle(source.id, value),
+          ),
+        if (widget.library.enabledSearchSources.isEmpty)
+          const Text('未选择搜索平台，请至少开启一个平台后再搜索。'),
+        if (error != null)
+          Text(
+            error!,
+            style: TextStyle(color: Theme.of(context).colorScheme.error),
+          ),
       ],
     ),
   );

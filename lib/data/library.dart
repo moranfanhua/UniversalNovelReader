@@ -53,6 +53,11 @@ class Library extends ChangeNotifier {
   NovelSource? sourceFor(Book book) => _novelSources[book.source];
   List<SearchableNovelSource> get searchSources =>
       _novelSources.values.whereType<SearchableNovelSource>().toList();
+  final Set<String> _disabledSearchSources = {};
+  bool isSearchSourceEnabled(String id) => !_disabledSearchSources.contains(id);
+  List<SearchableNovelSource> get enabledSearchSources => searchSources
+      .where((source) => isSearchSourceEnabled(source.id))
+      .toList();
   List<BookshelfSource> get bookshelfSources =>
       _novelSources.values.whereType<BookshelfSource>().toList();
   String sourceName(Book book) =>
@@ -186,6 +191,9 @@ class Library extends ChangeNotifier {
       library.night = data['night'] == true;
       library.volumeKeyPaging = data['volumeKeyPaging'] != false;
       library.showParagraphComments = data['showParagraphComments'] != false;
+      library._disabledSearchSources.addAll(
+        (data['disabledSearchSources'] as List? ?? []).whereType<String>(),
+      );
       library.shelfSort = ShelfSort.values.firstWhere(
         (sort) => sort.name == data['shelfSort'],
         orElse: () => ShelfSort.lastActive,
@@ -293,6 +301,7 @@ class Library extends ChangeNotifier {
       'readingMode': readingMode.name,
       'volumeKeyPaging': volumeKeyPaging,
       'showParagraphComments': showParagraphComments,
+      'disabledSearchSources': _disabledSearchSources.toList(),
       'pageOffsets': pageOffsets,
       'pagedChapterEntries': pagedChapterEntries,
       'readingFontId': readingFontId,
@@ -444,6 +453,27 @@ class Library extends ChangeNotifier {
       await save();
     } catch (_) {
       shelfSort = old;
+      notifyListeners();
+      rethrow;
+    }
+  }
+
+  Future<void> setSearchSourceEnabled(String id, bool enabled) async {
+    final wasEnabled = isSearchSourceEnabled(id);
+    if (enabled == wasEnabled) return;
+    if (enabled) {
+      _disabledSearchSources.remove(id);
+    } else {
+      _disabledSearchSources.add(id);
+    }
+    try {
+      await save();
+    } catch (_) {
+      if (wasEnabled) {
+        _disabledSearchSources.remove(id);
+      } else {
+        _disabledSearchSources.add(id);
+      }
       notifyListeners();
       rethrow;
     }

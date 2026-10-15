@@ -27,8 +27,45 @@ class _HomePageState extends State<HomePage> {
   List<Book>? results;
   String? selectedShelf;
   Library get library => widget.library;
+  late List<String> searchSourceIds;
+  int searchGeneration = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    searchSourceIds = library.enabledSearchSources
+        .map((source) => source.id)
+        .toList();
+    library.addListener(_searchSourcesChanged);
+  }
+
+  @override
+  void didUpdateWidget(HomePage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.library != library) {
+      oldWidget.library.removeListener(_searchSourcesChanged);
+      library.addListener(_searchSourcesChanged);
+      _searchSourcesChanged();
+    }
+  }
+
+  void _searchSourcesChanged() {
+    final ids = library.enabledSearchSources
+        .map((source) => source.id)
+        .toList();
+    if (listEquals(searchSourceIds, ids)) return;
+    setState(() {
+      searchSourceIds = ids;
+      searchGeneration++;
+      results = null;
+      searchFailed = false;
+      error = null;
+    });
+  }
+
   @override
   void dispose() {
+    library.removeListener(_searchSourcesChanged);
     query.dispose();
     super.dispose();
   }
@@ -85,26 +122,38 @@ class _HomePageState extends State<HomePage> {
       await _open(text);
       return;
     }
+    final sources = library.enabledSearchSources;
+    if (sources.isEmpty) {
+      setState(() {
+        results = null;
+        searchFailed = false;
+        error = '未选择搜索平台，请在软件设置的“搜索”中开启至少一个平台。';
+      });
+      return;
+    }
+    final generation = ++searchGeneration;
     setState(() {
       busy = true;
       error = null;
     });
     try {
-      final data = await searchNovels(library.searchSources, text);
-      if (mounted) {
+      final data = await searchNovels(sources, text);
+      if (mounted && generation == searchGeneration) {
         setState(() {
           results = data.books;
           searchFailed =
               data.failedSources.isNotEmpty &&
-              data.failedSources.length == library.searchSources.length;
+              data.failedSources.length == sources.length;
           if (data.failedSources.isNotEmpty) {
             error =
-                '${data.failedSources.join('、')}搜索失败，请重试。${data.failedSources.length < library.searchSources.length ? '已显示其他平台的结果。' : ''}';
+                '${data.failedSources.join('、')}搜索失败，请重试。${data.failedSources.length < sources.length ? '已显示其他平台的结果。' : ''}';
           }
         });
       }
     } catch (e) {
-      if (mounted) setState(() => error = '$e');
+      if (mounted && generation == searchGeneration) {
+        setState(() => error = '$e');
+      }
     } finally {
       if (mounted) setState(() => busy = false);
     }

@@ -120,7 +120,7 @@ void main() {
       tester
           .widgetList<ListTile>(find.byType(ListTile))
           .map((tile) => (tile.title! as Text).data),
-      ['书架', '阅读', '导入'],
+      ['书架', '阅读', '搜索', '导入'],
     );
     expect(find.text('阅读方式'), findsNothing);
     expect(find.byType(NavigationBar), findsNothing);

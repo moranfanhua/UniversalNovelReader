@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -9,6 +10,7 @@ import 'package:unr/sources/novel_source.dart';
 import 'package:unr/sources/sfacg/sfacg_api.dart';
 import 'package:unr/sources/sfacg/sfacg_source.dart';
 import 'package:unr/ui/home.dart';
+import 'package:unr/ui/settings.dart';
 
 Book book(
   String id,
@@ -55,7 +57,187 @@ class SearchSfacg extends SfacgSource {
       response(keyword);
 }
 
+class SearchMemoryLibrary extends Library {
+  SearchMemoryLibrary(super.root, super.source, {super.novelSources});
+  bool failSave = false;
+  @override
+  Future<void> save() async {
+    if (failSave) throw const FileSystemException('保存失败');
+    notifyListeners();
+  }
+}
+
 void main() {
+  test('搜索平台默认全部开启，兼容旧书库并持久化选择，新平台默认开启', () async {
+    final root = await Directory.systemTemp.createTemp('unr-search-settings-');
+    addTearDown(() => root.delete(recursive: true));
+    final api = SfacgApi();
+    addTearDown(api.close);
+    final sfacg = SearchSfacg(api, (_) async => []);
+    final fanqie = SearchSource('fanqie', (_) async => []);
+    Future<Library> open({bool extra = false}) async {
+      final library = await Library.open(
+        sfacg,
+        directory: root,
+        novelSources: [fanqie, if (extra) SearchSource('new', (_) async => [])],
+      );
+      addTearDown(library.dispose);
+      return library;
+    }
+
+    expect((await open()).enabledSearchSources.map((s) => s.id), [
+      'sfacg',
+      'fanqie',
+    ]);
+    await File('${root.path}/index.json').writeAsString(
+      jsonEncode({
+        'books': [book('1', '故事').toJson()],
+        'progress': {
+          'sfacg:1': [2, 3],
+        },
+      }),
+    );
+    final legacy = await open();
+    expect(legacy.enabledSearchSources.map((s) => s.id), ['sfacg', 'fanqie']);
+    await legacy.setSearchSourceEnabled('sfacg', false);
+    final restored = await open(extra: true);
+    expect(restored.enabledSearchSources.map((s) => s.id), ['fanqie', 'new']);
+    expect(restored.searchSources.map((s) => s.id), ['sfacg', 'fanqie', 'new']);
+    expect(restored.books.single.title, '故事');
+    expect(restored.progress['sfacg:1'], [2, 3]);
+    await restored.setSearchSourceEnabled('fanqie', false);
+    await restored.setSearchSourceEnabled('new', false);
+    expect((await open(extra: true)).enabledSearchSources, isEmpty);
+    await restored.setSearchSourceEnabled('sfacg', true);
+    expect((await open()).enabledSearchSources.map((s) => s.id), ['sfacg']);
+  });
+
+  testWidgets('搜索设置显示平台开关，保存失败回滚并显示错误', (tester) async {
+    tester.view.physicalSize = const Size(320, 700);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final api = SfacgApi();
+    addTearDown(api.close);
+    final library = SearchMemoryLibrary(
+      Directory.systemTemp,
+      SearchSfacg(api, (_) async => []),
+      novelSources: [SearchSource('fanqie', (_) async => [])],
+    );
+    addTearDown(library.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(
+            context,
+          ).copyWith(textScaler: const TextScaler.linear(2)),
+          child: child!,
+        ),
+        home: SoftwareSettingsPage(
+          library: library,
+          gbk: false,
+          onEncodingChanged: (_) {},
+        ),
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('settings-search-entry')));
+    await tester.pumpAndSettle();
+    final sfacg = find.byKey(const ValueKey('search-source-sfacg'));
+    final fanqie = find.byKey(const ValueKey('search-source-fanqie'));
+    expect(tester.widget<SwitchListTile>(sfacg).value, isTrue);
+    expect(tester.widget<SwitchListTile>(fanqie).value, isTrue);
+    await tester.tap(sfacg);
+    await tester.pumpAndSettle();
+    expect(tester.widget<SwitchListTile>(sfacg).value, isFalse);
+    library.failSave = true;
+    await tester.tap(fanqie);
+    await tester.pumpAndSettle();
+    expect(tester.widget<SwitchListTile>(fanqie).value, isTrue);
+    expect(find.textContaining('搜索设置保存失败'), findsOneWidget);
+    library.failSave = false;
+    await tester.tap(fanqie);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('未选择搜索平台'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('仅请求选中平台，全部关闭给出提示且仍支持作品链接', (tester) async {
+    final calls = <String>[];
+    final api = SfacgApi();
+    addTearDown(api.close);
+    final fanqie = SearchSource('fanqie', (_) async {
+      calls.add('fanqie');
+      return [book('1', '故事', source: 'fanqie')];
+    });
+    final library = SearchMemoryLibrary(
+      Directory.systemTemp,
+      SearchSfacg(api, (_) async {
+        calls.add('sfacg');
+        throw const SourceException('失败');
+      }),
+      novelSources: [fanqie],
+    );
+    addTearDown(library.dispose);
+    await library.setSearchSourceEnabled('sfacg', false);
+    await tester.pumpWidget(MaterialApp(home: HomePage(library: library)));
+    await tester.tap(find.text('书源'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), '故事');
+    await tester.tap(find.byTooltip('搜索或添加作品'));
+    await tester.pumpAndSettle();
+    expect(calls, ['fanqie']);
+    expect(find.byKey(const ValueKey('search-fanqie:1')), findsOneWidget);
+    await library.setSearchSourceEnabled('fanqie', false);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('search-fanqie:1')), findsNothing);
+    await tester.tap(find.byTooltip('搜索或添加作品'));
+    await tester.pumpAndSettle();
+    expect(calls, ['fanqie']);
+    expect(find.textContaining('未选择搜索平台'), findsOneWidget);
+    expect(find.text('没有搜索到作品'), findsNothing);
+    await tester.enterText(
+      find.byType(TextField),
+      'https://fanqienovel.com/page/123',
+    );
+    await tester.tap(find.byTooltip('搜索或添加作品'));
+    await tester.pumpAndSettle();
+    expect(fanqie.opened, ['https://fanqienovel.com/page/123']);
+    await library.setSearchSourceEnabled('sfacg', true);
+    await tester.enterText(find.byType(TextField), '故事');
+    await tester.tap(find.byTooltip('搜索或添加作品'));
+    await tester.pumpAndSettle();
+    expect(calls, ['fanqie', 'sfacg']);
+    expect(find.text('搜索未完成，请重试'), findsOneWidget);
+    expect(find.textContaining('已显示其他平台的结果'), findsNothing);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('请求期间更改搜索平台，过期结果不再显示', (tester) async {
+    final pending = Completer<List<Book>>();
+    final api = SfacgApi();
+    addTearDown(api.close);
+    final library = SearchMemoryLibrary(
+      Directory.systemTemp,
+      SearchSfacg(api, (_) => pending.future),
+    );
+    addTearDown(library.dispose);
+    await tester.pumpWidget(MaterialApp(home: HomePage(library: library)));
+    await tester.tap(find.text('书源'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), '故事');
+    await tester.tap(find.byTooltip('搜索或添加作品'));
+    await tester.pump();
+    await library.setSearchSourceEnabled('sfacg', false);
+    pending.complete([book('1', '故事')]);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('search-sfacg:1')), findsNothing);
+    expect(find.byType(LinearProgressIndicator), findsNothing);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   test('相关性高于收藏，同相关性按平台收藏降序，未知收藏排在零之后', () async {
     final result = await searchNovels([
       SearchSource(
