@@ -24,6 +24,8 @@ class AppLog {
       assert(maxFiles > 0);
 
   static final instance = AppLog();
+  final _changes = ValueNotifier<int>(0);
+  Listenable get changes => _changes;
   final int maxFileBytes, maxFiles;
   final _recent = Queue<({int id, String line})>();
   Directory? _directory;
@@ -102,6 +104,7 @@ class AppLog {
     }
     _recent.add((id: ++_sequence, line: line));
     if (_recent.length > _queueLimit) _recent.removeFirst();
+    _changes.value++;
     if (_directory == null) return;
     if (_pendingWrites >= _queueLimit) {
       _dropped++;
@@ -208,6 +211,7 @@ class AppLog {
       }
       _recent.removeWhere((entry) => entry.id <= cutoff);
       _dropped = 0;
+      _changes.value++;
     });
   }
 }

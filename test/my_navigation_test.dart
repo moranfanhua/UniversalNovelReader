@@ -184,7 +184,7 @@ void main() {
     await tester.ensureVisible(logsEntry);
     await tester.tap(logsEntry);
     await tester.pumpAndSettle();
-    expect(find.text('导出日志'), findsOneWidget);
+    expect(find.byTooltip('导出日志'), findsOneWidget);
     await tester.tap(find.byType(BackButton));
     await tester.pumpAndSettle();
     expect(find.text('软件设置'), findsOneWidget);
