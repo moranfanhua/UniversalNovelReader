@@ -59,6 +59,8 @@ class _FanqieAccountPageState extends State<FanqieAccountPage> {
       final seconds = await auth.sendCode(normalized);
       if (!mounted) return;
       setState(() {
+        pendingSmsSession = false;
+        cookie.clear();
         sentPhone = normalized;
         remaining = seconds;
         message = '验证码已发送，请查看短信';
@@ -76,7 +78,7 @@ class _FanqieAccountPageState extends State<FanqieAccountPage> {
   }
 
   Future<void> _smsLogin() async {
-    if (busy) return;
+    if (busy || pendingSmsSession) return;
     setState(() {
       busy = true;
       message = null;
@@ -89,7 +91,7 @@ class _FanqieAccountPageState extends State<FanqieAccountPage> {
       if (mounted) {
         cookie.text = value;
         pendingSmsSession = true;
-        await _import(appSession: true);
+        await _import();
       }
     } catch (error) {
       if (mounted) setState(() => message = '$error');
@@ -101,7 +103,7 @@ class _FanqieAccountPageState extends State<FanqieAccountPage> {
     }
   }
 
-  Future<void> _import({bool appSession = false}) async {
+  Future<void> _import() async {
     setState(() {
       busy = true;
       message = null;
@@ -109,16 +111,17 @@ class _FanqieAccountPageState extends State<FanqieAccountPage> {
     final candidate = FanqieApi(client: widget.api.client);
     try {
       candidate.setCookie(cookie.text);
-      if (appSession && widget.api.app.deviceId.isNotEmpty) {
+      if (widget.api.app.deviceId.isNotEmpty) {
         candidate.app.restore(widget.api.app.toJson());
       }
-      await candidate.validateSession(appSession: appSession);
+      await candidate.validateSession();
+      if (!mounted) return;
       widget.api.setCookie(candidate.cookie);
-      if (appSession) widget.api.app.restore(candidate.app.toJson());
+      widget.api.app.restore(candidate.app.toJson());
       await widget.api.onSessionChanged?.call();
-      cookie.clear();
-      pendingSmsSession = false;
       if (mounted) {
+        cookie.clear();
+        pendingSmsSession = false;
         setState(
           () => message = widget.api.sessionNotice ?? '番茄会话已验证并保存在本机安全存储中',
         );
@@ -145,36 +148,17 @@ class _FanqieAccountPageState extends State<FanqieAccountPage> {
     }
   }
 
-  Future<void> _webLogin({bool vpn = false}) async {
-    setState(() {
-      busy = true;
-      message = null;
-    });
-    try {
-      final value = vpn
-          ? await Navigator.push<String>(
-              context,
-              MaterialPageRoute(
-                builder: (_) =>
-                    const SessionHelperPage(source: 'fanqie', name: '番茄小说'),
-              ),
-            )
-          : await SessionHelper.openLogin('fanqie');
-      if (mounted && value != null) {
-        cookie.text = value;
-        await _import(appSession: vpn);
-      }
-    } catch (_) {
-      if (mounted) {
-        setState(
-          () => message = vpn
-              ? '无法打开 App 会话辅助，请重试或手动导入会话'
-              : '无法打开网页登录，请重试或手动导入会话',
-        );
-      }
-    } finally {
-      if (mounted) setState(() => busy = false);
-    }
+  Future<void> _appLogin() async {
+    if (busy) return;
+    final value = await Navigator.push<String>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const SessionHelperPage(source: 'fanqie', name: '番茄小说'),
+      ),
+    );
+    if (!mounted || value == null) return;
+    cookie.text = value;
+    await _import();
   }
 
   @override
@@ -201,12 +185,7 @@ class _FanqieAccountPageState extends State<FanqieAccountPage> {
             if (widget.method == null)
               AccountLoginMethodList(
                 onSms: busy ? null : () => _openMethod(AccountLoginMethod.sms),
-                onWeb: !SessionHelper.supported || busy
-                    ? null
-                    : () => _openMethod(AccountLoginMethod.web),
-                onVpn: !SessionHelper.supported || busy
-                    ? null
-                    : () => _webLogin(vpn: true),
+                onVpn: !SessionHelper.supported || busy ? null : _appLogin,
                 onImport: SessionHelper.supported || busy
                     ? null
                     : () => _openMethod(AccountLoginMethod.manual),
@@ -225,7 +204,11 @@ class _FanqieAccountPageState extends State<FanqieAccountPage> {
                 ),
                 onChanged: (_) {
                   code.clear();
-                  setState(() => message = null);
+                  if (pendingSmsSession) cookie.clear();
+                  setState(() {
+                    pendingSmsSession = false;
+                    message = null;
+                  });
                 },
               ),
               const SizedBox(height: 12),
@@ -252,28 +235,16 @@ class _FanqieAccountPageState extends State<FanqieAccountPage> {
               ),
               const SizedBox(height: 12),
               FilledButton(
-                onPressed: busy ? null : _smsLogin,
+                onPressed: busy || pendingSmsSession ? null : _smsLogin,
                 child: const Text('登录并保存会话'),
               ),
               if (pendingSmsSession)
                 OutlinedButton(
-                  onPressed: busy ? null : () => _import(appSession: true),
+                  onPressed: busy ? null : _import,
                   child: const Text('重新验证登录会话'),
                 ),
-              TextButton(
-                onPressed: busy || !SessionHelper.supported
-                    ? null
-                    : () => _webLogin(),
-                child: const Text('改用网页登录'),
-              ),
-              const Text('如提示访问频繁或要求安全验证，请稍后重试或使用网页登录。'),
-              const SizedBox(height: 12),
-            ],
-            if (widget.method == AccountLoginMethod.web) ...[
-              FilledButton.icon(
-                onPressed: busy ? null : () => _webLogin(),
-                icon: const Icon(Icons.public),
-                label: const Text('打开官网登录'),
+              const Text(
+                '如提示访问频繁，请稍后重试；如需安全验证，请在官方 App 完成后使用 VPN 辅助或导入 App 会话。',
               ),
               const SizedBox(height: 12),
             ],
@@ -286,11 +257,12 @@ class _FanqieAccountPageState extends State<FanqieAccountPage> {
                 children: [
                   TextField(
                     controller: cookie,
+                    enabled: !busy,
                     obscureText: true,
                     autocorrect: false,
                     enableSuggestions: false,
                     decoration: const InputDecoration(
-                      labelText: '番茄 Cookie（包含 sessionid）',
+                      labelText: '番茄 App Cookie（包含 sessionid）',
                       border: OutlineInputBorder(),
                     ),
                   ),

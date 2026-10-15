@@ -94,50 +94,21 @@ void main() {
   });
 
   testWidgets(
-    '番茄网页登录直接验证并保存，取消不会改动账号',
+    '番茄账号页仅提供 App 登录，不调用网页助手',
     (tester) async {
-      String? returnedCookie;
-      final methods = <String>[];
-      messenger.setMockMethodCallHandler(helper, (call) async {
-        methods.add(call.method);
-        expect(call.arguments, {'source': 'fanqie', 'vpn': false});
-        return returnedCookie;
-      });
-      var saves = 0;
-      final api = FanqieApi(
-        client: MockClient((request) async {
-          expect(request.url.path, '/api/reader/user/info');
-          expect(request.headers['cookie'], 'sessionid=synthetic-web');
-          return http.Response(
-            jsonEncode({
-              'code': 0,
-              'data': {'user_id': '42'},
-            }),
-            200,
-          );
-        }),
-      )..setCookie('sessionid=old');
+      messenger.setMockMethodCallHandler(helper, (_) async => fail('不得调用网页助手'));
+      final api = FanqieApi();
       addTearDown(api.close);
-      api.onSessionChanged = () async {
-        saves++;
-      };
       await tester.pumpWidget(MaterialApp(home: FanqieAccountPage(api: api)));
-      await tester.tap(find.text('网页登录'));
+      expect(find.text('网页登录'), findsNothing);
+      expect(find.text('手机号验证码登录'), findsOneWidget);
+      expect(find.text('VPN 辅助登录'), findsOneWidget);
+      await tester.tap(find.text('手机号验证码登录'));
       await tester.pumpAndSettle();
-      expect(methods, isEmpty);
-      expect(find.text('VPN 辅助登录'), findsNothing);
-      await tester.tap(find.text('打开官网登录'));
-      await tester.pumpAndSettle();
-      expect(api.cookie, 'sessionid=old');
-      expect(saves, 0);
-      returnedCookie = 'sessionid=synthetic-web';
-      await tester.tap(find.text('打开官网登录'));
-      await tester.pumpAndSettle();
-      expect(api.cookie, 'sessionid=synthetic-web');
-      expect(saves, 1);
-      expect(methods, ['openLogin', 'openLogin']);
-      expect(find.text('番茄会话已验证并保存在本机安全存储中'), findsOneWidget);
-      expect(tester.takeException(), isNull);
+      expect(find.text('获取验证码'), findsOneWidget);
+      expect(find.text('改用网页登录'), findsNothing);
+      expect(find.text('打开官网登录'), findsNothing);
+      await tester.pumpWidget(const SizedBox.shrink());
     },
     variant: TargetPlatformVariant({TargetPlatform.android}),
   );
@@ -187,7 +158,7 @@ void main() {
             denied
                 ? throw PlatformException(
                     code: 'cancelled',
-                    message: '未授权 VPN，网页登录仍可直接使用',
+                    message: '未授权 VPN，请使用短信、账号密码或导入 App 会话',
                   )
                 : {'phase': 'capturing', 'source': 'fanqie', 'requests': 0},
           'stop' => null,
@@ -221,7 +192,7 @@ void main() {
       await tester.ensureVisible(find.text('启动 VPN 辅助'));
       await tester.tap(find.text('启动 VPN 辅助'));
       await tester.pumpAndSettle();
-      expect(find.text('未授权 VPN，网页登录仍可直接使用'), findsOneWidget);
+      expect(find.text('未授权 VPN，请使用短信、账号密码或导入 App 会话'), findsOneWidget);
       denied = false;
       await tester.tap(find.text('启动 VPN 辅助'));
       await tester.pumpAndSettle();
@@ -301,12 +272,12 @@ void main() {
         );
         final fq = FanqieApi(
           client: MockClient((request) async {
-            expect(request.url.host, 'api5-normal-sinfonlineb.fqnovel.com');
-            expect(request.url.path, '/reading/user/info/v/');
+            expect(request.url.host, 'security.snssdk.com');
+            expect(request.url.path, '/passport/account/info/v2/');
             expect(request.headers['Cookie'], 'sessionid=app-session');
             return http.Response(
               jsonEncode({
-                'code': 0,
+                'message': 'success',
                 'data': {'user_id': '42'},
               }),
               200,

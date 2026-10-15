@@ -444,8 +444,16 @@ void main() {
   });
 
   testWidgets('无效番茄会话不覆盖已保存账号', (tester) async {
-    final api = FanqieApi(client: MockClient((_) async => jsonResponse({})))
-      ..setCookie('sessionid=original');
+    final api = FanqieApi(
+      client: MockClient((request) async {
+        expect(request.url.path, '/passport/account/info/v2/');
+        return http.Response(
+          jsonEncode({'message': 'success', 'data': {}}),
+          200,
+        );
+      }),
+    )..setCookie('sessionid=original');
+    api.app.restore({'deviceId': '1234567890', 'installId': '2345678901'});
     addTearDown(api.close);
     await tester.pumpWidget(
       MaterialApp(

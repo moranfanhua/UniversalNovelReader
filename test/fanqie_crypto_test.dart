@@ -183,6 +183,80 @@ void main() {
     expect(api.app.toJson()['key'], base64Encode(key));
   });
 
+  test('登录后的阅读密钥使用 APK Passport 账号接口，不请求网页认证', () async {
+    final key = List.filled(16, 9), iv = List.filled(16, 3);
+    final master = FanqieCrypto.hex('ac25c67ddd8f38c1b37a2348828e222e');
+    final paths = <String>[];
+    var valid = false;
+    final api = FanqieApi(
+      client: MockClient((request) async {
+        paths.add(request.url.path);
+        expect(request.url.host, isNot('fanqienovel.com'));
+        expect(request.headers['Cookie'], 'sessionid=app-session');
+        expect(request.headers['x-argus'], isNotEmpty);
+        if (request.url.path == '/passport/account/info/v2/') {
+          expect(request.url.host, 'security.snssdk.com');
+          expect(request.method, 'GET');
+          expect(
+            request.url.queryParameters['passport-sdk-version'],
+            '5051452',
+          );
+          return http.Response(
+            jsonEncode({
+              'message': 'success',
+              'data': {'user_id': valid ? 42 : 0},
+            }),
+            200,
+          );
+        }
+        if (request.url.path == '/reading/crypt/registerkey') {
+          final body = jsonDecode(request.body);
+          final bytes = FanqieCrypto.decryptBlob(body['content'], master);
+          expect(bytes.skip(8), [42, 0, 0, 0, 0, 0, 0, 0]);
+          return http.Response(
+            jsonEncode({
+              'code': 0,
+              'data': {
+                'key': base64Encode([
+                  ...iv,
+                  ...FanqieCrypto.aes(key, master, iv),
+                ]),
+              },
+            }),
+            200,
+          );
+        }
+        expect(request.url.path, '/reading/reader/full/v/');
+        return http.Response(
+          jsonEncode({
+            'code': 0,
+            'data': {
+              'novel_data': {'book_id': '1', 'item_id': '2'},
+              'crypt_status': 1,
+              'content': '<p>body</p>',
+            },
+          }),
+          200,
+        );
+      }),
+    )..setCookie('sessionid=app-session');
+    addTearDown(api.close);
+    api.app.restore({'deviceId': '1234567890', 'installId': '2345678901'});
+    await expectLater(
+      api.app.chapter('1', '2'),
+      throwsA(isA<SourceException>()),
+    );
+    expect(paths, ['/passport/account/info/v2/']);
+    valid = true;
+    final content = await api.app.chapter('1', '2');
+    expect(content['content'], '<p>body</p>');
+    expect(paths.skip(1), [
+      '/passport/account/info/v2/',
+      '/reading/crypt/registerkey',
+      '/reading/reader/full/v/',
+    ]);
+  });
+
   test('本机设备注册不携带账号会话，并拒绝外部接口地址', () async {
     var calls = 0;
     final api = FanqieApi(

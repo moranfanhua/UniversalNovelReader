@@ -32,33 +32,21 @@ class SessionCookiesTest {
         assertEquals("sessionid=login-session", collector.addAppSetCookie("security.snssdk.com", "sessionid=login-session; Domain=.snssdk.com; Secure; HttpOnly"))
     }
 
-    @Test fun capturesOnlySelectedPlatformAndAuthCookies() {
-        val collector = SessionCookies(SessionPlatform.FANQIE)
-        assertNull(collector.add("fanqienovel.com.evil.test", "sessionid=secret"))
-        assertNull(collector.add("sfacg.com", "sessionid=secret"))
-        assertEquals("sessionid=synthetic", collector.add("fanqienovel.com", "tracking_id=no; sessionid=synthetic"))
-        assertNull(collector.add("fanqienovel.com", "sessionid=injected\r\nX-Header: bad"))
-        collector.clear()
-        assertNull(collector.add("fanqienovel.com", "uid_tt=123"))
-    }
-
-    @Test fun mergesSfacgCookiesWithoutInventingAppSession() {
-        val collector = SessionCookies(SessionPlatform.SFACG)
-        assertNull(collector.add("m.sfacg.com", "session_APP=app"))
-        assertEquals("session_APP=app; .SFCommunity=web", collector.add("api.sfacg.com", ".SFCommunity=web"))
-        collector.clear()
-        assertEquals(".SFCommunity=web", collector.add("m.sfacg.com", ".SFCommunity=web"))
-    }
-
-    @Test fun blocksUntrustedLoginNavigationAndUnsafeCookieValues() {
-        val platform = SessionPlatform.FANQIE
-        assertTrue(platform.acceptsNavigation("https://fanqienovel.com/"))
-        assertTrue(platform.acceptsNavigation("https://sso.douyin.com/login"))
-        for (url in listOf("http://fanqienovel.com/", "https://evil.test/", "file:///data/", "https://user@fanqienovel.com/", "https://fanqienovel.com:444/")) {
-            assertFalse(url, platform.acceptsNavigation(url))
-        }
-        val collector = SessionCookies(platform)
-        assertNull(collector.add("fanqienovel.com", "sessionid=" + "x".repeat(17000)))
+    @Test fun appCaptureRejectsIncompleteSessionsAndUnsafeHeaders() {
+        val sf = SessionCookies(SessionPlatform.SFACG)
+        assertNull(sf.addApp("m.sfacg.com", ".SFCommunity=web"))
+        assertNull(sf.addApp("api.sfacg.com", ".SFCommunity=community"))
+        assertEquals(".SFCommunity=community; session_APP=app", sf.addApp("api.sfacg.com", "session_APP=app"))
+        sf.clear()
+        assertNull(sf.addApp("api.sfacg.com", "session_APP=app"))
+        val fq = SessionCookies(SessionPlatform.FANQIE)
+        assertNull(fq.addApp("fqnovel.com.evil.test", "sessionid=secret"))
+        assertNull(fq.addApp("sfacg.com", "sessionid=secret"))
+        assertNull(fq.addApp("reading.snssdk.com", "sessionid=bad\r\nInjected=header"))
+        assertNull(fq.addApp("reading.snssdk.com", "sessionid=" + "x".repeat(17000)))
+        assertEquals("sessionid=synthetic", fq.addApp("reading.snssdk.com", "tracking_id=no; sessionid=synthetic"))
+        fq.clear()
+        assertNull(fq.addApp("reading.snssdk.com", "uid_tt=123"))
         assertThrows(IllegalArgumentException::class.java) { SessionPlatform.fromId("other") }
     }
 }

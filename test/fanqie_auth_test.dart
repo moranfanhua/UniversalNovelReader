@@ -24,18 +24,16 @@ http.Response success({String? cookie, Map<String, Object> data = const {}}) =>
     );
 
 void main() {
-  test('App 校验接受编码账号 ID，官网仍要求数字 ID；匿名和错误形状不通过', () async {
+  test('会话仅由 APK Passport 校验，不依赖阅读资料中的编码 ID 或回退网页', () async {
     Object? id;
     final api = FanqieApi(
       client: MockClient((request) async {
-        final appRequest = request.url.host != 'fanqienovel.com';
-        expect(
-          request.url.path,
-          appRequest ? '/reading/user/info/v/' : '/api/reader/user/info',
-        );
+        expect(request.url.host, 'security.snssdk.com');
+        expect(request.url.path, '/passport/account/info/v2/');
+        expect(request.headers['x-argus'], isNotEmpty);
         return http.Response(
           jsonEncode({
-            'code': 0,
+            'message': 'success',
             'data': {'user_id': id},
           }),
           200,
@@ -44,9 +42,9 @@ void main() {
     )..setCookie('sessionid=synthetic');
     registered(api);
     addTearDown(api.close);
-    for (final valid in ['encoded-user-Q7==', 'encoded/user+Q7=', '42', 42]) {
+    for (final valid in ['42', 42, '18446744073709551615']) {
       id = valid;
-      await api.validateSession(appSession: true);
+      await api.validateSession();
     }
     for (final invalid in [
       null,
@@ -58,20 +56,16 @@ void main() {
       false,
       'null',
       'guest',
+      'encoded-user-Q7==',
+      'encoded/user+Q7=',
+      '18446744073709551616',
       <String, Object>{},
       ['42'],
       'bad\r\nvalue',
     ]) {
       id = invalid;
-      await expectLater(
-        api.validateSession(appSession: true),
-        throwsA(isA<SourceException>()),
-      );
+      await expectLater(api.validateSession(), throwsA(isA<SourceException>()));
     }
-    id = 'encoded-user-Q7==';
-    await expectLater(api.validateSession(), throwsA(isA<SourceException>()));
-    id = '42';
-    await api.validateSession();
   });
 
   test('验证码请求按官方 SDK 混淆参数，不携带现有账号 Cookie 或自动重试', () async {
@@ -186,22 +180,18 @@ void main() {
     final api = FanqieApi(
       client: MockClient((request) async {
         calls++;
-        if (request.url.host == 'security.snssdk.com') {
+        if (request.url.path.startsWith('/passport/mobile/')) {
           return request.url.path.contains('send_code')
               ? success()
               : success(cookie: 'sessionid=new-account; Path=/; HttpOnly');
         }
-        expect(
-          request.url.path,
-          isIn(['/reading/user/info/v/', '/api/reader/user/info']),
-        );
+        expect(request.url.path, '/passport/account/info/v2/');
+        expect(request.url.host, 'security.snssdk.com');
         expect(request.headers['Cookie'], contains('sessionid=new-account'));
         return http.Response(
           jsonEncode({
-            'code': 0,
-            'data': valid && request.url.host == 'fanqienovel.com'
-                ? {'id': '42'}
-                : {},
+            'message': 'success',
+            'data': valid ? {'user_id': '42'} : {},
           }),
           200,
         );
@@ -233,11 +223,14 @@ void main() {
     expect(find.text('已保存番茄登录会话'), findsNothing);
     expect(find.text('重新验证登录会话'), findsOneWidget);
     final callsBeforeRetry = calls;
+    await tester.tap(find.text('登录并保存会话'));
+    await tester.pumpAndSettle();
+    expect(calls, callsBeforeRetry);
     valid = true;
     await tester.ensureVisible(find.text('重新验证登录会话'));
     await tester.tap(find.text('重新验证登录会话'));
     await tester.pumpAndSettle();
-    expect(calls, callsBeforeRetry + 2);
+    expect(calls, callsBeforeRetry + 1);
     expect(api.cookie, contains('sessionid=new-account'));
     expect(saves, 1);
     expect(find.text('本次登录尚未完成会话验证'), findsNothing);

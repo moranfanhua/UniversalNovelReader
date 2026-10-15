@@ -65,6 +65,28 @@ class FanqieAppApi {
     'compliance_status': '0',
   };
   Map<String, String> get loginParameters => Map.unmodifiable(_params);
+
+  Future<String> accountId() async {
+    await ensureDevice();
+    // APK Passport SDK: AccountInfoApi -> /passport/account/info/v2/.
+    final document = _document(
+      await _send(
+        Uri.https('security.snssdk.com', '/passport/account/info/v2/', {
+          ..._params,
+          'passport-sdk-version': '5051452',
+        }),
+      ),
+    );
+    final data = document['data'];
+    final id = data is Map ? '${data['user_id'] ?? ''}' : '';
+    if (document['message'] != 'success' ||
+        !RegExp(r'^[1-9]\d{0,19}$').hasMatch(id) ||
+        BigInt.parse(id).bitLength > 64) {
+      throw const SourceException('番茄会话未登录或已失效');
+    }
+    return id;
+  }
+
   Future<http.Response> _send(
     Uri uri, {
     List<int>? body,
@@ -265,16 +287,7 @@ class FanqieAppApi {
     try {
       var userId = '0';
       if (cookie().isNotEmpty) {
-        final document = _document(
-          await _send(
-            Uri.https('fanqienovel.com', '/api/reader/user/info'),
-            signed: false,
-          ),
-        );
-        userId = document['code'] == 0 && document['data'] is Map
-            ? '${document['data']['id'] ?? ''}'
-            : '';
-        if (!_validId(userId)) throw const SourceException('番茄 App 会话未登录或已失效');
+        userId = await accountId();
       }
       final data = await request(
         '/reading/crypt/registerkey',

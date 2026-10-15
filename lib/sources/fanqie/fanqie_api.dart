@@ -36,7 +36,7 @@ class FanqieApi {
     }
     if (cookies['sessionid']?.isNotEmpty != true &&
         cookies['sessionid_ss']?.isNotEmpty != true) {
-      throw const SourceException('需要包含 sessionid 或 sessionid_ss 的番茄官网会话');
+      throw const SourceException('需要包含 sessionid 或 sessionid_ss 的番茄 App 会话');
     }
     _cookie = cookies.entries.map((e) => '${e.key}=${e.value}').join('; ');
   }
@@ -141,43 +141,9 @@ class FanqieApi {
     return Map<String, dynamic>.from(doc['data']);
   }
 
-  Future<void> validateSession({bool appSession = false}) async {
-    if (!hasSession) throw const SourceException('请先导入番茄官网会话');
-    if (appSession) {
-      final data = await app.request('/reading/user/info/v/');
-      final id = data['user_id'] ?? data['userId'] ?? data['id'];
-      if (_validAppUserId(id)) return;
-      // Passport sessions can authenticate on the website even when the App
-      // profile is unavailable. Require an authenticated website ID as proof.
-    }
-    final data = await get('/api/reader/user/info');
-    final id = data['user_id'] ?? data['userId'] ?? data['id'];
-    if (!_validWebsiteUserId(id)) {
-      throw const SourceException('番茄会话未登录或已失效');
-    }
-  }
-
-  static bool _validWebsiteUserId(Object? value) =>
-      (value is int || value is String) &&
-      RegExp(r'^[1-9]\d*$').hasMatch('$value');
-
-  static bool _validAppUserId(Object? value) {
-    if (value is int) return value > 0;
-    if (value is! String || value.isEmpty || value.length > 256) return false;
-    final numeric = BigInt.tryParse(value);
-    if (numeric != null) return numeric > BigInt.zero;
-    // The official App stores InfoData.user_id as encodeUserId. It is an
-    // opaque string; the website's positive-decimal-ID rule does not apply.
-    if (const {
-      'null',
-      'undefined',
-      'false',
-      'guest',
-      'anonymous',
-    }.contains(value.toLowerCase())) {
-      return false;
-    }
-    return RegExp(r'^[A-Za-z0-9_+/=-]+$').hasMatch(value);
+  Future<void> validateSession() async {
+    if (!hasSession) throw const SourceException('请先登录或导入番茄 App 会话');
+    await app.accountId();
   }
 
   void close() => client.close();
