@@ -69,6 +69,21 @@ void main() {
     expect(api.device, device);
     expect(api.appUserAgent, agent);
   });
+  test('旧官网会话保留设备和存储，不作为 App 协议配置迁移', () async {
+    const device = 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE';
+    final value = jsonEncode({
+      'device': device,
+      'website': true,
+      'cookie': '.SFCommunity=synthetic-web',
+    });
+    FlutterSecureStorage.setMockInitialValues({key: value});
+    final api = await SfacgSession.open();
+    addTearDown(api.close);
+    expect(api.device, device);
+    expect(api.websiteSession, isTrue);
+    expect(api.hasSession, isTrue);
+    expect(await const FlutterSecureStorage().read(key: key), value);
+  });
   test('安全存储不可读时继续启动，提示恢复失败且不覆盖旧会话', () async {
     FlutterSecureStorage.setMockInitialValues({key: '保留旧数据'});
     final api = await SfacgSession.open(storage: UnavailableStorage());

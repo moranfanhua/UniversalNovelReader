@@ -7,7 +7,7 @@ import 'package:unr/sources/sfacg/sfacg_api.dart';
 import 'package:unr/sources/sfacg/sfacg_source.dart';
 
 void main() {
-  test('官网会话独立校验并读取已有权限正文，不调用 App 认证或购买接口', () async {
+  test('官网会话独立校验，VIP 正文提示改用 App 会话且不请求网页', () async {
     final paths = <String>[];
     final api = SfacgApi(
       client: MockClient((request) async {
@@ -17,25 +17,31 @@ void main() {
         expect(request.headers.containsKey('Authorization'), isFalse);
         if (request.url.host == 'passport.sfacg.com') {
           expect(request.url.queryParameters['callback'], 'unrLoginInfo');
-          return http.Response('unrLoginInfo([{login:"true",name:"reader"}])', 200);
+          return http.Response(
+            'unrLoginInfo([{login:"true",name:"reader"}])',
+            200,
+          );
         }
-        expect(request.url.host, 'book.sfacg.com');
-        return http.Response(
-          '<div id="ChapterBody"><p>已有阅读权限的正文</p></div>',
-          200,
-          headers: {'content-type': 'text/html; charset=utf-8'},
-        );
+        fail('官网会话校验不应发起正文请求');
       }),
     );
     addTearDown(api.close);
     await api.importCookie('.SFCommunity=website', website: true);
     final source = SfacgSource(api);
-    final chapter = await source.readChapter(
-      const Book(id: '1', title: '', author: '', chapters: []),
-      const Chapter(id: '123', title: '', vip: true),
+    await expectLater(
+      source.readChapter(
+        const Book(id: '1', title: '', author: '', chapters: []),
+        const Chapter(id: '123', title: '', vip: true),
+      ),
+      throwsA(
+        isA<SourceException>().having(
+          (e) => e.message,
+          '提示',
+          contains('App 会话'),
+        ),
+      ),
     );
-    expect(chapter.paragraphs.single.text, '已有阅读权限的正文');
-    expect(paths, ['/Ajax/GetLoginInfo.ashx', '/vip/c/123/']);
+    expect(paths, ['/Ajax/GetLoginInfo.ashx']);
     expect(source.commentCapabilities.post, isFalse);
     expect(source.commentCapabilities.replies, isTrue);
     expect(source.commentCapabilities.likes, isFalse);
@@ -72,16 +78,10 @@ void main() {
     }
   });
 
-  test('官网付费预览不作为正文缓存，不能触发自动订阅', () async {
+  test('官网会话读取 VIP 时保留会话，不请求预览或自动订阅', () async {
     final api = SfacgApi(
       client: MockClient((request) async {
-        expect(request.url.path, '/vip/c/123/');
-        expect(request.method, 'GET');
-        return http.Response(
-          '<div id="ChapterBody">试读预览</div><div class="pay-section">订阅</div>',
-          200,
-            headers: {'content-type': 'text/html; charset=utf-8'},
-        );
+        fail('官网会话不应发起 VIP 正文请求');
       }),
     )..setCookie('.SFCommunity=website', website: true);
     addTearDown(api.close);
@@ -92,6 +92,8 @@ void main() {
       ),
       throwsA(isA<SourceException>()),
     );
+    expect(api.websiteSession, isTrue);
+    expect(api.cookies['.SFCommunity'], 'website');
   });
 
   test('官网 Cookie 不发送到 App API，App 匿名响应不会覆盖官网会话', () async {

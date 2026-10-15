@@ -23,6 +23,7 @@ class SfacgSession {
       // request profiles must keep their original device identity.
       migrated =
           savedDevice != null &&
+          json['website'] != true &&
           savedAgent == null &&
           json['protocolProfile'] == null;
       api = SfacgApi(

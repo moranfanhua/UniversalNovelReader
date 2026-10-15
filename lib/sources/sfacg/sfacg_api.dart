@@ -68,9 +68,10 @@ class SfacgApi {
   }
 
   Future<void> importCookie(String value, {bool website = false}) async {
-    final candidate = SfacgApi(client: client, device: device)
-      ..clockOffset = clockOffset
-      ..setCookie(value, website: website);
+    final candidate =
+        SfacgApi(client: client, device: device, appUserAgent: appUserAgent)
+          ..clockOffset = clockOffset
+          ..setCookie(value, website: website);
     if (website) {
       await candidate.website.validateSession();
     } else {
@@ -181,8 +182,9 @@ class SfacgApi {
         if (code == 417 && response.headers['date'] != null) {
           try {
             clockOffset =
-                HttpDate.parse(response.headers['date']!)
-                    .millisecondsSinceEpoch -
+                HttpDate.parse(
+                  response.headers['date']!,
+                ).millisecondsSinceEpoch -
                 DateTime.now().millisecondsSinceEpoch;
           } catch (_) {
             /* Keep the current clock for invalid server dates. */

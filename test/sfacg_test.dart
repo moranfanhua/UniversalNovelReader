@@ -173,7 +173,8 @@ void main() {
             }),
             200,
             headers: {
-              'set-cookie': '.SFCommunity=new-community; Path=/user; Expires=Wed, 21 Oct 2037 07:28:00 GMT, session_APP=new-session; Path=/sessions',
+              'set-cookie':
+                  '.SFCommunity=new-community; Path=/user; Expires=Wed, 21 Oct 2037 07:28:00 GMT, session_APP=new-session; Path=/sessions',
             },
           );
         }
@@ -203,7 +204,8 @@ void main() {
             'status': {
               'httpCode': 401,
               'errorCode': 407,
-              'msg': 'synthetic-account synthetic-password 13800138000 user@example.test 登录失败',
+              'msg':
+                  'synthetic-account synthetic-password 13800138000 user@example.test 登录失败',
             },
             'data': null,
           }),
@@ -242,7 +244,8 @@ void main() {
             }),
             200,
             headers: {
-              'set-cookie': '.SFCommunity=candidate; Path=/, session_APP=candidate-session; Path=/',
+              'set-cookie':
+                  '.SFCommunity=candidate; Path=/, session_APP=candidate-session; Path=/',
             },
           );
         }
@@ -360,8 +363,9 @@ void main() {
         ]);
       }),
     );
-    final result = await SfacgSource(api)
-        .comments(const Chapter(id: '123', title: '章节'), 23);
+    final result = await SfacgSource(
+      api,
+    ).comments(const Chapter(id: '123', title: '章节'), 23);
     expect(result.single.author, '读者甲');
     expect(result.single.likes, 2);
     expect(result.single.replyCount, 2);
@@ -460,6 +464,56 @@ void main() {
     );
     expect(content.paragraphs.map((p) => p.text), ['啊', '第二段']);
     expect(content.paragraphs.map((p) => p.remoteIndex), [1, 3]);
+  });
+  for (final website in [false, true]) {
+    test('${website ? '仅官网会话' : '未登录'}免费章节使用匿名 App 接口，不回退网页', () async {
+      var requests = 0;
+      final api = SfacgApi(
+        client: MockClient((request) async {
+          requests++;
+          expect(request.url.host, 'api.sfacg.com');
+          expect(request.url.path, '/Chaps/123');
+          expect(request.url.queryParameters['autoOrder'], 'false');
+          expect(request.headers.containsKey('Cookie'), isFalse);
+          return ok({'content': '免费正文'});
+        }),
+      );
+      addTearDown(api.close);
+      if (website) api.setCookie('.SFCommunity=website', website: true);
+      final source = SfacgSource(
+        api,
+        cipher: {for (var i = 0; i < 3751; i++) '$i': '$i'},
+      );
+      final content = await source.readChapter(
+        const Book(id: '1', title: '', author: '', chapters: []),
+        const Chapter(
+          id: '123',
+          title: '',
+          url: 'https://book.sfacg.com/unavailable/',
+        ),
+      );
+      expect(content.paragraphs.single.text, '免费正文');
+      expect(requests, 1);
+      if (website) expect(api.cookies['.SFCommunity'], 'website');
+    });
+  }
+  test('导入 App 会话校验沿用已保存的请求配置', () async {
+    const device = 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE';
+    const agent = 'boluobao/5.2.84(android;36)/OPPO/device/OPPO';
+    final api = SfacgApi(
+      device: device,
+      appUserAgent: agent,
+      client: MockClient((request) async {
+        expect(request.url.path, '/user');
+        expect(request.headers['User-Agent'], agent);
+        expect(request.headers['sfsecurity'], contains('devicetoken=$device'));
+        return ok({'accountId': 1});
+      }),
+    );
+    addTearDown(api.close);
+    await api.importCookie('.SFCommunity=synthetic; session_APP=synthetic');
+    expect(api.hasSession, isTrue);
+    expect(api.appUserAgent, agent);
   });
   test('VIP 展开正文和免费正文使用同一签名接口，保留会话且不购买', () async {
     var requests = 0;
