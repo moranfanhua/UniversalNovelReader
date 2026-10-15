@@ -92,6 +92,27 @@ class FormatTests(unittest.TestCase):
         with patch.object(check_format.shutil, "which", return_value=str(wrapper)):
             self.assertEqual(check_format.dart_executable(), str(executable))
 
+    def test_fix_mode_formats_dart_and_preserves_other_files(self):
+        self.write("keep.dart", "void main(){}\n")
+        self.write("data.json", '{"value":1}\n')
+        self.write("example.py", "value=1\n")
+        with patch.object(check_format, "dart_executable", return_value="dart-sdk"), patch.object(
+            check_format.subprocess, "run",
+        ) as run:
+            check_format.check_files(self.root, ["keep.dart", "data.json", "example.py"], fix=True)
+            args, kwargs = run.call_args
+            self.assertEqual(args[0], ["dart-sdk", "format", "--output=write", "--", "keep.dart"])
+            self.assertNotIn("shell", kwargs)
+        self.assertEqual((self.root / "data.json").read_text(encoding="utf-8"), '{"value":1}\n')
+        self.assertEqual((self.root / "example.py").read_text(encoding="utf-8"), "value=1\n")
+
+    def test_fix_mode_stops_before_formatting_when_json_is_invalid(self):
+        self.write("bad.json", "{broken")
+        with patch.object(check_format, "dart_executable") as executable:
+            with self.assertRaises(ValueError):
+                check_format.check_files(self.root, ["keep.dart", "bad.json"], fix=True)
+            executable.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

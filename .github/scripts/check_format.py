@@ -1,4 +1,4 @@
-"""Check tracked Dart, JSON and Python files without modifying the checkout."""
+"""Check tracked files, optionally applying Dart formatting with --fix."""
 
 import argparse
 import ast
@@ -37,7 +37,7 @@ def dart_executable():
     return str(executable)
 
 
-def check_files(root, paths):
+def check_files(root, paths, fix=False):
     for path in paths:
         file = root / path
         if file.suffix == ".json":
@@ -48,24 +48,30 @@ def check_files(root, paths):
     dart_files = [path for path in paths if Path(path).suffix == ".dart"]
     if dart_files:
         executable = dart_executable()
+        format_options = ["--output=write"] if fix else ["--output=none", "--set-exit-if-changed"]
         for start in range(0, len(dart_files), 40):
             subprocess.run(
-                [executable, "format", "--output=none", "--set-exit-if-changed", "--", *dart_files[start:start + 40]],
+                [executable, "format", *format_options, "--", *dart_files[start:start + 40]],
                 cwd=root, check=True,
             )
-    print(f"已检查 {len(paths)} 个文件，其中 {len(dart_files)} 个 Dart 文件；未修改文件。")
+    result = "已应用 Dart 格式化" if fix else "未修改文件"
+    print(f"已检查 {len(paths)} 个文件，其中 {len(dart_files)} 个 Dart 文件；{result}。")
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base", default=os.environ.get("FORMAT_BASE_SHA"))
+    parser.add_argument("--fix", action="store_true", help="应用 Dart 格式化，默认仅检查")
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[2]
     try:
         paths = selected_files(root, args.base)
         revision = [args.base, "HEAD"] if args.base and args.base != "0" * 40 else ["HEAD"]
-        subprocess.run(["git", "diff", "--check", *revision, "--"], cwd=root, check=True)
-        check_files(root, paths)
+        if not args.fix:
+            subprocess.run(["git", "diff", "--check", *revision, "--"], cwd=root, check=True)
+        check_files(root, paths, fix=args.fix)
+        if args.fix:
+            subprocess.run(["git", "diff", "--check", "HEAD", "--"], cwd=root, check=True)
     except (ValueError, SyntaxError, OSError, subprocess.CalledProcessError) as error:
         print(f"格式检查失败：{error}", file=sys.stderr)
         return 1

@@ -1,24 +1,27 @@
-name: Format Checks
+name: Formatting
 
 on:
   push:
     branches: [dev]
   pull_request:
     branches: [dev, master]
+  schedule:
+    # UTC 周日 21:00，即北京时间周一 05:00。
+    - cron: '0 21 * * 0'
   workflow_dispatch:
 
 permissions:
   contents: read
 
-concurrency:
-  group: format-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
-
 jobs:
-  format:
+  check:
     name: Check formatting without changing files
+    if: github.event_name != 'schedule' && (github.event_name != 'workflow_dispatch' || github.ref != 'refs/heads/dev')
     runs-on: windows-2025
     timeout-minutes: 15
+    concurrency:
+      group: format-check-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -30,3 +33,63 @@ jobs:
           PYTHONUTF8: '1'
           FORMAT_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: python .github/scripts/check_format.py
+
+  autoformat:
+    name: Format and commit to dev
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/dev')
+    runs-on: windows-2025
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    concurrency:
+      group: format-dev-write
+      cancel-in-progress: false
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: dev
+          persist-credentials: true
+      - uses: ./.github/actions/setup-flutter
+      - name: Verify setup did not change tracked files
+        run: git diff --exit-code HEAD
+      - name: Format all tracked Dart files
+        run: python .github/scripts/check_format.py --fix
+      - name: Stage only tracked Dart changes
+        id: changes
+        shell: pwsh
+        run: |
+          git diff --quiet -- '*.dart'
+          $diffExit = $LASTEXITCODE
+          if ($diffExit -eq 0) {
+            'changed=false' >> $env:GITHUB_OUTPUT
+          } elseif ($diffExit -eq 1) {
+            git add --update -- '*.dart'
+            if ($LASTEXITCODE -ne 0) { throw '暂存格式变更失败' }
+            'changed=true' >> $env:GITHUB_OUTPUT
+          } else {
+            throw '读取格式差异失败'
+          }
+      # GITHUB_TOKEN 推送不会触发普通 push CI，因此在本次任务中完成验证。
+      - name: Analyze formatted sources
+        if: steps.changes.outputs.changed == 'true'
+        run: flutter analyze --no-pub --fatal-infos
+      - name: Test formatted sources
+        if: steps.changes.outputs.changed == 'true'
+        run: flutter test --no-pub
+      - name: Commit and push formatting changes
+        if: steps.changes.outputs.changed == 'true'
+        shell: pwsh
+        run: |
+          git diff --exit-code
+          if ($LASTEXITCODE -ne 0) { throw '验证期间产生了额外变更，停止提交' }
+          git diff --cached --exit-code -- . ':!*.dart'
+          if ($LASTEXITCODE -ne 0) { throw '暂存区包含非 Dart 变更，停止提交' }
+          git diff --cached --check
+          if ($LASTEXITCODE -ne 0) { throw '暂存差异检查失败' }
+          git -c 'user.name=github-actions[bot]' -c 'user.email=41898282+github-actions[bot]@users.noreply.github.com' commit -m 'style(format): 每周自动格式化 Dart 代码'
+          if ($LASTEXITCODE -ne 0) { throw '格式提交失败' }
+          # dev 已前移或分支保护拒绝写入时正常失败，不强推、不重写其他提交。
+          git push origin HEAD:refs/heads/dev
+          if ($LASTEXITCODE -ne 0) { throw '推送失败，请检查 dev 分支状态和写入权限后重跑' }
