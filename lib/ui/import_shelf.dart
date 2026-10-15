@@ -4,6 +4,7 @@ import '../domain/models.dart';
 import '../domain/bookshelf.dart';
 import '../sources/bookshelf_source.dart';
 import 'account.dart';
+import 'platform_order.dart';
 
 class ImportShelfPage extends StatefulWidget {
   const ImportShelfPage({super.key, required this.library});
@@ -53,6 +54,7 @@ class _ImportShelfPageState extends State<ImportShelfPage> {
     final value = name.text.trim();
     if (value.isEmpty ||
         value == '全部作品' ||
+        value == '最近阅读' ||
         library.shelves.any((s) => s.name == value)) {
       setState(() => error = value.isEmpty ? '请填写书架名称' : '书架名称已存在，请使用其他名称');
       return false;
@@ -211,7 +213,9 @@ class _ImportShelfPageState extends State<ImportShelfPage> {
                 const SizedBox(height: 16),
               ],
               if (source == null)
-                for (final service in library.bookshelfSources)
+                for (final service in platformDisplayOrder(
+                  library.bookshelfSources,
+                ))
                   Card(
                     child: ListTile(
                       leading: Image.asset(

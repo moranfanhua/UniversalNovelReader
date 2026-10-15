@@ -7,10 +7,13 @@ import '../domain/models.dart';
 import '../formats/ebook.dart';
 import '../sources/novel_search.dart';
 import 'book_page.dart';
+import 'reader.dart';
 import 'image_bytes.dart';
 import 'my.dart';
 import 'import_shelf.dart';
 import '../domain/bookshelf.dart';
+
+enum _ShelfBookAction { details, pin, remove }
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key, required this.library});
@@ -27,8 +30,45 @@ class _HomePageState extends State<HomePage> {
   List<Book>? results;
   String? selectedShelf;
   Library get library => widget.library;
+  late List<String> searchSourceIds;
+  int searchGeneration = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    searchSourceIds = library.enabledSearchSources
+        .map((source) => source.id)
+        .toList();
+    library.addListener(_searchSourcesChanged);
+  }
+
+  @override
+  void didUpdateWidget(HomePage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.library != library) {
+      oldWidget.library.removeListener(_searchSourcesChanged);
+      library.addListener(_searchSourcesChanged);
+      _searchSourcesChanged();
+    }
+  }
+
+  void _searchSourcesChanged() {
+    final ids = library.enabledSearchSources
+        .map((source) => source.id)
+        .toList();
+    if (listEquals(searchSourceIds, ids)) return;
+    setState(() {
+      searchSourceIds = ids;
+      searchGeneration++;
+      results = null;
+      searchFailed = false;
+      error = null;
+    });
+  }
+
   @override
   void dispose() {
+    library.removeListener(_searchSourcesChanged);
     query.dispose();
     super.dispose();
   }
@@ -59,7 +99,7 @@ class _HomePageState extends State<HomePage> {
         orElse: () => throw const SourceException('对应书源尚未启用'),
       );
       final book = await service.getBook(input);
-      await library.add(book);
+      await library.updateBook(book);
       await library.markActive(book);
       if (mounted) {
         await Navigator.push(
@@ -85,26 +125,38 @@ class _HomePageState extends State<HomePage> {
       await _open(text);
       return;
     }
+    final sources = library.enabledSearchSources;
+    if (sources.isEmpty) {
+      setState(() {
+        results = null;
+        searchFailed = false;
+        error = '未选择搜索平台，请在软件设置的“搜索”中开启至少一个平台。';
+      });
+      return;
+    }
+    final generation = ++searchGeneration;
     setState(() {
       busy = true;
       error = null;
     });
     try {
-      final data = await searchNovels(library.searchSources, text);
-      if (mounted) {
+      final data = await searchNovels(sources, text);
+      if (mounted && generation == searchGeneration) {
         setState(() {
           results = data.books;
           searchFailed =
               data.failedSources.isNotEmpty &&
-              data.failedSources.length == library.searchSources.length;
+              data.failedSources.length == sources.length;
           if (data.failedSources.isNotEmpty) {
             error =
-                '${data.failedSources.join('、')}搜索失败，请重试。${data.failedSources.length < library.searchSources.length ? '已显示其他平台的结果。' : ''}';
+                '${data.failedSources.join('、')}搜索失败，请重试。${data.failedSources.length < sources.length ? '已显示其他平台的结果。' : ''}';
           }
         });
       }
     } catch (e) {
-      if (mounted) setState(() => error = '$e');
+      if (mounted && generation == searchGeneration) {
+        setState(() => error = '$e');
+      }
     } finally {
       if (mounted) setState(() => busy = false);
     }
@@ -189,18 +241,28 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  Future<void> _openShelfBook(Book book) async {
+  Future<void> _openShelfBook(Book book, {bool details = false}) async {
+    if (busy) return;
+    if (!details && book.chapters.isEmpty) {
+      setState(() => error = '当前作品暂无可阅读章节，可长按作品查看详情。');
+      return;
+    }
+    setState(() => busy = true);
     try {
       await library.markActive(book);
       if (!mounted) return;
       await Navigator.push(
         context,
         MaterialPageRoute<void>(
-          builder: (_) => BookPage(library: library, book: book),
+          builder: (_) => details
+              ? BookPage(library: library, book: book)
+              : ReaderPage(library: library, book: book),
         ),
       );
     } catch (e) {
       if (mounted) setState(() => error = '$e');
+    } finally {
+      if (mounted) setState(() => busy = false);
     }
   }
 
@@ -215,6 +277,84 @@ class _HomePageState extends State<HomePage> {
       if (mounted) setState(() => error = '显示方式保存失败：$e');
     }
   }
+
+  Future<void> _shelfBookActions(Book book) async {
+    if (busy) return;
+    final shelfId = selectedShelf;
+    final pinned = library.isBookPinned(book);
+    final action = await showModalBottomSheet<_ShelfBookAction>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.info_outline),
+              title: const Text('作品详情'),
+              onTap: () => Navigator.pop(context, _ShelfBookAction.details),
+            ),
+            ListTile(
+              leading: Icon(pinned ? Icons.push_pin : Icons.push_pin_outlined),
+              title: Text(pinned ? '取消置顶' : '置顶'),
+              onTap: () => Navigator.pop(context, _ShelfBookAction.pin),
+            ),
+            ListTile(
+              leading: const Icon(Icons.remove_circle_outline),
+              title: const Text('移除'),
+              onTap: () => Navigator.pop(context, _ShelfBookAction.remove),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || action == null) return;
+    if (action == _ShelfBookAction.details) {
+      await _openShelfBook(book, details: true);
+      return;
+    }
+    setState(() => busy = true);
+    try {
+      if (action == _ShelfBookAction.pin) {
+        await library.setBookPinned(book, !library.isBookPinned(book));
+      } else {
+        await library.removeFromShelf(book, shelfId: shelfId);
+      }
+    } catch (e) {
+      if (mounted) setState(() => error = '书架操作失败：$e');
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  Widget _shelfCover(Book book) => Stack(
+    fit: StackFit.expand,
+    children: [
+      BookCover(book: book, library: library),
+      if (library.isBookPinned(book))
+        Positioned(
+          top: 6,
+          right: 6,
+          child: Tooltip(
+            message: '已置顶',
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.primaryContainer,
+                shape: BoxShape.circle,
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(4),
+                child: Icon(
+                  Icons.push_pin,
+                  size: 16,
+                  color: Theme.of(context).colorScheme.onPrimaryContainer,
+                ),
+              ),
+            ),
+          ),
+        ),
+    ],
+  );
 
   Widget _shelfGrid(List<Book> shelf) => LayoutBuilder(
     builder: (context, constraints) {
@@ -244,12 +384,13 @@ class _HomePageState extends State<HomePage> {
           (textScaler.scale(titleSize) * 1.3).ceilToDouble() * 2 +
           (textScaler.scale(detailSize) * 1.4).ceilToDouble() * 2 +
           4;
-      return Center(
+      return Align(
+        alignment: Alignment.topLeft,
         child: SizedBox(
-          width: columns * width + (columns - 1) * spacing,
+          width: columns * width + (columns - 1) * spacing + 40,
           child: GridView.builder(
             key: const PageStorageKey('shelf-grid'),
-            padding: const EdgeInsets.symmetric(vertical: 20),
+            padding: const EdgeInsets.all(20),
             gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: columns,
               mainAxisSpacing: 20,
@@ -263,13 +404,11 @@ class _HomePageState extends State<HomePage> {
                 key: ValueKey('shelf-book-${book.key}'),
                 borderRadius: BorderRadius.circular(14),
                 onTap: () => _openShelfBook(book),
+                onLongPress: () => _shelfBookActions(book),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    SizedBox(
-                      height: width * 1.5,
-                      child: BookCover(book: book, library: library),
-                    ),
+                    SizedBox(height: width * 1.5, child: _shelfCover(book)),
                     SizedBox(height: 10 * scale),
                     Text(
                       book.title,
@@ -364,16 +503,13 @@ class _HomePageState extends State<HomePage> {
             key: ValueKey('shelf-book-${book.key}'),
             borderRadius: BorderRadius.circular(14),
             onTap: () => _openShelfBook(book),
+            onLongPress: () => _shelfBookActions(book),
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 6),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  SizedBox(
-                    width: 64,
-                    height: 96,
-                    child: BookCover(book: book, library: library),
-                  ),
+                  SizedBox(width: 64, height: 96, child: _shelfCover(book)),
                   const SizedBox(width: 16),
                   Expanded(
                     child: Column(
@@ -424,6 +560,9 @@ class _HomePageState extends State<HomePage> {
   );
 
   Widget _buildLibrary(BuildContext context) {
+    if (selectedShelf == Library.recentShelfId) {
+      return _buildPage(context, library.sortedRecentBooks);
+    }
     final keys = library.shelves
         .where((s) => s.id == selectedShelf)
         .firstOrNull
@@ -478,6 +617,10 @@ class _HomePageState extends State<HomePage> {
                     value: selectedShelf ?? '',
                     items: [
                       const DropdownMenuItem(value: '', child: Text('全部作品')),
+                      const DropdownMenuItem(
+                        value: Library.recentShelfId,
+                        child: Text('最近阅读'),
+                      ),
                       for (final shelf in library.shelves)
                         DropdownMenuItem(
                           value: shelf.id,
@@ -535,7 +678,11 @@ class _HomePageState extends State<HomePage> {
                             ),
                             const SizedBox(height: 24),
                             Text(
-                              selectedShelf == null ? '把故事放进你的书库' : '这个书架暂无作品',
+                              selectedShelf == null
+                                  ? '把故事放进你的书库'
+                                  : selectedShelf == Library.recentShelfId
+                                  ? '还没有最近阅读记录'
+                                  : '这个书架暂无作品',
                               style: Theme.of(context).textTheme.headlineSmall,
                               textAlign: TextAlign.center,
                             ),

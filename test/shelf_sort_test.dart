@@ -9,6 +9,8 @@ import 'package:unr/domain/models.dart';
 import 'package:unr/main.dart';
 import 'package:unr/sources/sfacg/sfacg_api.dart';
 import 'package:unr/sources/sfacg/sfacg_source.dart';
+import 'package:unr/ui/reader.dart';
+import 'helpers/reading_taps.dart';
 
 Book sample(
   String id,
@@ -34,6 +36,9 @@ class ShelfMemoryLibrary extends Library {
 
   @override
   Future<Map<String, ChapterContent>> cachedContents(Book book) async => {};
+  @override
+  Future<ChapterContent> read(Book book, Chapter chapter) async =>
+      const ChapterContent([Paragraph('测试正文')]);
 }
 
 void main() {
@@ -247,9 +252,13 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('软件设置'));
       await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('settings-shelf-entry')));
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('shelf-sort')));
       await tester.pumpAndSettle();
       await tester.tap(find.text(label).last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(BackButton));
       await tester.pumpAndSettle();
       await tester.tap(find.byType(BackButton));
       await tester.pumpAndSettle();
@@ -266,8 +275,9 @@ void main() {
     await tester.tap(find.text('A').last);
     await tester.pumpAndSettle();
     expect(library.lastActiveTimes['sfacg:a'], time.millisecondsSinceEpoch);
-    expect(find.text('作品详情'), findsOneWidget);
-    await tester.tap(find.byType(BackButton));
+    expect(find.byType(ReaderPage), findsOneWidget);
+    await showReadingControls(tester);
+    await tester.tap(find.byType(BackButton).hitTestable());
     await tester.pumpAndSettle();
     await choose('按上次活跃时间');
     expect(titles(), ['A', 'C', 'B']);

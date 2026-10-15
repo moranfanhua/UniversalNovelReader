@@ -17,6 +17,7 @@ import 'package:unr/sources/sfacg/sfacg_source.dart';
 import 'package:unr/ui/account.dart';
 import 'package:unr/ui/home.dart';
 import 'package:unr/ui/fanqie_account.dart';
+import 'package:unr/ui/import_shelf.dart';
 import 'package:unr/ui/account_login_method.dart';
 
 const bookId = '7143038691944959011';
@@ -502,10 +503,28 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(home: AccountSettingsPage(library: library)),
     );
+    expect(
+      tester
+          .widgetList<ListTile>(find.byType(ListTile))
+          .map((tile) => (tile.title! as Text).data),
+      ['番茄小说', '菠萝包轻小说'],
+    );
     await tester.tap(find.text('番茄小说'));
     await tester.pumpAndSettle();
     expect(find.text('番茄小说账号'), findsOneWidget);
     expect(find.text('选择登录方式'), findsOneWidget);
     expect(find.byType(TextField), findsNothing);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    await tester.pumpWidget(
+      MaterialApp(home: ImportShelfPage(library: library)),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widgetList<ListTile>(find.byType(ListTile))
+          .map((tile) => (tile.title! as Text).data),
+      ['番茄小说', '菠萝包轻小说'],
+    );
   });
 }

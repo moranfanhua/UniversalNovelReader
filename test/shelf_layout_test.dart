@@ -10,6 +10,8 @@ import 'package:unr/main.dart';
 import 'package:unr/sources/sfacg/sfacg_api.dart';
 import 'package:unr/sources/sfacg/sfacg_source.dart';
 import 'package:unr/ui/home.dart';
+import 'package:unr/ui/reader.dart';
+import 'helpers/reading_taps.dart';
 
 const chapters = [
   Chapter(id: '1', title: '第一章'),
@@ -47,6 +49,9 @@ class LayoutLibrary extends Library {
 
   @override
   Future<Map<String, ChapterContent>> cachedContents(Book book) async => {};
+  @override
+  Future<ChapterContent> read(Book book, Chapter chapter) async =>
+      const ChapterContent([Paragraph('测试正文')]);
 }
 
 void main() {
@@ -97,7 +102,7 @@ void main() {
     expect(failing.shelfLayout, ShelfLayout.grid);
   });
 
-  testWidgets('宫格卡片居中，封面与文字区域等宽并保留比例', (tester) async {
+  testWidgets('宫格整体左对齐，卡片文字居中且与封面等宽', (tester) async {
     viewport(tester);
     final model = library()..books.add(shelfBook('1', '长书名需要分两行显示的作品名称'));
     await tester.pumpWidget(UnrApp(library: model));
@@ -113,8 +118,15 @@ void main() {
     final text = tester.getRect(title);
     expect(cover.width, closeTo(text.width, .01));
     expect(cover.height / cover.width, closeTo(1.5, .01));
-    expect(cover.center.dx, closeTo(tester.view.physicalSize.width / 2, .01));
-    expect(tester.widget<Text>(title).textAlign, TextAlign.center);
+    final selector = tester.getRect(
+      find.byKey(const ValueKey('bookshelf-selector')),
+    );
+    expect(cover.left, closeTo(selector.left, .01));
+    for (final label in tester.widgetList<Text>(
+      find.descendant(of: card, matching: find.byType(Text)),
+    )) {
+      expect(label.textAlign, TextAlign.center);
+    }
     expect(tester.widget<Text>(title).style!.fontSize, lessThan(14));
     expect(tester.takeException(), isNull);
   }, variant: platforms);
@@ -192,8 +204,10 @@ void main() {
     );
     await tester.tap(find.text('第二本'));
     await tester.pumpAndSettle();
-    expect(find.text('作品详情'), findsOneWidget);
-    await tester.tap(find.byType(BackButton));
+    expect(find.byType(ReaderPage), findsOneWidget);
+    expect(find.text('作品详情'), findsNothing);
+    await showReadingControls(tester);
+    await tester.tap(find.byType(BackButton).hitTestable());
     await tester.pumpAndSettle();
     expect(model.shelfLayout, ShelfLayout.list);
     await tester.tap(find.byTooltip('切换为宫格'));
@@ -210,10 +224,14 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('软件设置'));
     await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('settings-shelf-entry')));
+    await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('shelf-layout')), findsOneWidget);
     await tester.tap(find.text('列表'));
     await tester.pumpAndSettle();
     expect(model.shelfLayout, ShelfLayout.list);
+    await tester.tap(find.byType(BackButton));
+    await tester.pumpAndSettle();
     await tester.tap(find.byType(BackButton));
     await tester.pumpAndSettle();
     await tester.tap(find.text('书库'));
