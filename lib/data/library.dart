@@ -69,6 +69,10 @@ class Library extends ChangeNotifier {
   final Directory root;
   final SfacgSource source;
   final List<Book> books = [];
+  static const recentShelfId = '__recent__';
+  static const recentBookLimit = 50;
+  final List<Book> recentBooks = [];
+  bool isOnShelf(Book book) => books.any((item) => item.key == book.key);
   final List<Bookshelf> shelves = [];
   ShelfSort shelfSort = ShelfSort.lastActive;
   ShelfLayout shelfLayout = ShelfLayout.grid;
@@ -179,6 +183,12 @@ class Library extends ChangeNotifier {
           (j) => Book.fromJson(Map<String, dynamic>.from(j)),
         ),
       );
+      for (final json in (data['recentBooks'] as List? ?? [])) {
+        final book = Book.fromJson(Map<String, dynamic>.from(json));
+        if (library.recentBooks.any((item) => item.key == book.key)) continue;
+        library.recentBooks.add(book);
+        if (library.recentBooks.length == recentBookLimit) break;
+      }
       library.shelves.addAll(
         (data['shelves'] as List? ?? []).map(
           (j) => Bookshelf.fromJson(Map<String, dynamic>.from(j)),
@@ -244,6 +254,18 @@ class Library extends ChangeNotifier {
               .cast<int>();
         }
       }
+      if (!data.containsKey('recentBooks')) {
+        final read =
+            library.books
+                .where((book) => library.progress[book.key]?.isNotEmpty == true)
+                .toList()
+              ..sort(
+                (a, b) => (library.lastActiveTimes[b.key] ?? 0).compareTo(
+                  library.lastActiveTimes[a.key] ?? 0,
+                ),
+              );
+        library.recentBooks.addAll(read.take(recentBookLimit));
+      }
     }
     library.downloadedFonts.addAll(await library.fonts.available());
     if (library.readingFontId.isNotEmpty) {
@@ -294,6 +316,7 @@ class Library extends ChangeNotifier {
   Future<void> save() {
     final json = jsonEncode({
       'books': books.map((b) => b.toJson()).toList(),
+      'recentBooks': recentBooks.map((b) => b.toJson()).toList(),
       'shelves': shelves.map((s) => s.toJson()).toList(),
       'progress': progress,
       'fontSize': fontSize,
@@ -375,6 +398,9 @@ class Library extends ChangeNotifier {
   }
 
   Future<void> add(Book book) async {
+    final previous = books.where((item) => item.key == book.key).firstOrNull;
+    final oldUpdated = updatedTimes[book.key];
+    final oldActive = lastActiveTimes[book.key];
     final now = clock().millisecondsSinceEpoch;
     if (book.source == 'local') {
       updatedTimes[book.key] = now;
@@ -390,7 +416,64 @@ class Library extends ChangeNotifier {
     } else {
       books[index] = book;
     }
-    await save();
+    try {
+      await save();
+    } catch (_) {
+      final current = books.indexWhere((item) => item.key == book.key);
+      if (current >= 0 && identical(books[current], book)) {
+        if (previous == null) {
+          books.removeAt(current);
+        } else {
+          books[current] = previous;
+        }
+      }
+      if (oldUpdated == null) {
+        updatedTimes.remove(book.key);
+      } else {
+        updatedTimes[book.key] = oldUpdated;
+      }
+      if (oldActive == null) {
+        lastActiveTimes.remove(book.key);
+      } else {
+        lastActiveTimes[book.key] = oldActive;
+      }
+      notifyListeners();
+      rethrow;
+    }
+  }
+
+  Future<void> updateBook(Book book) async {
+    final shelfIndex = books.indexWhere((item) => item.key == book.key);
+    final recentIndex = recentBooks.indexWhere((item) => item.key == book.key);
+    final oldShelf = shelfIndex < 0 ? null : books[shelfIndex];
+    final oldRecent = recentIndex < 0 ? null : recentBooks[recentIndex];
+    final oldUpdated = updatedTimes[book.key];
+    if (shelfIndex >= 0) books[shelfIndex] = book;
+    if (recentIndex >= 0) recentBooks[recentIndex] = book;
+    if (book.updatedAt != null) {
+      updatedTimes[book.key] = book.updatedAt!.millisecondsSinceEpoch;
+    }
+    try {
+      await save();
+    } catch (_) {
+      final shelf = books.indexWhere((item) => item.key == book.key);
+      final recent = recentBooks.indexWhere((item) => item.key == book.key);
+      if (shelf >= 0 && oldShelf != null && identical(books[shelf], book)) {
+        books[shelf] = oldShelf;
+      }
+      if (recent >= 0 &&
+          oldRecent != null &&
+          identical(recentBooks[recent], book)) {
+        recentBooks[recent] = oldRecent;
+      }
+      if (oldUpdated == null) {
+        updatedTimes.remove(book.key);
+      } else {
+        updatedTimes[book.key] = oldUpdated;
+      }
+      notifyListeners();
+      rethrow;
+    }
   }
 
   Future<Bookshelf> importShelf({
@@ -401,7 +484,9 @@ class Library extends ChangeNotifier {
   }) async {
     final label = name.trim();
     if (label.isEmpty) throw const SourceException('请填写书架名称');
-    if (shelves.any((s) => s.name == label) || label == '全部作品') {
+    if (shelves.any((s) => s.name == label) ||
+        label == '全部作品' ||
+        label == '最近阅读') {
       throw const SourceException('书架名称已存在，请使用其他名称');
     }
     if (imported.any((b) => b.source != source.id)) {
@@ -494,6 +579,31 @@ class Library extends ChangeNotifier {
   Future<void> markActive(Book book) async {
     lastActiveTimes[book.key] = clock().millisecondsSinceEpoch;
     await save();
+  }
+
+  Future<void> recordReading(Book book) async {
+    final oldActive = lastActiveTimes[book.key];
+    final oldRecent = recentBooks.toList();
+    lastActiveTimes[book.key] = clock().millisecondsSinceEpoch;
+    recentBooks.removeWhere((item) => item.key == book.key);
+    recentBooks.insert(0, book);
+    if (recentBooks.length > recentBookLimit) {
+      recentBooks.removeRange(recentBookLimit, recentBooks.length);
+    }
+    try {
+      await save();
+    } catch (_) {
+      recentBooks
+        ..clear()
+        ..addAll(oldRecent);
+      if (oldActive == null) {
+        lastActiveTimes.remove(book.key);
+      } else {
+        lastActiveTimes[book.key] = oldActive;
+      }
+      notifyListeners();
+      rethrow;
+    }
   }
 
   Future<void> store(Book book, Chapter chapter, ChapterContent content) =>

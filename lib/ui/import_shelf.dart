@@ -53,6 +53,7 @@ class _ImportShelfPageState extends State<ImportShelfPage> {
     final value = name.text.trim();
     if (value.isEmpty ||
         value == '全部作品' ||
+        value == '最近阅读' ||
         library.shelves.any((s) => s.name == value)) {
       setState(() => error = value.isEmpty ? '请填写书架名称' : '书架名称已存在，请使用其他名称');
       return false;

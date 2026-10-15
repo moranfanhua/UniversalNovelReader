@@ -168,6 +168,8 @@ class AlternateLibrary extends Library {
       const ChapterContent([paragraph]);
   @override
   Future<void> remember(Book book, int chapter, int paragraph) async {}
+  @override
+  Future<void> save() async => notifyListeners();
 }
 
 void main() {

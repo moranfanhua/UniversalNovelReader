@@ -96,7 +96,6 @@ class _HomePageState extends State<HomePage> {
         orElse: () => throw const SourceException('对应书源尚未启用'),
       );
       final book = await service.getBook(input);
-      await library.add(book);
       await library.markActive(book);
       if (mounted) {
         await Navigator.push(
@@ -239,6 +238,8 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _openShelfBook(Book book) async {
+    if (busy) return;
+    setState(() => busy = true);
     try {
       await library.markActive(book);
       if (!mounted) return;
@@ -250,6 +251,8 @@ class _HomePageState extends State<HomePage> {
       );
     } catch (e) {
       if (mounted) setState(() => error = '$e');
+    } finally {
+      if (mounted) setState(() => busy = false);
     }
   }
 
@@ -474,6 +477,9 @@ class _HomePageState extends State<HomePage> {
   );
 
   Widget _buildLibrary(BuildContext context) {
+    if (selectedShelf == Library.recentShelfId) {
+      return _buildPage(context, library.recentBooks);
+    }
     final keys = library.shelves
         .where((s) => s.id == selectedShelf)
         .firstOrNull
@@ -528,6 +534,10 @@ class _HomePageState extends State<HomePage> {
                     value: selectedShelf ?? '',
                     items: [
                       const DropdownMenuItem(value: '', child: Text('全部作品')),
+                      const DropdownMenuItem(
+                        value: Library.recentShelfId,
+                        child: Text('最近阅读'),
+                      ),
                       for (final shelf in library.shelves)
                         DropdownMenuItem(
                           value: shelf.id,
@@ -585,7 +595,11 @@ class _HomePageState extends State<HomePage> {
                             ),
                             const SizedBox(height: 24),
                             Text(
-                              selectedShelf == null ? '把故事放进你的书库' : '这个书架暂无作品',
+                              selectedShelf == null
+                                  ? '把故事放进你的书库'
+                                  : selectedShelf == Library.recentShelfId
+                                  ? '还没有最近阅读记录'
+                                  : '这个书架暂无作品',
                               style: Theme.of(context).textTheme.headlineSmall,
                               textAlign: TextAlign.center,
                             ),

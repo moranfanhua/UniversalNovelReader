@@ -16,6 +16,7 @@ import 'reading_tap_zones.dart';
 import 'chapter_page_layout.dart';
 import 'book_page_progress.dart';
 import 'chapter_directory.dart';
+import 'add_to_shelf_button.dart';
 
 class ReaderPage extends StatefulWidget {
   const ReaderPage({
@@ -52,6 +53,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   bool turningPage = false;
   bool settingsOpen = false;
   bool controlsVisible = false;
+  bool readingRecorded = false;
   ChapterPageLayout? pageLayout;
   final pagePosition = ValueNotifier<ReaderPagePosition?>(null);
   final knownContents = <int, ChapterContent>{};
@@ -184,6 +186,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     if (settingsOpen) return;
     _scheduleCounts();
     if (restoring) return;
+    unawaited(_recordReading());
     if (library.readingMode == ReadingMode.scroll) {
       _scheduleScrollAnchor();
       _scheduleScrollNext();
@@ -200,6 +203,21 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
         }
       });
     });
+  }
+
+  Future<void> _recordReading() async {
+    if (readingRecorded || loadedParagraphs.isEmpty) return;
+    readingRecorded = true;
+    try {
+      await library.recordReading(widget.book);
+    } catch (e) {
+      readingRecorded = false;
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('最近阅读记录保存失败：$e')));
+      }
+    }
   }
 
   void _scheduleScrollAnchor() {
@@ -1087,6 +1105,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       overflow: TextOverflow.ellipsis,
     ),
     actions: [
+      AddToShelfButton(library: library, book: widget.book, compact: true),
       IconButton(
         tooltip: '目录',
         onPressed: _directory,

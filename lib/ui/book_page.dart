@@ -6,6 +6,7 @@ import '../formats/ebook.dart';
 import 'reader.dart';
 import 'home.dart';
 import 'chapter_directory.dart';
+import 'add_to_shelf_button.dart';
 
 class BookPage extends StatefulWidget {
   const BookPage({super.key, required this.library, required this.book});
@@ -99,7 +100,7 @@ class _BookPageState extends State<BookPage> {
       final service = widget.library.sourceFor(book);
       if (service == null) throw const SourceException('当前作品的书源不可用');
       final next = await service.getBook(book.id);
-      await widget.library.add(next);
+      await widget.library.updateBook(next);
       if (mounted) {
         setState(() {
           book = next;
@@ -219,6 +220,11 @@ class _BookPageState extends State<BookPage> {
                                       ? '继续阅读'
                                       : '开始阅读',
                                 ),
+                              ),
+                              AddToShelfButton(
+                                library: widget.library,
+                                book: book,
+                                enabled: !busy,
                               ),
                               if (widget.library.sourceFor(book) != null)
                                 OutlinedButton.icon(
