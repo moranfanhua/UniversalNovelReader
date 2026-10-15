@@ -9,7 +9,7 @@
 !README.md
 !/AGENTS.md
 !/CHANGELOG.md
-!/.agents/skills/changelog/SKILL.md
+!/.agents/**/*.md
 ios/Runner/Assets.xcassets/LaunchImage.imageset/README.md
 docs/
 *.pdf

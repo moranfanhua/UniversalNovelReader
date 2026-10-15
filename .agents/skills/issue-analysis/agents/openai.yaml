@@ -1,0 +1,4 @@
+interface:
+  display_name: "UNR Issue 分析"
+  short_description: "结合 UNR 日志、用户版本与当前代码定位 Issue，并评估诉求和修复方案"
+  default_prompt: "使用 $issue-analysis 分析这个 UNR issue，核对证据与版本，给出根因判断、诉求评估和验证建议。"
