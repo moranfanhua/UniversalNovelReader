@@ -191,7 +191,8 @@ void main() {
   testWidgets('不支持写入和排序切换的书源隐藏操作，分页使用书源游标而非固定条数', (tester) async {
     final source = AlternateComments(readOnly: true);
     await open(tester, source);
-    expect(find.text('另一个平台 · 段评'), findsOneWidget);
+    expect(find.text('另一个平台 · 段评'), findsNothing);
+    expect(find.text(paragraph.text), findsOneWidget);
     expect(find.byType(SegmentedButton<CommentSort>), findsNothing);
     expect(find.byType(TextField), findsNothing);
     expect(find.text('回复'), findsNothing);
@@ -331,7 +332,8 @@ void main() {
     expect(find.text('7'), findsOneWidget);
     await tester.tap(find.text('7'));
     await tester.pumpAndSettle();
-    expect(find.text('另一个平台 · 段评'), findsOneWidget);
+    expect(find.text('另一个平台 · 段评'), findsNothing);
+    expect(find.text(paragraph.text), findsOneWidget);
     expect(
       source.locations.every(
         (location) =>

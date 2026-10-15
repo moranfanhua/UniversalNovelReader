@@ -179,14 +179,7 @@ class _CommentsSheetState extends State<CommentsSheet> {
             children: [
               Row(
                 children: [
-                  Expanded(
-                    child: Text(
-                      '${widget.source.name} · 段评',
-                      style: Theme.of(context).textTheme.titleLarge,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
+                  const Spacer(),
                   IconButton(
                     tooltip: '刷新段评',
                     onPressed: loading || sending ? null : () => _refresh(),
