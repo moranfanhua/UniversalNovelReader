@@ -144,6 +144,15 @@ void main() {
     await tester.pumpAndSettle();
     final sfacg = find.byKey(const ValueKey('search-source-sfacg'));
     final fanqie = find.byKey(const ValueKey('search-source-fanqie'));
+    expect(
+      tester
+          .widgetList<SwitchListTile>(find.byType(SwitchListTile))
+          .map((tile) => tile.key),
+      [
+        const ValueKey('search-source-fanqie'),
+        const ValueKey('search-source-sfacg'),
+      ],
+    );
     expect(tester.widget<SwitchListTile>(sfacg).value, isTrue);
     expect(tester.widget<SwitchListTile>(fanqie).value, isTrue);
     await tester.tap(sfacg);

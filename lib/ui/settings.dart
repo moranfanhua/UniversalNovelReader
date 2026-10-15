@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../data/library.dart';
 import 'reading_settings.dart';
+import 'platform_order.dart';
 
 class SoftwareSettingsPage extends StatefulWidget {
   const SoftwareSettingsPage({
@@ -222,7 +223,7 @@ class _SearchSettingsPageState extends State<_SearchSettingsPage> {
       children: [
         const Text('选择搜索书名或作者时参与搜索的平台'),
         const SizedBox(height: 12),
-        for (final source in widget.library.searchSources)
+        for (final source in platformDisplayOrder(widget.library.searchSources))
           SwitchListTile(
             key: ValueKey('search-source-${source.id}'),
             contentPadding: EdgeInsets.zero,

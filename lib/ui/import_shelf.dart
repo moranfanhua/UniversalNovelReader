@@ -4,6 +4,7 @@ import '../domain/models.dart';
 import '../domain/bookshelf.dart';
 import '../sources/bookshelf_source.dart';
 import 'account.dart';
+import 'platform_order.dart';
 
 class ImportShelfPage extends StatefulWidget {
   const ImportShelfPage({super.key, required this.library});
@@ -212,7 +213,9 @@ class _ImportShelfPageState extends State<ImportShelfPage> {
                 const SizedBox(height: 16),
               ],
               if (source == null)
-                for (final service in library.bookshelfSources)
+                for (final service in platformDisplayOrder(
+                  library.bookshelfSources,
+                ))
                   Card(
                     child: ListTile(
                       leading: Image.asset(

@@ -6,6 +6,7 @@ import '../sources/session_helper.dart';
 import 'fanqie_account.dart';
 import 'session_helper_page.dart';
 import 'account_login_method.dart';
+import 'platform_order.dart';
 
 class AccountSettingsPage extends StatelessWidget {
   const AccountSettingsPage({super.key, required this.library});
@@ -20,42 +21,23 @@ class AccountSettingsPage extends StatelessWidget {
         child: ListView(
           padding: const EdgeInsets.all(24),
           children: [
-            Card(
-              margin: EdgeInsets.zero,
-              clipBehavior: Clip.antiAlias,
-              child: ListTile(
-                leading: ClipRRect(
-                  borderRadius: BorderRadius.circular(10),
-                  child: Image.asset(
-                    'assets/sfacg_icon.jpg',
-                    width: 44,
-                    height: 44,
-                    excludeFromSemantics: true,
-                  ),
-                ),
-                title: Text(library.source.name),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => Navigator.push<void>(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => Scaffold(
-                      appBar: AppBar(title: Text(library.source.name)),
-                      body: AccountPage(library: library),
-                    ),
-                  ),
-                ),
+            for (final (index, source) in platformDisplayOrder(
+              library.searchSources.where(
+                (source) => source.id == 'sfacg' || source is FanqieSource,
               ),
-            ),
-            for (final source
-                in library.searchSources.whereType<FanqieSource>())
+            ).indexed)
               Card(
-                margin: const EdgeInsets.only(top: 16),
+                margin: index == 0
+                    ? EdgeInsets.zero
+                    : const EdgeInsets.only(top: 16),
                 clipBehavior: Clip.antiAlias,
                 child: ListTile(
                   leading: ClipRRect(
                     borderRadius: BorderRadius.circular(10),
                     child: Image.asset(
-                      'assets/fanqie_icon.webp',
+                      source is FanqieSource
+                          ? 'assets/fanqie_icon.webp'
+                          : 'assets/sfacg_icon.jpg',
                       width: 44,
                       height: 44,
                       excludeFromSemantics: true,
@@ -66,7 +48,12 @@ class AccountSettingsPage extends StatelessWidget {
                   onTap: () => Navigator.push<void>(
                     context,
                     MaterialPageRoute(
-                      builder: (_) => FanqieAccountPage(api: source.api),
+                      builder: (_) => source is FanqieSource
+                          ? FanqieAccountPage(api: source.api)
+                          : Scaffold(
+                              appBar: AppBar(title: Text(source.name)),
+                              body: AccountPage(library: library),
+                            ),
                     ),
                   ),
                 ),
