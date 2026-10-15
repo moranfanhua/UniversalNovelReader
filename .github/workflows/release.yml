@@ -26,7 +26,7 @@ jobs:
       build_number: ${{ steps.version.outputs.build_number }}
       prerelease: ${{ steps.version.outputs.prerelease }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           # 标签没有所属分支，取完整历史以确认提交已合入 master。
@@ -43,7 +43,7 @@ jobs:
     runs-on: windows-2025
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup-flutter
@@ -61,7 +61,7 @@ jobs:
       RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
       RELEASE_BUILD_NUMBER: ${{ needs.metadata.outputs.build_number }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup-flutter
@@ -74,7 +74,7 @@ jobs:
           --dart-define="APP_VERSION=$env:RELEASE_VERSION"
       - name: Package complete Windows bundle
         run: python .github/scripts/release.py windows
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: windows-release
           path: build/release/*.zip
@@ -91,10 +91,10 @@ jobs:
       RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
       RELEASE_BUILD_NUMBER: ${{ needs.metadata.outputs.build_number }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
           distribution: temurin
           java-version: '21'
@@ -134,7 +134,7 @@ jobs:
       - name: Remove signing key
         if: always()
         run: python3 .github/scripts/release.py clean-signing
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: android-release
           path: build/release/*.apk
@@ -153,15 +153,15 @@ jobs:
     env:
       RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           fetch-depth: 0
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: windows-release
           path: build/release
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: android-release
           path: build/release
