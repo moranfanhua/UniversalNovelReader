@@ -91,7 +91,7 @@ class QidianApi {
     return sendLoggedRequest(client, request, event: 'http.qidian');
   }
 
-  Map<String, dynamic> responseData(http.Response response) {
+  Object? responsePayload(http.Response response) {
     try {
       final doc = jsonDecode(utf8.decode(response.bodyBytes));
       if (doc is! Map) throw const FormatException();
@@ -104,13 +104,18 @@ class QidianApi {
           code: code ?? response.statusCode,
         );
       }
-      if (doc['Data'] is! Map) throw const FormatException();
-      return Map<String, dynamic>.from(doc['Data']);
+      return doc['Data'];
     } on SourceException {
       rethrow;
     } catch (_) {
       throw SourceException('起点返回无法识别的数据（HTTP ${response.statusCode}）');
     }
+  }
+
+  Map<String, dynamic> responseData(http.Response response) {
+    final payload = responsePayload(response);
+    if (payload is! Map) throw const SourceException('起点返回的数据格式已变化');
+    return Map<String, dynamic>.from(payload);
   }
 
   Future<Map<String, dynamic>> request(

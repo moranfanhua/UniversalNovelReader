@@ -4,6 +4,7 @@ import '../../domain/models.dart';
 import '../novel_source.dart';
 import 'qidian_api.dart';
 import 'qidian_crypto.dart';
+import 'qidian_fock.dart';
 
 class QidianSource implements SearchableNovelSource {
   QidianSource(this.api);
@@ -176,13 +177,41 @@ class QidianSource implements SearchableNovelSource {
       throw const SourceException('起点作品与章节不匹配');
     }
     final bid = bookId(book.id), cid = bookId(chapter.id);
-    if (chapter.vip && !api.hasSession) {
+    final vip = book.chapters.firstWhere((c) => c.id == cid).vip;
+    final session = api.credentials;
+    if (vip && session == null) {
       throw const SourceException('请先在“我的 → 账号设置”登录起点读书，仅可读取已有权限章节');
     }
+    void checkSession() {
+      if (!identical(session, api.credentials)) {
+        throw const SourceException('起点账号已切换，请重新打开章节');
+      }
+    }
+
+    if (vip) {
+      // The download endpoint must never be used to trigger auto-subscription.
+      // Confirm ownership first, even when the official App enables auto-buy.
+      final owned = api.responsePayload(
+        await api.send('/argus/api/v2/subscription/getboughtchapterlist', {
+          'bookId': bid,
+        }, post: true),
+      );
+      checkSession();
+      if (owned is! List) throw const SourceException('起点已购章节列表格式已变化');
+      if (!owned.any((id) => '$id' == cid)) {
+        throw const SourceException('此章节尚未购买，请先在起点官方 App 购买后重试');
+      }
+    }
     final response = await api.send(
-      '/argus/api/v2/bookcontent/safegetcontent',
-      {'bookId': bid, 'chapterId': cid},
+      vip
+          ? '/argus/api/v4/bookcontent/getvipcontent'
+          : '/argus/api/v2/bookcontent/safegetcontent',
+      vip
+          ? {'b': bid, 'c': cid, 'ui': '0', 'b-string': ''}
+          : {'bookId': bid, 'chapterId': cid},
+      post: vip,
     );
+    checkSession();
     if (response.statusCode != 200 ||
         response.bodyBytes.isEmpty ||
         response.bodyBytes.first == 0x7b) {
@@ -193,24 +222,79 @@ class QidianSource implements SearchableNovelSource {
       response.bodyBytes,
       chapterId: cid,
       device: api.device,
-      userId: api.credentials?.userId ?? '0',
+      userId: session?.userId ?? '0',
     );
     final code = int.tryParse('${data['code'] ?? 0}');
     if (code != 0) {
       throw SourceException('该起点章节暂无阅读权限，请在官方 App 确认可读状态', code: code ?? -1);
     }
-    if (data['type'] != null && '${data['type']}' != '0') {
-      throw const SourceException('起点正文加密格式暂不支持');
-    }
-    final content = data['Content'] ?? data['content'];
+    var content = data['Content'] ?? data['content'];
     if (content is! String || content.trim().isEmpty) {
       throw const SourceException('起点未返回完整正文，请重试');
     }
-    return ChapterContent([
-      for (final line in const LineSplitter().convert(
-        content.replaceAll('\r', '\n'),
-      ))
-        if (line.trim().isNotEmpty) Paragraph(line.trim()),
-    ]);
+    final type = '${data['type'] ?? 0}';
+    if (type == '1') {
+      if (!vip) throw const SourceException('起点免费章节加密格式已变化');
+      final keyData = await api.request('/argus/api/v4/bookcontent/getkey', {
+        'bookId': bid,
+        'ui': '0',
+      });
+      checkSession();
+      content = QidianFock.decode(
+        content,
+        chapterId: cid,
+        device: api.device,
+        readingKey: QidianReadingKey.fromJson(keyData),
+      );
+    } else if (type != '0') {
+      throw const SourceException('起点正文加密格式暂不支持');
+    }
+    return parseContent(content, data['Blocks']);
+  }
+
+  static ChapterContent parseContent(String content, Object? rawBlocks) {
+    if (rawBlocks != null && rawBlocks is! List) {
+      throw const SourceException('起点章节插图格式已变化');
+    }
+    // Official ChapterProvider attaches blocks after the numbered paragraph;
+    // Attach=0 appears before the first body paragraph, ordered by Sort.
+    final lines = const LineSplitter().convert(
+      content.replaceAll(RegExp(r'\r+\n'), '\n').replaceAll('\r', '\n'),
+    );
+    final attachments = <int, List<Map>>{};
+    for (final block in (rawBlocks as List? ?? [])) {
+      if (block is! Map || !{'image', '1', '4'}.contains('${block['Type']}')) {
+        throw const SourceException('本章含暂不支持的图文或音视频格式，请在起点官方 App 阅读');
+      }
+      final position = int.tryParse('${block['Attach']}');
+      final url = Uri.tryParse('${block['Url'] ?? ''}');
+      if (position == null ||
+          position < 0 ||
+          position > lines.length ||
+          url == null ||
+          !{'https', 'http'}.contains(url.scheme) ||
+          url.host.isEmpty ||
+          url.userInfo.isNotEmpty) {
+        throw const SourceException('起点章节插图位置或地址无效，请重试');
+      }
+      (attachments[position] ??= []).add(block);
+    }
+    final paragraphs = <Paragraph>[];
+    for (var i = 0; i <= lines.length; i++) {
+      if (i > 0 && lines[i - 1].trim().isNotEmpty) {
+        paragraphs.add(Paragraph(lines[i - 1].trim()));
+      }
+      final images = attachments[i] ?? [];
+      images.sort(
+        (a, b) => (int.tryParse('${a['Sort']}') ?? 0).compareTo(
+          int.tryParse('${b['Sort']}') ?? 0,
+        ),
+      );
+      for (final image in images) {
+        paragraphs.add(Paragraph('', image: '${image['Url']}'));
+      }
+    }
+    if (paragraphs.isEmpty) throw const SourceException('起点未返回完整正文，请重试');
+    return ChapterContent(paragraphs);
   }
 }

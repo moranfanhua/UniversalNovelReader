@@ -103,6 +103,71 @@ void main() {
     }
   });
 
+  test('权限期限取逗号分隔的最后时间；过期章节不返回正文', () {
+    final bytes = base64Decode(fixture()['chapter']);
+    Map<String, dynamic> decode(String expiry) {
+      final encrypted = QidianCrypto.des(
+        utf8.encode(expiry),
+        '0821CAAD409B8402',
+      );
+      final length = ByteData(4)..setUint32(0, encrypted.length, Endian.little);
+      return QidianCrypto.decodeChapter(
+        Uint8List.fromList([
+          ...length.buffer.asUint8List(),
+          ...encrypted,
+          ...bytes.skip(4),
+        ]),
+        chapterId: '12345',
+        device: device,
+        userId: '0',
+      );
+    }
+
+    expect(decode('metadata,4102444800000')['Content'], contains('第一段'));
+    expect(() => decode('metadata,1'), throwsA(isA<SourceException>()));
+  });
+
+  test('正文插图按 Attach、Sort 顺序保留，未知格式不能伪装为完整章节', () {
+    final content = QidianSource.parseContent('第一段\r\r\n第二段', [
+      {
+        'Type': 'image',
+        'Attach': 1,
+        'Sort': 2,
+        'Url': 'https://example.test/2.jpg',
+      },
+      {
+        'Type': '1',
+        'Attach': 1,
+        'Sort': 1,
+        'Url': 'https://example.test/1.jpg',
+      },
+      {'Type': 'image', 'Attach': 0, 'Url': 'https://example.test/cover.jpg'},
+    ]);
+    expect(content.paragraphs.map((p) => p.image ?? p.text), [
+      'https://example.test/cover.jpg',
+      '第一段',
+      'https://example.test/1.jpg',
+      'https://example.test/2.jpg',
+      '第二段',
+    ]);
+    for (final blocks in [
+      [
+        {'Type': '2', 'Attach': 1, 'Url': 'https://example.test/video'},
+      ],
+      [
+        {'Type': 'image', 'Attach': 99, 'Url': 'https://example.test/1.jpg'},
+      ],
+      [
+        {'Type': 'image', 'Attach': 1, 'Url': 'file:///private/image'},
+      ],
+    ]) {
+      expect(
+        () => QidianSource.parseContent('段落', blocks),
+        throwsA(isA<SourceException>()),
+      );
+    }
+  });
+
   test('目录先按分卷再按卷内顺序，保留 VIP 与字数，移除版权伪章节', () {
     final chapters = QidianSource.parseDirectory(directory());
     expect(chapters.map((c) => c.id), ['12345', '12346', '12347']);

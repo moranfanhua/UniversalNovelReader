@@ -140,7 +140,10 @@ class QidianCrypto {
       }
       if (blocks[0].isNotEmpty) {
         final expires = int.tryParse(
-          utf8.decode(des(blocks[0], _deviceKey, decrypt: true)),
+          utf8
+              .decode(des(blocks[0], _deviceKey, decrypt: true))
+              .split(',')
+              .last,
         );
         if (expires == null ||
             expires > 0 && expires < DateTime.now().millisecondsSinceEpoch) {
@@ -167,7 +170,11 @@ class QidianCrypto {
         first,
         decrypt: true,
       );
-      return jsonDecode(utf8.decode(content)) as Map<String, dynamic>;
+      final data = jsonDecode(utf8.decode(content)) as Map<String, dynamic>;
+      if (blocks[4].isNotEmpty) {
+        data['Blocks'] = jsonDecode(utf8.decode(blocks[4]));
+      }
+      return data;
     } on SourceException {
       rethrow;
     } catch (_) {
