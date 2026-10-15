@@ -192,6 +192,16 @@ class _ReadingSettingsState extends State<ReadingSettings> {
             },
           ),
           const SizedBox(height: 16),
+          SwitchListTile(
+            key: const ValueKey('reading-paragraph-comments'),
+            contentPadding: EdgeInsets.zero,
+            title: const Text('显示段评'),
+            value: library.showParagraphComments,
+            onChanged: (value) {
+              setState(() => library.showParagraphComments = value);
+              _save();
+            },
+          ),
           if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android)
             SwitchListTile(
               key: const ValueKey('reading-volume-keys'),

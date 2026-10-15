@@ -71,7 +71,8 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   GlobalKey? pendingScrollRestore;
   String _entryKey(int chapter) => '${widget.book.key}:$chapter';
   Library get library => widget.library;
-  CommentSource? get comments => library.commentsFor(widget.book);
+  CommentSource? get comments =>
+      library.showParagraphComments ? library.commentsFor(widget.book) : null;
   CommentLocation _commentLocation(Paragraph paragraph, {int? chapterIndex}) =>
       CommentLocation(
         book: widget.book,

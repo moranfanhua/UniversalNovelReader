@@ -131,6 +131,7 @@ class Library extends ChangeNotifier {
   bool night = false;
   ReadingMode readingMode = ReadingMode.scroll;
   bool volumeKeyPaging = true;
+  bool showParagraphComments = true;
   final Map<String, int> pageOffsets = {};
   // Entry alignment and preceding spread origin, indexed by book and chapter.
   final Map<String, List<int>> pagedChapterEntries = {};
@@ -184,6 +185,7 @@ class Library extends ChangeNotifier {
       );
       library.night = data['night'] == true;
       library.volumeKeyPaging = data['volumeKeyPaging'] != false;
+      library.showParagraphComments = data['showParagraphComments'] != false;
       library.shelfSort = ShelfSort.values.firstWhere(
         (sort) => sort.name == data['shelfSort'],
         orElse: () => ShelfSort.lastActive,
@@ -290,6 +292,7 @@ class Library extends ChangeNotifier {
       'night': night,
       'readingMode': readingMode.name,
       'volumeKeyPaging': volumeKeyPaging,
+      'showParagraphComments': showParagraphComments,
       'pageOffsets': pageOffsets,
       'pagedChapterEntries': pagedChapterEntries,
       'readingFontId': readingFontId,
@@ -357,6 +360,7 @@ class Library extends ChangeNotifier {
     lineHeight = 1.9;
     readingMode = ReadingMode.scroll;
     volumeKeyPaging = true;
+    showParagraphComments = true;
     night = false;
     await save();
   }
