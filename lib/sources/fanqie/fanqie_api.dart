@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../../domain/models.dart';
+import '../logged_request.dart';
 import 'fanqie_app_api.dart';
 
 class FanqieApi {
@@ -69,9 +70,11 @@ class FanqieApi {
       });
       final http.Response response;
       try {
-        response = await (() async => http.Response.fromStream(
-          await client.send(request),
-        ))().timeout(const Duration(seconds: 25));
+        response = await sendLoggedRequest(
+          client,
+          request,
+          event: 'http.fanqie',
+        );
       } on TimeoutException {
         throw const SourceException('番茄请求超时，请检查网络后重试');
       } on http.ClientException {

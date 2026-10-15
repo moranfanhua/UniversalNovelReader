@@ -14,6 +14,7 @@ import '../sources/sfacg/sfacg_source.dart';
 import '../sources/comment_source.dart';
 import '../sources/novel_source.dart';
 import 'reader_fonts.dart';
+import 'app_log.dart';
 
 enum ReadingMode { scroll, paged }
 
@@ -296,7 +297,12 @@ class Library extends ChangeNotifier {
     late final Future<void> next;
     next = previous
         .catchError((_) {})
-        .then((_) => _replace(file, bytes))
+        .then(
+          (_) => AppLog.instance.capture(
+            'storage.write_failed',
+            () => _replace(file, bytes),
+          ),
+        )
         .whenComplete(() {
           if (identical(_fileWrites[file.path], next)) {
             _fileWrites.remove(file.path);
@@ -702,19 +708,20 @@ class Library extends ChangeNotifier {
     });
   }
 
-  Future<ChapterContent> _readChapter(Book book, Chapter chapter) async {
-    final saved = await cached(book, chapter);
-    if (saved != null) return saved;
-    final service = sourceFor(book);
-    if (service == null) {
-      throw SourceException(
-        book.source == 'local' ? '本地章节缓存缺失，请重新导入原文件' : '当前书源不可用，已缓存章节仍可阅读',
-      );
-    }
-    final content = await service.readChapter(book, chapter);
-    await store(book, chapter, content);
-    return content;
-  }
+  Future<ChapterContent> _readChapter(Book book, Chapter chapter) =>
+      AppLog.instance.capture('reader.chapter_failed', () async {
+        final saved = await cached(book, chapter);
+        if (saved != null) return saved;
+        final service = sourceFor(book);
+        if (service == null) {
+          throw SourceException(
+            book.source == 'local' ? '本地章节缓存缺失，请重新导入原文件' : '当前书源不可用，已缓存章节仍可阅读',
+          );
+        }
+        final content = await service.readChapter(book, chapter);
+        await store(book, chapter, content);
+        return content;
+      });
 
   Future<Map<String, ChapterContent>> cachedContents(Book book) async {
     final result = <String, ChapterContent>{};
@@ -743,36 +750,37 @@ class Library extends ChangeNotifier {
     });
   }
 
-  Future<Uint8List> _loadImage(Book book, String key) async {
-    final saved = await image(book, key);
-    if (saved != null) return saved;
-    if (key.startsWith('local:')) {
-      throw const SourceException('本地插图缺失，请重新导入原文件');
-    }
-    var uri = Uri.parse(key);
-    if (uri.scheme == 'http') uri = uri.replace(scheme: 'https');
-    if (uri.scheme != 'https' || uri.userInfo.isNotEmpty) {
-      throw const SourceException('插图地址无效');
-    }
-    final response = await source.api.client
-        .send(http.Request('GET', uri))
-        .timeout(const Duration(seconds: 25));
-    if (response.statusCode != 200) {
-      throw SourceException('插图下载失败（HTTP ${response.statusCode}）');
-    }
-    final builder = BytesBuilder();
-    await for (final bytes in response.stream.timeout(
-      const Duration(seconds: 25),
-    )) {
-      builder.add(bytes);
-      if (builder.length > 20 * 1024 * 1024) {
-        throw const SourceException('单张插图超过 20 MB');
-      }
-    }
-    final data = builder.takeBytes();
-    await saveImage(book, key, data);
-    return data;
-  }
+  Future<Uint8List> _loadImage(Book book, String key) =>
+      AppLog.instance.capture('reader.image_failed', () async {
+        final saved = await image(book, key);
+        if (saved != null) return saved;
+        if (key.startsWith('local:')) {
+          throw const SourceException('本地插图缺失，请重新导入原文件');
+        }
+        var uri = Uri.parse(key);
+        if (uri.scheme == 'http') uri = uri.replace(scheme: 'https');
+        if (uri.scheme != 'https' || uri.userInfo.isNotEmpty) {
+          throw const SourceException('插图地址无效');
+        }
+        final response = await source.api.client
+            .send(http.Request('GET', uri))
+            .timeout(const Duration(seconds: 25));
+        if (response.statusCode != 200) {
+          throw SourceException('插图下载失败（HTTP ${response.statusCode}）');
+        }
+        final builder = BytesBuilder();
+        await for (final bytes in response.stream.timeout(
+          const Duration(seconds: 25),
+        )) {
+          builder.add(bytes);
+          if (builder.length > 20 * 1024 * 1024) {
+            throw const SourceException('单张插图超过 20 MB');
+          }
+        }
+        final data = builder.takeBytes();
+        await saveImage(book, key, data);
+        return data;
+      });
 
   Future<void> cacheImages(Book book, ChapterContent content) async {
     for (final p in content.paragraphs) {

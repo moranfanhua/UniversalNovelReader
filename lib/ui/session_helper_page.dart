@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../sources/session_helper.dart';
+import '../data/app_log.dart';
 
 class SessionHelperPage extends StatefulWidget {
   const SessionHelperPage({
@@ -28,9 +29,30 @@ class _SessionHelperPageState extends State<SessionHelperPage>
     if (SessionHelper.supported) {
       _subscription = SessionHelper.events.listen(
         (state) {
+          final phase = state['phase'];
+          if (phase != _state['phase'] &&
+              const {
+                'idle',
+                'starting',
+                'capturing',
+                'stopping',
+                'stopped',
+                'error',
+              }.contains(phase)) {
+            AppLog.instance.record(
+              phase == 'error' ? LogLevel.warning : LogLevel.info,
+              'session_helper.$phase',
+            );
+          }
           if (mounted) setState(() => _state = state);
         },
-        onError: (_) {
+        onError: (Object error, StackTrace stack) {
+          AppLog.instance.record(
+            LogLevel.error,
+            'session_helper.events_failed',
+            error: error,
+            stackTrace: stack,
+          );
           if (mounted) setState(() => _message = '无法读取辅助状态，请重新进入');
         },
       );
@@ -49,9 +71,21 @@ class _SessionHelperPageState extends State<SessionHelperPage>
           _ready = true;
         });
       }
-    } on PlatformException catch (error) {
+    } on PlatformException catch (error, stack) {
+      AppLog.instance.record(
+        LogLevel.error,
+        'session_helper.prepare_failed',
+        error: error,
+        stackTrace: stack,
+      );
       if (mounted) setState(() => _message = error.message ?? '无法准备会话辅助');
-    } on MissingPluginException {
+    } on MissingPluginException catch (error, stack) {
+      AppLog.instance.record(
+        LogLevel.error,
+        'session_helper.unavailable',
+        error: error,
+        stackTrace: stack,
+      );
       if (mounted) setState(() => _message = '当前安装包不支持会话辅助，请更新安装包');
     }
   }
@@ -73,9 +107,21 @@ class _SessionHelperPageState extends State<SessionHelperPage>
     });
     try {
       await action();
-    } on PlatformException catch (error) {
+    } on PlatformException catch (error, stack) {
+      AppLog.instance.record(
+        LogLevel.error,
+        'session_helper.action_failed',
+        error: error,
+        stackTrace: stack,
+      );
       if (mounted) setState(() => _message = error.message ?? '会话辅助失败，请重试');
-    } on MissingPluginException {
+    } on MissingPluginException catch (error, stack) {
+      AppLog.instance.record(
+        LogLevel.error,
+        'session_helper.unavailable',
+        error: error,
+        stackTrace: stack,
+      );
       if (mounted) setState(() => _message = '当前安装包不支持会话辅助，请更新安装包');
     } finally {
       if (mounted) setState(() => _busy = false);

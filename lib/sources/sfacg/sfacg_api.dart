@@ -6,6 +6,8 @@ import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
 
 import '../../domain/models.dart';
+import '../../data/app_log.dart';
+import '../logged_request.dart';
 import 'sfacg_signature.dart';
 
 class SfacgApi {
@@ -138,16 +140,24 @@ class SfacgApi {
         req.headers['Content-Type'] = 'application/json; charset=utf-8';
         req.body = jsonEncode(body);
       }
-      final response = await (() async => http.Response.fromStream(
-        await client.send(req),
-      ))().timeout(const Duration(seconds: 25));
+      final response = await sendLoggedRequest(
+        client,
+        req,
+        event: 'http.sfacg',
+      );
       Map<String, dynamic> doc;
       try {
         doc = head || response.statusCode == 204 && response.bodyBytes.isEmpty
             ? {}
             : jsonDecode(utf8.decode(response.bodyBytes))
                   as Map<String, dynamic>;
-      } catch (_) {
+      } catch (error, stack) {
+        AppLog.instance.record(
+          LogLevel.error,
+          'sfacg.response_invalid',
+          error: error,
+          stackTrace: stack,
+        );
         throw SourceException('菠萝包返回无法识别的数据（HTTP ${response.statusCode}）');
       }
       final status = (doc['status'] as Map?) ?? {};
@@ -171,6 +181,16 @@ class SfacgApi {
         }
         return head ? response.headers : doc['data'];
       }
+      AppLog.instance.record(
+        LogLevel.warning,
+        'sfacg.request_rejected',
+        error: SourceException(
+          '',
+          code: code,
+          errorCode: int.tryParse('${status['errorCode']}'),
+        ),
+        httpStatus: response.statusCode,
+      );
       if (retry && attempt < 3 && (code == 417 || code == 429 || code >= 500)) {
         nonce = const Uuid().v4().toUpperCase();
         if (code == 417 && response.headers['date'] != null) {

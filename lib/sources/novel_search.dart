@@ -1,4 +1,5 @@
 import '../domain/models.dart';
+import '../data/app_log.dart';
 import 'novel_source.dart';
 
 class NovelSearchResult {
@@ -17,7 +18,13 @@ Future<NovelSearchResult> searchNovels(
     sources.map((source) async {
       try {
         return (books: await source.search(query), failure: null);
-      } catch (_) {
+      } catch (error, stack) {
+        AppLog.instance.record(
+          LogLevel.error,
+          'search.source_failed',
+          error: error,
+          stackTrace: stack,
+        );
         return (books: <Book>[], failure: source.name);
       }
     }),

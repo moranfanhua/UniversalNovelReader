@@ -6,6 +6,8 @@ import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
 import 'package:crypto/crypto.dart';
 import '../../domain/models.dart';
+import '../../data/app_log.dart';
+import '../logged_request.dart';
 import 'fanqie_crypto.dart';
 
 class FanqieAppApi {
@@ -105,9 +107,11 @@ class FanqieAppApi {
     if (body != null) request.bodyBytes = body;
     final http.Response response;
     try {
-      response = await (() async => http.Response.fromStream(
-        await client.send(request),
-      ))().timeout(const Duration(seconds: 25));
+      response = await sendLoggedRequest(
+        client,
+        request,
+        event: 'http.fanqie.app',
+      );
     } on TimeoutException {
       throw const SourceException('番茄 App 请求超时，请检查网络后重试');
     } on http.ClientException {
@@ -128,7 +132,13 @@ class FanqieAppApi {
     try {
       return jsonDecode(utf8.decode(response.bodyBytes))
           as Map<String, dynamic>;
-    } catch (_) {
+    } catch (error, stack) {
+      AppLog.instance.record(
+        LogLevel.error,
+        'fanqie.response_invalid',
+        error: error,
+        stackTrace: stack,
+      );
       throw const SourceException('番茄 App 返回无法识别的数据');
     }
   }
@@ -272,6 +282,11 @@ class FanqieAppApi {
     final doc = _document(response);
     final code = int.tryParse('${doc['code']}') ?? -1;
     if (code != 0) {
+      AppLog.instance.record(
+        LogLevel.warning,
+        'fanqie.request_rejected',
+        error: SourceException('', code: code),
+      );
       throw SourceException('番茄 App 请求失败（状态 $code），请检查会话或阅读权限', code: code);
     }
     return doc['data'];

@@ -120,7 +120,7 @@ void main() {
       tester
           .widgetList<ListTile>(find.byType(ListTile))
           .map((tile) => (tile.title! as Text).data),
-      ['书架', '阅读', '搜索', '导入'],
+      ['书架', '阅读', '搜索', '导入', '日志'],
     );
     expect(find.text('阅读方式'), findsNothing);
     expect(find.byType(NavigationBar), findsNothing);
@@ -178,6 +178,16 @@ void main() {
     expect(find.text('书架设置'), findsOneWidget);
     expect(find.text('书架排序').hitTestable(), findsOneWidget);
     expect(encoding.hitTestable(), findsNothing);
+    await tester.tap(find.byType(BackButton));
+    await tester.pumpAndSettle();
+    final logsEntry = find.byKey(const ValueKey('settings-logs-entry'));
+    await tester.ensureVisible(logsEntry);
+    await tester.tap(logsEntry);
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('导出日志'), findsOneWidget);
+    await tester.tap(find.byType(BackButton));
+    await tester.pumpAndSettle();
+    expect(find.text('软件设置'), findsOneWidget);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
   }, variant: platforms);

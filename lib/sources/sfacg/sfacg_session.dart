@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'sfacg_api.dart';
+import '../../data/app_log.dart';
 
 class SfacgSession {
   static const _key = 'unr.sfacg.session.v1';
@@ -45,7 +46,13 @@ class SfacgSession {
         api.close();
         rethrow;
       }
-    } catch (_) {
+    } catch (error, stack) {
+      AppLog.instance.record(
+        LogLevel.warning,
+        'session.sfacg.restore_failed',
+        error: error,
+        stackTrace: stack,
+      );
       // Account restoration must not prevent reading the independent book cache.
       // Keep the stored value intact until the user logs in or logs out.
       api = SfacgApi()..sessionNotice = '无法恢复本机菠萝包会话，请重新登录。本地书库仍可使用。';
@@ -70,7 +77,13 @@ class SfacgSession {
           }),
         );
         api.sessionNotice = null;
-      } catch (_) {
+      } catch (error, stack) {
+        AppLog.instance.record(
+          LogLevel.error,
+          'session.sfacg.save_failed',
+          error: error,
+          stackTrace: stack,
+        );
         api.sessionNotice = '登录成功，但无法写入本机安全存储。本次会话有效，重启后需重新登录。';
       }
     };
