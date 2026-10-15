@@ -6,11 +6,12 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:unr/data/library.dart';
 import 'package:unr/domain/models.dart';
-import 'package:unr/sources/sfacg_api.dart';
-import 'package:unr/sources/sfacg_source.dart';
+import 'package:unr/sources/sfacg/sfacg_api.dart';
+import 'package:unr/sources/sfacg/sfacg_source.dart';
 import 'package:unr/ui/reader.dart';
 import 'package:unr/ui/reading_settings.dart';
 import 'chapter_transition_test.dart' show TransitionLibrary, transitionBook;
+import 'helpers/reading_taps.dart';
 
 const volumeChannel = MethodChannel('unr/reader_volume_keys');
 
@@ -72,22 +73,23 @@ void main() {
     final library = TransitionLibrary()..readingMode = ReadingMode.paged;
     await open(tester, library);
     expect(enabledCalls.last, isTrue);
-    expect(find.textContaining(RegExp(r'^第 1 / \d+ 页$')), findsOneWidget);
+    expect(readingPager(tester).page, 0);
     await volume(tester, 1);
-    expect(find.textContaining(RegExp(r'^第 2 / \d+ 页$')), findsOneWidget);
+    expect(readingPager(tester).page, 1);
     await volume(tester, -1);
-    expect(find.textContaining(RegExp(r'^第 1 / \d+ 页$')), findsOneWidget);
+    expect(readingPager(tester).page, 0);
+    await showReadingControls(tester);
     await tester.tap(find.text('下一章'));
     await settle(tester);
     await volume(tester, -1);
-    expect(find.text('1 / 3'), findsOneWidget);
+    expect(readingChapter(tester), 0);
     expect(find.textContaining('上一章结尾标记').hitTestable(), findsOneWidget);
     await volume(tester, 1);
-    expect(find.text('2 / 3'), findsOneWidget);
+    expect(readingChapter(tester), 1);
     await volume(tester, 1);
-    expect(find.text('3 / 3'), findsOneWidget);
+    expect(readingChapter(tester), 2);
     await volume(tester, 1);
-    expect(find.text('3 / 3'), findsOneWidget);
+    expect(readingChapter(tester), 2);
     await tester.pumpWidget(const SizedBox.shrink());
     expect(enabledCalls.last, isFalse);
     expect(tester.takeException(), isNull);
@@ -106,16 +108,16 @@ void main() {
     final initialOffset = controller.offset;
     await volume(tester, 1);
     expect(controller.offset, greaterThan(100));
-    expect(find.text('1 / 3'), findsOneWidget);
+    expect(readingChapter(tester), 0);
     await volume(tester, -1);
     expect(controller.offset, closeTo(initialOffset, .1));
     final chapterEnd = controller.position.maxScrollExtent;
     controller.jumpTo(chapterEnd);
     await settle(tester);
     await volume(tester, 1);
-    expect(find.text('2 / 3'), findsOneWidget);
+    expect(readingChapter(tester), 1);
     await volume(tester, -1);
-    expect(find.text('1 / 3'), findsOneWidget);
+    expect(readingChapter(tester), 0);
     expect(controller.offset, closeTo(chapterEnd, .1));
     await tester.pumpWidget(const SizedBox.shrink());
   });
@@ -148,11 +150,11 @@ void main() {
         ]) {
           await tester.sendKeyEvent(key);
           await settle(tester);
-          expect(find.text('1 / 3'), findsOneWidget);
+          expect(readingChapter(tester), 0);
           expect(find.textContaining('上一章结尾标记').hitTestable(), findsOneWidget);
           await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
           await settle(tester);
-          expect(find.text('2 / 3'), findsOneWidget);
+          expect(readingChapter(tester), 1);
         }
         if (mode == ReadingMode.scroll) {
           final view = tester.widget<SingleChildScrollView>(
@@ -165,7 +167,7 @@ void main() {
         await settle(tester);
         await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
         await settle(tester);
-        expect(find.text('3 / 3'), findsOneWidget);
+        expect(readingChapter(tester), 2);
         await tester.pumpWidget(const SizedBox.shrink());
         expect(tester.takeException(), isNull);
       },
@@ -177,6 +179,7 @@ void main() {
     final library = TransitionLibrary()..readingMode = ReadingMode.paged;
     await open(tester, library, chapter: 1);
     for (final tooltip in ['目录', '阅读设置']) {
+      await showReadingControls(tester);
       await tester.tap(find.byTooltip(tooltip));
       await tester.pumpAndSettle();
       expect(enabledCalls.last, isFalse);
@@ -202,7 +205,7 @@ void main() {
     await tester.pump();
     expect(enabledCalls.last, isTrue);
     await volume(tester, 1);
-    expect(find.text('3 / 3'), findsOneWidget);
+    expect(readingChapter(tester), 2);
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
@@ -214,10 +217,10 @@ void main() {
     await tester.pump();
     expect(enabledCalls.last, isFalse);
     await volume(tester, 1);
-    expect(find.text('2 / 3'), findsOneWidget);
+    expect(readingChapter(tester), 1);
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
     await settle(tester);
-    expect(find.text('3 / 3'), findsOneWidget);
+    expect(readingChapter(tester), 2);
     await tester.pumpWidget(const SizedBox.shrink());
   });
 

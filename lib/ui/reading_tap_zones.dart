@@ -9,10 +9,12 @@ class ReadingTapZones extends StatefulWidget {
     required this.onTurn,
     required this.child,
     this.revision,
+    this.onCenterTap,
   });
   final ValueChanged<int> onTurn;
   final Widget child;
   final Object? revision;
+  final VoidCallback? onCenterTap;
   @override
   State<ReadingTapZones> createState() => _ReadingTapZonesState();
 }
@@ -93,12 +95,22 @@ class _ReadingTapZonesState extends State<ReadingTapZones>
     }
     final box = context.findRenderObject() as RenderBox;
     final delta = event.localPosition.dx < box.size.width / 2 ? -1 : 1;
+    final center =
+        widget.onCenterTap != null &&
+        event.localPosition.dx >= box.size.width / 3 &&
+        event.localPosition.dx <= box.size.width * 2 / 3 &&
+        event.localPosition.dy >= box.size.height / 3 &&
+        event.localPosition.dy <= box.size.height * 2 / 3;
     pendingPosition = event.position;
     // Wait for a possible double tap so selecting text cannot also turn a page.
     pendingTap = Timer(kDoubleTapTimeout, () {
       pendingPosition = null;
       if (mounted && ModalRoute.isCurrentOf(context) != false) {
-        widget.onTurn(delta);
+        if (center) {
+          widget.onCenterTap?.call();
+        } else {
+          widget.onTurn(delta);
+        }
       }
     });
   }
@@ -117,7 +129,9 @@ class _ReadingTapZonesState extends State<ReadingTapZones>
       container: true,
       explicitChildNodes: true,
       label: '阅读区域',
-      hint: '点击左侧向前翻页，右侧向后翻页',
+      hint: widget.onCenterTap == null
+          ? '点击左侧向前翻页，右侧向后翻页'
+          : '点击中央切换阅读菜单，左侧向前翻页，右侧向后翻页',
       onDecrease: () => widget.onTurn(-1),
       onIncrease: () => widget.onTurn(1),
       child: Listener(

@@ -5,8 +5,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:unr/data/library.dart';
 import 'package:unr/domain/models.dart';
-import 'package:unr/sources/sfacg_api.dart';
-import 'package:unr/sources/sfacg_source.dart';
+import 'package:unr/sources/sfacg/sfacg_api.dart';
+import 'package:unr/sources/sfacg/sfacg_source.dart';
 import 'package:unr/ui/settings.dart';
 import 'package:unr/ui/paged_chapter.dart';
 import 'package:unr/ui/reader.dart';
@@ -109,6 +109,8 @@ void main() {
         ),
       ),
     );
+    await tester.tap(find.byKey(const ValueKey('settings-reading-entry')));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('翻页阅读'));
     await tester.pump();
     expect(library.readingMode, ReadingMode.paged);
@@ -158,12 +160,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.drag(find.byType(PageView), const Offset(-300, 0));
     await tester.pumpAndSettle();
-    int currentPage() => int.parse(
-      tester
-          .widget<Text>(find.textContaining(RegExp(r'^第 \d+ / \d+ 页$')))
-          .data!
-          .split(' ')[1],
-    );
+    int currentPage() => readingPager(tester).page + 1;
     final beforeKeyboard = currentPage();
     await tester.sendKeyEvent(LogicalKeyboardKey.pageDown);
     await tester.pumpAndSettle();
@@ -171,6 +168,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 700));
     final offset = library.pageOffsets[book.key]!;
     expect(offset, greaterThan(0));
+    await showReadingControls(tester);
     await tester.tap(find.byTooltip('阅读设置'));
     await tester.pumpAndSettle();
     final larger = tester.widget<Slider>(
@@ -184,6 +182,7 @@ void main() {
     expect(tester.takeException(), isNull);
     await tapReadingSide(tester, 1);
     await tester.pump(const Duration(milliseconds: 50));
+    await showReadingControls(tester);
     await tester.tap(find.byTooltip('阅读设置'));
     await tester.pumpAndSettle();
     final smaller = tester.widget<Slider>(

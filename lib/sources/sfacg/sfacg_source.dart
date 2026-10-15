@@ -1,19 +1,23 @@
 import 'dart:convert';
 import 'dart:async';
+
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:html/dom.dart';
 import 'package:html/parser.dart' as html;
-import '../domain/models.dart';
-import 'novel_source.dart';
+
+import '../../domain/models.dart';
+import '../novel_source.dart';
+import '../bookshelf_source.dart';
 import 'sfacg_api.dart';
 import 'sfacg_markup.dart';
-import 'comment_source.dart';
+import '../comment_source.dart';
 
-export 'comment_source.dart' show CommentSort;
+export '../comment_source.dart' show CommentSort;
 
-class SfacgSource extends CommentSource implements NovelSource {
+class SfacgSource extends CommentSource
+    implements SearchableNovelSource, BookshelfSource {
   SfacgSource(this.api, {Map<String, String>? cipher}) : cipher = cipher ?? {};
   final SfacgApi api;
   final Map<String, String> cipher;
@@ -29,15 +33,55 @@ class SfacgSource extends CommentSource implements NovelSource {
   @override
   String get name => '菠萝包轻小说';
   @override
+  Future<List<RemoteBookshelf>> getShelves() async {
+    if (!hasSession) throw const SourceException('请先在“我的 → 账号设置”登录菠萝包轻小说');
+    if (api.websiteSession) {
+      throw const SourceException('菠萝包书架导入需要 App 会话，请在账号设置使用账号密码登录或导入 App 会话');
+    }
+    final data = await api.get('user/Pockets', query: {'expand': 'novels'});
+    if (data is! List) throw const SourceException('菠萝包书架数据格式已变化');
+    final result = <RemoteBookshelf>[];
+    for (final pocket in data.whereType<Map>()) {
+      if ('${pocket['typeId']}' != '2') continue;
+      final id = '${pocket['pocketId']}';
+      final novels = pocket['expand'] is Map
+          ? pocket['expand']['novels']
+          : null;
+      if (!RegExp(r'^[1-9]\d*$').hasMatch(id) || novels is! List) {
+        throw const SourceException('菠萝包书架未返回完整作品列表，请重试');
+      }
+      final ids = <String>{};
+      for (final novel in novels) {
+        final nid = novel is Map ? '${novel['novelId']}' : '$novel';
+        if (!RegExp(r'^[1-9]\d{0,9}$').hasMatch(nid)) {
+          throw const SourceException('菠萝包书架包含无效作品编号');
+        }
+        ids.add(nid);
+      }
+      result.add(
+        RemoteBookshelf(
+          id: id,
+          name: '${pocket['name'] ?? '默认书架'}',
+          bookIds: ids.toList(),
+        ),
+      );
+    }
+    return result;
+  }
+
+  @override
+  Future<List<String>> getShelfBookIds(RemoteBookshelf shelf) async =>
+      shelf.bookIds ?? (throw const SourceException('请重新选择菠萝包书架'));
+  @override
   bool get hasSession => api.hasSession;
   @override
-  CommentCapabilities get commentCapabilities => const CommentCapabilities(
+  CommentCapabilities get commentCapabilities => CommentCapabilities(
     counts: true,
-    post: true,
+    post: !api.websiteSession,
     replies: true,
-    reply: true,
-    replyToReply: true,
-    likes: true,
+    reply: !api.websiteSession,
+    replyToReply: !api.websiteSession,
+    likes: !api.websiteSession,
     sorts: {CommentSort.hot, CommentSort.latest},
   );
   @override
@@ -80,6 +124,7 @@ class SfacgSource extends CommentSource implements NovelSource {
     throw const SourceException('请输入小说 ID 或菠萝包作品链接');
   }
 
+  @override
   Future<List<Book>> search(String keyword, {int page = 0}) async {
     if (keyword.trim().isEmpty) return [];
     final data = await api.get(
@@ -93,6 +138,8 @@ class SfacgSource extends CommentSource implements NovelSource {
             title: j['novelName'] ?? '',
             author: j['authorName'] ?? '',
             cover: j['novelCover'] ?? '',
+            favoriteCount: Book.parseFavoriteCount(j['markCount']),
+            wordCount: Book.parseWordCount(j['charCount']),
             updatedAt: _updateTime(j['lastUpdateTime']),
             chapters: [],
           ),
@@ -128,6 +175,7 @@ class SfacgSource extends CommentSource implements NovelSource {
             title: c['title'] ?? cid,
             volume: '${v['title'] ?? '正文'}',
             vip: vip,
+            wordCount: Book.parseWordCount(c['charCount']),
             url: vip
                 ? 'https://book.sfacg.com/vip/c/$cid/'
                 : 'https://book.sfacg.com/Novel/$id/${v['volumeId']}/$cid/',
@@ -142,6 +190,7 @@ class SfacgSource extends CommentSource implements NovelSource {
       author: info['authorName'] ?? '',
       cover: info['novelCover'] ?? '',
       description: info['expand']?['intro'] ?? '',
+      wordCount: Book.parseWordCount(info['charCount']),
       updatedAt:
           _updateTime(dirs['lastUpdateTime']) ??
           _updateTime(info['lastUpdateTime']),
@@ -160,22 +209,17 @@ class SfacgSource extends CommentSource implements NovelSource {
 
   @override
   Future<ChapterContent> readChapter(Book book, Chapter chapter) async {
-    if (!chapter.vip) {
-      final response = await api.client
-          .get(
-            Uri.parse(chapter.url),
-            headers: {
-              'User-Agent': 'Mozilla/5.0',
-              'Referer': 'https://book.sfacg.com/',
-            },
-          )
-          .timeout(const Duration(seconds: 25));
-      if (response.statusCode != 200) {
-        throw SourceException('官网章节暂时无法访问（HTTP ${response.statusCode}）');
-      }
-      return parsePublicChapter(utf8.decode(response.bodyBytes));
+    // All chapter reads use the signed App API, including anonymous free reads.
+    // A website-only session cannot grant authenticated App reading access.
+    if (chapter.vip && (!api.hasSession || api.websiteSession)) {
+      throw const SourceException(
+        '此章节需要 App 会话，请在“我的 → 账号设置”使用账号密码登录或导入 App 会话',
+      );
     }
-    if (!api.hasSession) throw const SourceException('此章节需要在“我的 → 账号设置”中登录菠萝包');
+    return _readAppChapter(chapter);
+  }
+
+  Future<ChapterContent> _readAppChapter(Chapter chapter) async {
     final data =
         await api.get(
               'Chaps/${chapter.id}',
@@ -185,6 +229,8 @@ class SfacgSource extends CommentSource implements NovelSource {
     final raw = '${data['content'] ?? ''}${data['expand']?['content'] ?? ''}';
     if (raw.trim().isEmpty) throw const SourceException('未取得正文，请检查已有章节阅读权限');
     if (cipher.length != 3751) throw const SourceException('菠萝包正文字符表不完整');
+    // isContentEncrypted describes a different encryption layer. The verified
+    // free-chapter response still substitutes Han characters when it is false.
     return parseAppContent(decode(raw));
   }
 

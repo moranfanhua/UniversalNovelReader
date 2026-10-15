@@ -1,14 +1,16 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:unr/data/library.dart';
 import 'package:unr/data/reader_fonts.dart';
 import 'package:unr/domain/models.dart';
-import 'package:unr/sources/sfacg_api.dart';
-import 'package:unr/sources/sfacg_source.dart';
+import 'package:unr/sources/sfacg/sfacg_api.dart';
+import 'package:unr/sources/sfacg/sfacg_source.dart';
 import 'package:unr/ui/paged_chapter.dart';
 import 'package:unr/ui/reader.dart';
 import 'package:unr/ui/reading_settings.dart';
+import 'helpers/reading_taps.dart';
 
 class FakeFonts extends ReaderFonts {
   FakeFonts() : super(Directory.systemTemp);
@@ -44,6 +46,42 @@ class PreferencesLibrary extends Library {
 }
 
 void main() {
+  test('显示段评默认开启，旧书库兼容，关闭后持久化并可恢复默认', () async {
+    final root = await Directory.systemTemp.createTemp(
+      'unr-comment-preference-',
+    );
+    addTearDown(() => root.delete(recursive: true));
+    final source = SfacgSource(SfacgApi());
+    addTearDown(source.api.close);
+    Future<Library> open() async {
+      final library = await Library.open(source, directory: root);
+      addTearDown(library.dispose);
+      return library;
+    }
+
+    expect((await open()).showParagraphComments, isTrue);
+    await File('${root.path}/index.json').writeAsString(
+      jsonEncode({
+        'books': [],
+        'fontSize': 26,
+        'progress': {
+          'sfacg:1': [2, 3],
+        },
+      }),
+    );
+    final migrated = await open();
+    expect(migrated.showParagraphComments, isTrue);
+    migrated.showParagraphComments = false;
+    await migrated.save();
+    final restored = await open();
+    expect(restored.showParagraphComments, isFalse);
+    expect(restored.fontSize, 26);
+    expect(restored.progress['sfacg:1'], [2, 3]);
+    await restored.resetReadingPreferences();
+    expect((await open()).showParagraphComments, isTrue);
+    expect(restored.progress['sfacg:1'], [2, 3]);
+  });
+
   testWidgets('字体下载选项、四个偏好滑块和恢复默认设置可用', (tester) async {
     final library = PreferencesLibrary();
     await tester.pumpWidget(
@@ -53,6 +91,11 @@ void main() {
         ),
       ),
     );
+    final comments = find.byKey(const ValueKey('reading-paragraph-comments'));
+    expect(tester.widget<SwitchListTile>(comments).value, isTrue);
+    await tester.tap(comments);
+    await tester.pumpAndSettle();
+    expect(library.showParagraphComments, isFalse);
     await tester.tap(find.byKey(const ValueKey('reading-font')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Noto Sans SC · 黑体').last);
@@ -87,6 +130,7 @@ void main() {
     await tester.tap(find.text('恢复默认阅读设置'));
     await tester.pumpAndSettle();
     expect(library.readingFontId, '');
+    expect(library.showParagraphComments, isTrue);
     expect(
       [
         library.fontSize,
@@ -125,6 +169,7 @@ void main() {
       const Offset(0, -800),
     );
     await tester.pumpAndSettle();
+    await showReadingControls(tester);
     await tester.tap(find.byTooltip('阅读设置'));
     await tester.pumpAndSettle();
     final saved = library.progress[book.key]!.last;

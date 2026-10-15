@@ -3,27 +3,61 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'data/library.dart';
-import 'data/session.dart';
-import 'sources/sfacg_source.dart';
+import 'data/app_log.dart';
+import 'data/error_logging.dart';
+import 'sources/sfacg/sfacg_session.dart';
+import 'sources/sfacg/sfacg_source.dart';
+import 'sources/fanqie/fanqie_source.dart';
+import 'sources/fanqie/fanqie_session.dart';
 import 'ui/home.dart';
+import 'ui/logs.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  final log = AppLog.instance;
+  installErrorLogging(log);
+  await log.initialize();
+  log.record(LogLevel.info, 'app.starting');
   try {
     final cipher = Map<String, String>.from(
       jsonDecode(await rootBundle.loadString('assets/sfacg_cipher.json')),
     );
     final api = await SfacgSession.open();
-    final library = await Library.open(SfacgSource(api, cipher: cipher));
+    final fanqieCipher = Map<String, String>.from(
+      jsonDecode(await rootBundle.loadString('assets/fanqie_cipher.json')),
+    );
+    final fanqieApi = await FanqieSession.open();
+    final library = await Library.open(
+      SfacgSource(api, cipher: cipher),
+      novelSources: [FanqieSource(fanqieApi, cipher: fanqieCipher)],
+    );
+    log.record(LogLevel.info, 'app.started');
     runApp(UnrApp(library: library));
-  } catch (e) {
+  } catch (e, stack) {
+    log.record(LogLevel.error, 'app.start_failed', error: e, stackTrace: stack);
     runApp(
       MaterialApp(
         home: Scaffold(
+          appBar: AppBar(title: const Text('启动失败')),
           body: Center(
             child: Padding(
               padding: const EdgeInsets.all(32),
-              child: SelectableText('启动失败，现有书库未被修改。\n$e'),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SelectableText('启动失败，现有书库未被修改。\n$e'),
+                  const SizedBox(height: 16),
+                  Builder(
+                    builder: (context) => FilledButton(
+                      onPressed: () => Navigator.push<void>(
+                        context,
+                        MaterialPageRoute(builder: (_) => const LogsPage()),
+                      ),
+                      child: const Text('查看或导出日志'),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),

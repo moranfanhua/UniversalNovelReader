@@ -7,8 +7,10 @@ import 'package:http/testing.dart';
 import 'package:unr/data/library.dart';
 import 'package:unr/domain/models.dart';
 import 'package:unr/main.dart';
-import 'package:unr/sources/sfacg_api.dart';
-import 'package:unr/sources/sfacg_source.dart';
+import 'package:unr/sources/sfacg/sfacg_api.dart';
+import 'package:unr/sources/sfacg/sfacg_source.dart';
+import 'package:unr/ui/reader.dart';
+import 'helpers/reading_taps.dart';
 
 Book sample(
   String id,
@@ -34,9 +36,71 @@ class ShelfMemoryLibrary extends Library {
 
   @override
   Future<Map<String, ChapterContent>> cachedContents(Book book) async => {};
+  @override
+  Future<ChapterContent> read(Book book, Chapter chapter) async =>
+      const ChapterContent([Paragraph('测试正文')]);
 }
 
 void main() {
+  test('中文书名以完整无声调拼音参与字典序，混合英文忽略大小写且同音稳定', () async {
+    final library = ShelfMemoryLibrary(DateTime.now);
+    addTearDown(library.dispose);
+    addTearDown(library.source.api.close);
+    library.books.addAll([
+      sample('z', 'Zulu'),
+      sample('guo', '国王'),
+      sample('gui', '诡秘'),
+      sample('guima', 'GuiMa'),
+      sample('latin-gui', 'guIMI'),
+      sample('a', '  ALPHA '),
+    ]);
+    await library.setShelfSort(ShelfSort.name);
+    expect(library.sortedBooks.map((book) => book.id), [
+      'a',
+      'guima',
+      'gui',
+      'latin-gui',
+      'guo',
+      'z',
+    ]);
+    // A refreshed title must use a new key, without changing the stored title.
+    await library.add(sample('gui', '阿尔法'));
+    expect(library.sortedBooks.map((book) => book.id), [
+      'gui',
+      'a',
+      'guima',
+      'latin-gui',
+      'guo',
+      'z',
+    ]);
+    expect(library.books.firstWhere((book) => book.id == 'gui').title, '阿尔法');
+  });
+  test('多音字按词组转换，中文英文混排保留数字标点和特殊字符', () async {
+    final library = ShelfMemoryLibrary(DateTime.now);
+    addTearDown(library.dispose);
+    addTearDown(library.source.api.close);
+    library.books.addAll([
+      sample('chongqing', '重庆'),
+      sample('chengdu', '成都'),
+      sample('chp', 'CHP'),
+      sample('second', '诡秘2'),
+      sample('tenth', '诡秘10'),
+      sample('punctuation', '诡秘!'),
+      sample('unknown', '诡秘\uE000'),
+      sample('emoji', '诡秘📚'),
+    ]);
+    await library.setShelfSort(ShelfSort.name);
+    expect(library.sortedBooks.map((book) => book.id), [
+      'chengdu',
+      'chongqing',
+      'chp',
+      'punctuation',
+      'tenth',
+      'second',
+      'emoji',
+      'unknown',
+    ]);
+  });
   test('缺失的更新时间不冒充当前时间，同名作品保持稳定顺序', () async {
     final library = ShelfMemoryLibrary(() => DateTime.utc(2026, 10, 13));
     final known = sample('known', '同名', updatedAt: DateTime.utc(2026, 10, 12));
@@ -188,9 +252,13 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('软件设置'));
       await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('settings-shelf-entry')));
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('shelf-sort')));
       await tester.pumpAndSettle();
       await tester.tap(find.text(label).last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(BackButton));
       await tester.pumpAndSettle();
       await tester.tap(find.byType(BackButton));
       await tester.pumpAndSettle();
@@ -207,8 +275,9 @@ void main() {
     await tester.tap(find.text('A').last);
     await tester.pumpAndSettle();
     expect(library.lastActiveTimes['sfacg:a'], time.millisecondsSinceEpoch);
-    expect(find.text('作品详情'), findsOneWidget);
-    await tester.tap(find.byType(BackButton));
+    expect(find.byType(ReaderPage), findsOneWidget);
+    await showReadingControls(tester);
+    await tester.tap(find.byType(BackButton).hitTestable());
     await tester.pumpAndSettle();
     await choose('按上次活跃时间');
     expect(titles(), ['A', 'C', 'B']);

@@ -1,11 +1,12 @@
 import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:unr/domain/models.dart';
-import 'package:unr/sources/sfacg_api.dart';
-import 'package:unr/sources/sfacg_signature.dart';
-import 'package:unr/sources/sfacg_source.dart';
+import 'package:unr/sources/sfacg/sfacg_api.dart';
+import 'package:unr/sources/sfacg/sfacg_signature.dart';
+import 'package:unr/sources/sfacg/sfacg_source.dart';
 
 http.Response ok(dynamic data) => http.Response(
   jsonEncode({
@@ -17,6 +18,48 @@ http.Response ok(dynamic data) => http.Response(
 );
 
 void main() {
+  test('作品与目录字数保留在本地书库，旧书无字数仍可恢复', () async {
+    final api = SfacgApi(
+      client: MockClient((request) async {
+        return request.url.path.endsWith('/dirs')
+            ? ok({
+                'volumeList': [
+                  {
+                    'volumeId': 1,
+                    'chapterList': [
+                      {'chapId': 10, 'title': '第一章', 'charCount': '2500'},
+                    ],
+                  },
+                ],
+              })
+            : ok({'novelName': '字数测试', 'charCount': 100000});
+      }),
+    );
+    addTearDown(api.close);
+    final book = await SfacgSource(api).getBook('123');
+    final restored = Book.fromJson(book.toJson());
+    expect(restored.wordCount, 100000);
+    expect(restored.chapters.single.wordCount, 2500);
+    final legacy = book.toJson()..remove('wordCount');
+    expect(Book.fromJson(legacy).wordCount, isNull);
+  });
+  test('搜索保留平台收藏数，兼容字符串和缺失计数', () async {
+    final api = SfacgApi(
+      client: MockClient((request) async {
+        expect(request.url.queryParameters['q'], '测试');
+        return ok({
+          'novels': [
+            {'novelId': 1, 'novelName': '测试', 'markCount': 10390},
+            {'novelId': 2, 'novelName': '测试二', 'markCount': '200'},
+            {'novelId': 3, 'novelName': '测试三'},
+          ],
+        });
+      }),
+    );
+    addTearDown(api.close);
+    final books = await SfacgSource(api).search(' 测试 ');
+    expect(books.map((book) => book.favoriteCount), [10390, 200, null]);
+  });
   test('头像读取用户展开字段，兼容评论展开字段', () {
     final parsed = SfacgSource.parseComment({
       'tsukkomiId': 1,
@@ -151,6 +194,60 @@ void main() {
     expect(api.cookies['session_APP'], 'new-session');
     expect(saved, 1);
     api.close();
+  });
+
+  test('登录拒绝匿名校验，失败不覆盖已有会话', () async {
+    final api = SfacgApi(
+      client: MockClient((request) async {
+        if (request.url.path == '/sessions') {
+          expect(jsonDecode(request.body), {
+            'username': 'reader',
+            'password': 'test-password',
+            'shuMeiId': '',
+          });
+          return http.Response(
+            jsonEncode({
+              'status': {'httpCode': 200},
+              'data': {},
+            }),
+            200,
+            headers: {
+              'set-cookie':
+                  '.SFCommunity=new; Path=/, session_APP=new-app; Path=/',
+            },
+          );
+        }
+        return ok({'accountId': 0, 'userId': 42});
+      }),
+    )..setCookie('.SFCommunity=old; session_APP=old-app');
+    addTearDown(api.close);
+    api.onSessionChanged = () async => fail('未校验的会话不得保存');
+    await expectLater(
+      api.login('reader', 'test-password'),
+      throwsA(isA<SourceException>()),
+    );
+    expect(api.cookies['session_APP'], 'old-app');
+  });
+
+  test('登录服务错误不自动重发密码请求', () async {
+    var attempts = 0;
+    final api = SfacgApi(
+      client: MockClient((request) async {
+        attempts++;
+        return http.Response(
+          jsonEncode({
+            'status': {'httpCode': 503},
+          }),
+          503,
+        );
+      }),
+    );
+    addTearDown(api.close);
+    await expectLater(
+      api.login('reader', 'test-password'),
+      throwsA(isA<SourceException>()),
+    );
+    expect(attempts, 1);
   });
 
   test('登录 401 保留错误阶段与错误码，同时隐藏账号密码', () async {
@@ -388,6 +485,186 @@ void main() {
     );
     expect(result.paragraphs.first.text, '啊😀');
     api.close();
+  });
+  test('已登录免费章节走 App 接口，false 加密标记仍还原字符且保留段落编号', () async {
+    final cipher = <String, String>{
+      for (var i = 0; i < 3751; i++) '$i': '$i',
+      '宦': '啊',
+    }..remove('0');
+    final api = SfacgApi(
+      client: MockClient((request) async {
+        expect(request.url.host, 'api.sfacg.com');
+        expect(request.url.path, '/Chaps/8016101');
+        expect(request.url.queryParameters['autoOrder'], 'false');
+        expect(request.url.queryParameters['expand'], 'content,expand.content');
+        expect(request.headers['User-Agent'], contains('boluobao/5.2.16'));
+        expect(
+          request.headers['sfsecurity'],
+          contains('devicetoken=${SfacgApi.compatibilityDevice}'),
+        );
+        return ok({
+          'expand': {'content': '宦\n\n第二段', 'isContentEncrypted': false},
+        });
+      }),
+    )..setCookie('.SFCommunity=synthetic; session_APP=synthetic');
+    addTearDown(api.close);
+    final content = await SfacgSource(api, cipher: cipher).readChapter(
+      const Book(id: '669015', title: '', author: '', chapters: []),
+      const Chapter(
+        id: '8016101',
+        title: '',
+        url: 'https://book.sfacg.com/unavailable/',
+      ),
+    );
+    expect(content.paragraphs.map((p) => p.text), ['啊', '第二段']);
+    expect(content.paragraphs.map((p) => p.remoteIndex), [1, 3]);
+  });
+  for (final website in [false, true]) {
+    test('${website ? '仅官网会话' : '未登录'}免费章节使用匿名 App 接口，不回退网页', () async {
+      var requests = 0;
+      final api = SfacgApi(
+        client: MockClient((request) async {
+          requests++;
+          expect(request.url.host, 'api.sfacg.com');
+          expect(request.url.path, '/Chaps/123');
+          expect(request.url.queryParameters['autoOrder'], 'false');
+          expect(request.headers.containsKey('Cookie'), isFalse);
+          return ok({'content': '免费正文'});
+        }),
+      );
+      addTearDown(api.close);
+      if (website) api.setCookie('.SFCommunity=website', website: true);
+      final source = SfacgSource(
+        api,
+        cipher: {for (var i = 0; i < 3751; i++) '$i': '$i'},
+      );
+      final content = await source.readChapter(
+        const Book(id: '1', title: '', author: '', chapters: []),
+        const Chapter(
+          id: '123',
+          title: '',
+          url: 'https://book.sfacg.com/unavailable/',
+        ),
+      );
+      expect(content.paragraphs.single.text, '免费正文');
+      expect(requests, 1);
+      if (website) expect(api.cookies['.SFCommunity'], 'website');
+    });
+  }
+  test('导入 App 会话校验沿用已保存的请求配置', () async {
+    const device = 'AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE';
+    const agent = 'boluobao/5.2.84(android;36)/OPPO/device/OPPO';
+    final api = SfacgApi(
+      device: device,
+      appUserAgent: agent,
+      client: MockClient((request) async {
+        expect(request.url.path, '/user');
+        expect(request.headers['User-Agent'], agent);
+        expect(request.headers['sfsecurity'], contains('devicetoken=$device'));
+        return ok({'accountId': 1});
+      }),
+    );
+    addTearDown(api.close);
+    await api.importCookie('.SFCommunity=synthetic; session_APP=synthetic');
+    expect(api.hasSession, isTrue);
+    expect(api.appUserAgent, agent);
+  });
+  test('VIP 展开正文和免费正文使用同一签名接口，保留会话且不购买', () async {
+    var requests = 0;
+    final cipher = <String, String>{
+      for (var i = 0; i < 3751; i++) '$i': '$i',
+      '宦': '啊',
+    }..remove('0');
+    final api = SfacgApi(
+      client: MockClient((request) async {
+        requests++;
+        expect(request.method, 'GET');
+        expect(request.url.path, '/Chaps/7940328');
+        expect(request.url.queryParameters['autoOrder'], 'false');
+        expect(
+          request.headers['Cookie'],
+          '.SFCommunity=synthetic; session_APP=synthetic',
+        );
+        return ok({
+          'chapOrder': true,
+          'isVip': true,
+          'expand': {
+            'content': '宦\n[img=https://rss.sfacg.com/宦.jpg]\n末段',
+            'isContentEncrypted': false,
+          },
+        });
+      }),
+    )..setCookie('.SFCommunity=synthetic; session_APP=synthetic');
+    addTearDown(api.close);
+    final content = await SfacgSource(api, cipher: cipher).readChapter(
+      const Book(id: '657818', title: '', author: '', chapters: []),
+      const Chapter(id: '7940328', title: '', vip: true),
+    );
+    expect(content.paragraphs.map((p) => p.image ?? p.text), [
+      '啊',
+      'https://rss.sfacg.com/宦.jpg',
+      '末段',
+    ]);
+    expect(api.hasSession, isTrue);
+    expect(requests, 1);
+  });
+  test('正文 507 表示请求配置被拒绝，提示不误导为需要购买或反复登录', () async {
+    final api = SfacgApi(
+      client: MockClient(
+        (_) async => http.Response(
+          jsonEncode({
+            'status': {'httpCode': 401, 'errorCode': 507, 'msg': '没有访问接口的权限'},
+            'data': null,
+          }),
+          401,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        ),
+      ),
+    )..setCookie('.SFCommunity=synthetic; session_APP=synthetic');
+    addTearDown(api.close);
+    await expectLater(
+      api.get('Chaps/7940328'),
+      throwsA(
+        isA<SourceException>()
+            .having((e) => e.code, 'HTTP status', 401)
+            .having((e) => e.errorCode, 'API error', 507)
+            .having((e) => e.message, '提示', contains('App 请求配置')),
+      ),
+    );
+    expect(api.hasSession, isTrue);
+  });
+  test('未订阅 VIP 的 403 保留阅读权限提示且不自动购买', () async {
+    var requests = 0;
+    final api = SfacgApi(
+      client: MockClient((request) async {
+        requests++;
+        expect(request.method, 'GET');
+        expect(request.url.queryParameters['autoOrder'], 'false');
+        return http.Response(
+          jsonEncode({
+            'status': {'httpCode': 403, 'errorCode': 402, 'msg': '尚未订阅本章'},
+            'data': null,
+          }),
+          403,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        );
+      }),
+    )..setCookie('.SFCommunity=synthetic; session_APP=synthetic');
+    addTearDown(api.close);
+    await expectLater(
+      SfacgSource(api).readChapter(
+        const Book(id: '1', title: '', author: '', chapters: []),
+        const Chapter(id: '2', title: '', vip: true),
+      ),
+      throwsA(
+        isA<SourceException>()
+            .having((e) => e.code, 'HTTP status', 403)
+            .having((e) => e.errorCode, 'API error', 402)
+            .having((e) => e.message, '提示', contains('尚未订阅本章')),
+      ),
+    );
+    expect(requests, 1);
+    expect(api.hasSession, isTrue);
   });
   test('图片 URL 不经过汉字字符替换', () {
     final source = SfacgSource(SfacgApi(), cipher: {'宦': '啊'});

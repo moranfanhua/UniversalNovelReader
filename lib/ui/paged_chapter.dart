@@ -6,6 +6,7 @@ import 'text_pagination.dart';
 import 'reading_layout.dart';
 import 'boundary_scroll.dart';
 import 'reading_tap_zones.dart';
+import 'chapter_page_layout.dart';
 
 class ChapterPreview {
   const ChapterPreview({
@@ -51,6 +52,8 @@ class PagedChapter extends StatefulWidget {
     this.onPreviewRows,
     this.skipFirstPage = false,
     this.onTapTurn,
+    this.onCenterTap,
+    this.showPageIndicator = true,
   });
   final ChapterContent content;
   final String title;
@@ -66,6 +69,8 @@ class PagedChapter extends StatefulWidget {
   final ValueChanged<Set<int>>? onPreviewRows;
   final bool skipFirstPage;
   final ValueChanged<int>? onTapTurn;
+  final VoidCallback? onCenterTap;
+  final bool showPageIndicator;
   final void Function(int paragraph, int offset, Set<int> visibleRows)
   onPosition;
   final Widget Function(String url) imageBuilder;
@@ -187,56 +192,26 @@ class PagedChapterState extends State<PagedChapter> {
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
-      columns = ReadingLayout.columns(constraints.maxWidth);
-      final canvasWidth = ReadingLayout.canvasWidth(
-        constraints.maxWidth,
-        paged: true,
-      );
-      final gutter = columns == 2 ? ReadingLayout.gutter : 0.0;
-      final width =
-          ((canvasWidth - widget.horizontalMargin * 2 - gutter) / columns)
-              .clamp(1.0, double.infinity);
-      final style = Theme.of(context).textTheme.bodyLarge!.copyWith(
+      final layout = ChapterPageLayout(
+        context,
+        constraints.biggest,
         fontSize: widget.fontSize,
         fontFamily: widget.fontFamily,
-        height: widget.lineHeight,
+        horizontalMargin: widget.horizontalMargin,
+        verticalMargin: widget.verticalMargin,
+        lineHeight: widget.lineHeight,
+        comments: widget.comments,
+        footerHeight: widget.showPageIndicator ? 48 : 0,
       );
-      final headingStyle = Theme.of(context).textTheme.headlineSmall!;
-      final scaler = MediaQuery.textScalerOf(context);
-      final direction = Directionality.of(context);
-      final locale = Localizations.maybeLocaleOf(context);
-      final sample = TextPainter(
-        text: TextSpan(text: '国', style: style),
-        textScaler: scaler,
-        textDirection: direction,
-        locale: locale,
-      )..layout(maxWidth: width);
-      final minimum = sample.height + 18;
-      sample.dispose();
-      final verticalMargin = widget.verticalMargin.clamp(
-        0.0,
-        ((constraints.maxHeight - 48 - minimum) / 2).clamp(
-          0.0,
-          widget.verticalMargin,
-        ),
-      );
-      final height = (constraints.maxHeight - 48 - verticalMargin * 2).clamp(
-        1.0,
-        double.infinity,
-      );
-      final heading = TextPainter(
-        text: TextSpan(text: widget.title, style: headingStyle),
-        textScaler: scaler,
-        textDirection: direction,
-        maxLines: 2,
-        ellipsis: '…',
-        locale: locale,
-      )..layout(maxWidth: width);
-      final headingSpace = (heading.height + 24).clamp(
-        0.0,
-        (height - minimum).clamp(0.0, double.infinity),
-      );
-      heading.dispose();
+      columns = layout.columns;
+      final canvasWidth = layout.canvasWidth;
+      final gutter = columns == 2 ? ReadingLayout.gutter : 0.0;
+      final width = layout.width, height = layout.height;
+      final style = layout.style, headingStyle = layout.headingStyle;
+      final scaler = layout.scaler, direction = layout.direction;
+      final locale = layout.locale;
+      final minimum = layout.minimum, verticalMargin = layout.margin;
+      final headingSpace = layout.headingSpace(widget.title);
       final nextSignature = (
         widget.content,
         columns,
@@ -351,6 +326,7 @@ class PagedChapterState extends State<PagedChapter> {
           child: ReadingTapZones(
             revision: (signature, page, firstPage),
             onTurn: widget.onTapTurn ?? (delta) => turnPage(delta),
+            onCenterTap: widget.onCenterTap,
             child: Column(
               children: [
                 Expanded(
@@ -451,16 +427,17 @@ class PagedChapterState extends State<PagedChapter> {
                     ),
                   ),
                 ),
-                SizedBox(
-                  height: 48,
-                  child: Center(
-                    child: Text(
-                      columns == 2 && page + 1 < pages.length
-                          ? '第 ${page + 1}–${page + 2} / ${pages.length} 页'
-                          : '第 ${page + 1} / ${pages.length} 页${fillsRight && preview != null ? ' · 下一章第 1 页' : ''}',
+                if (widget.showPageIndicator)
+                  SizedBox(
+                    height: 48,
+                    child: Center(
+                      child: Text(
+                        columns == 2 && page + 1 < pages.length
+                            ? '第 ${page + 1}–${page + 2} / ${pages.length} 页'
+                            : '第 ${page + 1} / ${pages.length} 页${fillsRight && preview != null ? ' · 下一章第 1 页' : ''}',
+                      ),
                     ),
                   ),
-                ),
               ],
             ),
           ),

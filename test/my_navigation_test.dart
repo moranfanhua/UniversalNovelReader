@@ -5,8 +5,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/testing.dart';
 import 'package:unr/data/library.dart';
 import 'package:unr/main.dart';
-import 'package:unr/sources/sfacg_api.dart';
-import 'package:unr/sources/sfacg_source.dart';
+import 'package:unr/sources/sfacg/sfacg_api.dart';
+import 'package:unr/sources/sfacg/sfacg_source.dart';
 import 'package:unr/ui/account.dart';
 import 'package:unr/ui/settings.dart';
 
@@ -77,9 +77,16 @@ void main() {
     await tester.tap(find.text('菠萝包轻小说'));
     await tester.pumpAndSettle();
     expect(find.text('已保存登录会话'), findsOneWidget);
+    expect(find.text('选择登录方式'), findsOneWidget);
+    expect(find.text('账号密码登录'), findsOneWidget);
+    expect(find.text('退出登录'), findsOneWidget);
+    await tester.tap(find.text('账号密码登录'));
+    await tester.pumpAndSettle();
     expect(find.text('登录菠萝包'), findsOneWidget);
     expect(find.text('导入 App 会话'), findsOneWidget);
-    expect(find.text('退出登录'), findsOneWidget);
+    expect(find.text('打开官网登录'), findsNothing);
+    await tester.tap(find.byType(BackButton));
+    await tester.pumpAndSettle();
     await tester.tap(find.byType(BackButton));
     await tester.pumpAndSettle();
     expect(find.text('菠萝包轻小说'), findsOneWidget);
@@ -96,7 +103,7 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   }, variant: platforms);
 
-  testWidgets('软件设置保留原有偏好，编码开关立即更新且返回重开后保持', (tester) async {
+  testWidgets('软件设置按分类进入并逐级返回，偏好和编码选择保留', (tester) async {
     configureViewport(tester);
     final library = MyMemoryLibrary();
     addTearDown(library.dispose);
@@ -106,9 +113,22 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('软件设置'));
     await tester.pumpAndSettle();
-    expect(find.text('书架排序'), findsOneWidget);
-    expect(find.text('阅读偏好'), findsOneWidget);
+    expect(find.text('书架排序'), findsNothing);
+    expect(find.byType(TabBar), findsNothing);
+    expect(find.byType(TabBarView), findsNothing);
+    expect(
+      tester
+          .widgetList<ListTile>(find.byType(ListTile))
+          .map((tile) => (tile.title! as Text).data),
+      ['书架', '阅读', '搜索', '导入', '日志'],
+    );
+    expect(find.text('阅读方式'), findsNothing);
     expect(find.byType(NavigationBar), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('settings-reading-entry')));
+    await tester.pumpAndSettle();
+    expect(find.text('阅读设置'), findsOneWidget);
+    expect(find.text('阅读方式'), findsOneWidget);
+    expect(find.text('书架排序').hitTestable(), findsNothing);
     expect(
       find.byKey(const ValueKey('reading-volume-keys')),
       defaultTargetPlatform == TargetPlatform.android
@@ -118,18 +138,23 @@ void main() {
     await tester.tap(find.text('翻页阅读'));
     await tester.pumpAndSettle();
     expect(library.readingMode, ReadingMode.paged);
-
-    final settingsList = find.descendant(
-      of: find.byType(SettingsPage),
-      matching: find.byType(ListView),
-    );
-    final encoding = find.widgetWithText(SwitchListTile, '按 GBK 编码导入 TXT');
-    await tester.drag(settingsList, const Offset(0, -2000));
+    await tester.tap(find.byKey(const ValueKey('reading-paragraph-comments')));
     await tester.pumpAndSettle();
+    expect(library.showParagraphComments, isFalse);
+
+    await tester.tap(find.byType(BackButton));
+    await tester.pumpAndSettle();
+    expect(find.text('软件设置'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('settings-import-entry')));
+    await tester.pumpAndSettle();
+    expect(find.text('导入设置'), findsOneWidget);
+    final encoding = find.widgetWithText(SwitchListTile, '按 GBK 编码导入 TXT');
     expect(tester.widget<SwitchListTile>(encoding).value, isFalse);
     await tester.tap(encoding);
     await tester.pumpAndSettle();
     expect(tester.widget<SwitchListTile>(encoding).value, isTrue);
+    await tester.tap(find.byType(BackButton));
+    await tester.pumpAndSettle();
     await tester.tap(find.byType(BackButton));
     await tester.pumpAndSettle();
     await tester.tap(find.text('书库'));
@@ -139,12 +164,30 @@ void main() {
     await tester.tap(find.text('软件设置'));
     await tester.pumpAndSettle();
     expect(library.readingMode, ReadingMode.paged);
-    await tester.drag(settingsList, const Offset(0, -2000));
+    expect(library.showParagraphComments, isFalse);
+    await tester.tap(find.byKey(const ValueKey('settings-import-entry')));
     await tester.pumpAndSettle();
     expect(tester.widget<SwitchListTile>(encoding).value, isTrue);
     await tester.tap(encoding);
     await tester.pumpAndSettle();
     expect(tester.widget<SwitchListTile>(encoding).value, isFalse);
+    await tester.tap(find.byType(BackButton));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('settings-shelf-entry')));
+    await tester.pumpAndSettle();
+    expect(find.text('书架设置'), findsOneWidget);
+    expect(find.text('书架排序').hitTestable(), findsOneWidget);
+    expect(encoding.hitTestable(), findsNothing);
+    await tester.tap(find.byType(BackButton));
+    await tester.pumpAndSettle();
+    final logsEntry = find.byKey(const ValueKey('settings-logs-entry'));
+    await tester.ensureVisible(logsEntry);
+    await tester.tap(logsEntry);
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('导出日志'), findsOneWidget);
+    await tester.tap(find.byType(BackButton));
+    await tester.pumpAndSettle();
+    expect(find.text('软件设置'), findsOneWidget);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
   }, variant: platforms);

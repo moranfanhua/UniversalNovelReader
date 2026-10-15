@@ -33,6 +33,19 @@
 - [actions/checkout](https://github.com/actions/checkout)、[actions/setup-java](https://github.com/actions/setup-java)、[actions/upload-artifact](https://github.com/actions/upload-artifact)、[actions/download-artifact](https://github.com/actions/download-artifact)、[subosito/flutter-action](https://github.com/subosito/flutter-action) — MIT；构建与发布 CI 使用的工具。
 - [actions/github-script](https://github.com/actions/github-script) — MIT；分支来源校验使用的工具。
 - [SFacgExporter](https://github.com/moranfanhua/SFacgExporter) — AGPL-3.0；菠萝包签名、正文字符表与导出逻辑参考来源，原作者 moranfanhua。
+- [fanqienovel-downloader](https://github.com/ying-ck/fanqienovel-downloader) — AGPL-3.0；番茄官网正文字体字符表参考来源，原作者 ying-ck（qxqycb）。
+- [Pointy Castle](https://pub.dev/packages/pointycastle) — MIT；番茄接口签名与阅读密钥注册使用的 AES、SM3 实现。
+- [pinyin](https://pub.dev/packages/pinyin) — BSD-2-Clause；书名排序使用的汉字转拼音实现。
+- [Bugaoshan（不高山上）](https://github.com/moranfanhua/Bugaoshan) — AGPL-3.0；运行日志页的筛选、分级列表与堆栈折叠交互参考来源。
+- [MaaAssistantArknights](https://github.com/moranfanhua/MaaAssistantArknights) — AGPL-3.0；项目 `maa-issue-log-analysis` skill 的证据时间线、版本对照与诉求评估方法为 UNR issue 分析 skill 的参考来源。
+- [convert](https://pub.dev/packages/convert) — BSD-3-Clause；Pointy Castle 的传递依赖。
+- [fqapp](https://github.com/ch6vip/fqapp) — GPL-3.0；番茄签名、密钥注册与接口参数参考来源，原作者 ch6vip。
+- [NetBare-Android](https://github.com/MegatronKing/NetBare-Android/tree/df5b417ea663763932cabf1ef52f15b09ddc2e16) — 本地 VPN 与 HTTPS 拦截核心；源码头标注 GPL-3.0-or-later，上游仓库 LICENSE 为 MIT，均保留在 Android 模块中。
+- [Bouncy Castle](https://www.bouncycastle.org/licence.html) — MIT；本机抓包证书生成使用的 bcpkix、bcprov、bcutil。
+- [Guava](https://github.com/google/guava) — Apache-2.0；NetBare 的缓存与集合依赖，包含 failureaccess、listenablefuture。
+- [AndroidX Core](https://android.googlesource.com/platform/frameworks/support/)、[AndroidX Annotation](https://android.googlesource.com/platform/frameworks/support/) — Apache-2.0；VPN 前台服务与 AndroidX 适配。
+- [Error Prone annotations](https://github.com/google/error-prone)、[J2ObjC annotations](https://github.com/google/j2objc)、[JSpecify](https://github.com/jspecify/jspecify) — Apache-2.0；Guava 的传递依赖。
+- [JUnit 4](https://github.com/junit-team/junit4) — EPL-1.0；Android 会话过滤测试。[Hamcrest](https://github.com/hamcrest/JavaHamcrest) — BSD-3-Clause；JUnit 的测试依赖。
 
 # 声明
 

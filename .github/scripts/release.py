@@ -54,6 +54,51 @@ def output(values, env):
         print(json.dumps(values, ensure_ascii=False))
 
 
+def changelog(root, version):
+    """Read only the reviewed notes for this version from the tagged sources."""
+    validate_version(version)
+    file = root / "CHANGELOG.md"
+    if not file.is_file() or file.is_symlink():
+        raise ValueError("缺少已提交的 CHANGELOG.md；请先生成更新日志并提交到 dev，再合入 master 和打标签")
+    text = file.read_text(encoding="utf-8-sig")
+    visible = []
+    fence = None
+    for line in text.splitlines(keepends=True):
+        marker = re.match(r"^[ \t]*(`{3,}|~{3,})(.*?)[\r\n]*$", line)
+        hidden = fence is not None or marker is not None
+        if marker:
+            if fence is None:
+                fence = marker[1]
+            elif marker[1][0] == fence[0] and len(marker[1]) >= len(fence) and not marker[2].strip():
+                fence = None
+        visible.append(re.sub(r"[^\r\n]", " ", line) if hidden else line)
+    if fence is not None:
+        raise ValueError("CHANGELOG.md 存在未闭合的代码围栏")
+    markdown = "".join(visible)
+    # Level-two headings are exclusively release boundaries; detailed sections
+    # use level three so old release notes cannot leak into the new draft.
+    headings = list(re.finditer(r"^##[ \t]+([^\r\n]+?)[ \t]*\r?$", markdown, re.MULTILINE))
+    expected = f"v{version}"
+    if not headings or headings[0][1] != expected:
+        raise ValueError(f"CHANGELOG.md 的最新版本必须为 ## {expected}，与 pubspec.yaml 一致")
+    for heading in headings:
+        label = heading[1]
+        if not label.startswith("v"):
+            raise ValueError("CHANGELOG.md 的二级标题只能是版本，分类请使用三级标题")
+        validate_version(label[1:])
+    labels = [heading[1] for heading in headings]
+    if len(labels) != len(set(labels)):
+        raise ValueError("CHANGELOG.md 包含重复版本标题，请合并为同一版本的最终条目")
+    end = headings[1].start() if len(headings) > 1 else len(text)
+    notes = text[headings[0].start():end].strip()
+    body = markdown[headings[0].end():end]
+    if not re.search(r"^[ \t]*[-*][ \t]+\S", body, re.MULTILINE):
+        raise ValueError(f"{expected} 更新日志为空，至少需要一条经过审阅的有效变化")
+    if re.search(r"^[ \t]*[-*][ \t]+(?:TODO|TBD|待补充|待填写)(?:[ \t：:]|$)", body, re.MULTILINE | re.IGNORECASE):
+        raise ValueError(f"{expected} 更新日志仍有占位内容，请整理后提交 changelog commit")
+    return notes
+
+
 def signing(env):
     required = ("KEYSTORE_BASE64", "KEYSTORE_PASSWORD", "KEY_PASSWORD", "KEY_ALIAS")
     missing = [name for name in required if not env.get(name)]
@@ -249,18 +294,17 @@ def draft(root, env, api):
     existing = api.request("GET", f"{prefix}/releases/tags/{tag}")
     if existing is not None and not existing["draft"]:
         raise ValueError("该版本已经发布，不会覆盖附件；请增加版本号和构建号")
+    notes = changelog(root, version)
     files = finalize(root, version)
     if existing is None:
-        notes = api.request("POST", f"{prefix}/releases/generate-notes", {"tag_name": tag, "target_commitish": env["GITHUB_SHA"]})
         server = env.get("GITHUB_SERVER_URL", "https://github.com").rstrip("/")
         links = "\n".join(f"- [{file.name}]({server}/{repo}/releases/download/{tag}/{file.name})" for file in files)
         body = (
-            f"UNR {version}\n\n{links}\n\n"
+            f"{notes}\n\n---\n\n{links}\n\n"
             "Android 通常选择 arm64-v8a；不确定时下载 universal。Windows 解压完整 ZIP 后运行 unr.exe，勿单独移动 EXE。\n\n"
             "Windows 如果提示缺少 VCRUNTIME/MSVCP DLL，请安装[微软官方 Visual C++ x64 运行库](https://aka.ms/vc14/vc_redist.x64.exe)。\n\n"
             "Windows 未配置代码签名；系统可能提示未知发布者。\n\n"
             f"源码与构建流程：[{tag}]({server}/{repo}/tree/{tag})，项目使用 AGPL-3.0。\n\n"
-            f"{notes.get('body', '')}\n"
         )
         existing = api.request("POST", f"{prefix}/releases", {"tag_name": tag, "target_commitish": env["GITHUB_SHA"], "name": f"UNR {version}", "body": body, "draft": True, "prerelease": "-" in version})
     upload = existing["upload_url"].split("{", 1)[0]
@@ -282,6 +326,10 @@ def main():
     if command == "metadata":
         validate_source(root, env)
         output(metadata(root, env), env)
+    elif command == "changelog":
+        version = metadata(root, env)["version"]
+        changelog(root, version)
+        print(f"v{version} 更新日志校验通过；changelog commit 应随 dev 合入 master 后再打标签。")
     elif command == "signing":
         output(signing(env), env)
     elif command == "clean-signing":
@@ -292,7 +340,7 @@ def main():
         env = {**env, "GITHUB_SHA": validate_source(root, env)}
         draft(root, env, GitHub(env))
     else:
-        raise ValueError("使用 metadata / signing / clean-signing / windows / android / finalize / draft")
+        raise ValueError("使用 metadata / changelog / signing / clean-signing / windows / android / finalize / draft")
 
 
 if __name__ == "__main__":

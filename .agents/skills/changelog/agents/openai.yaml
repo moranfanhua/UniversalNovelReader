@@ -1,0 +1,4 @@
+interface:
+  display_name: "UNR 更新日志"
+  short_description: "整理 UNR 提交净变化，生成可审阅更新日志并衔接版本发布流程"
+  default_prompt: "使用 $changelog 整理当前 UNR 版本的更新日志，并准备 changelog commit。"

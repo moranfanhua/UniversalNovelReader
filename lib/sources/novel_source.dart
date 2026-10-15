@@ -6,3 +6,7 @@ abstract interface class NovelSource {
   Future<Book> getBook(String input);
   Future<ChapterContent> readChapter(Book book, Chapter chapter);
 }
+
+abstract interface class SearchableNovelSource implements NovelSource {
+  Future<List<Book>> search(String keyword, {int page = 0});
+}

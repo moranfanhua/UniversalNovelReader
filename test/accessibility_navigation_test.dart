@@ -6,8 +6,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:unr/data/library.dart';
 import 'package:unr/domain/models.dart';
 import 'package:unr/main.dart';
-import 'package:unr/sources/sfacg_api.dart';
-import 'package:unr/sources/sfacg_source.dart';
+import 'package:unr/sources/sfacg/sfacg_api.dart';
+import 'package:unr/sources/sfacg/sfacg_source.dart';
+import 'helpers/reading_taps.dart';
 
 class TreeRecorder {
   final nodes = <int, List<int>>{};
@@ -118,15 +119,15 @@ void main() {
       final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
       await mouse.addPointer(location: Offset.zero);
       for (var cycle = 0; cycle < 4; cycle++) {
-        await mouse.moveTo(tester.getCenter(find.byTooltip('导入 EPUB / TXT')));
+        await mouse.moveTo(tester.getCenter(find.byTooltip('导入')));
         await tester.pump(const Duration(milliseconds: 600));
         await mouse.moveTo(tester.getCenter(find.text('测试书').last));
         await tester.tap(find.text('测试书').last);
         await tester.pumpAndSettle();
-        await tester.tap(find.text('继续阅读'));
-        await tester.pumpAndSettle();
+        await showReadingControls(tester);
         await mouse.moveTo(tester.getCenter(find.byTooltip('阅读设置')));
         await tester.pump(const Duration(milliseconds: 600));
+        await showReadingControls(tester);
         await tester.tap(find.byTooltip('阅读设置'));
         await tester.pumpAndSettle();
         final slider = find
@@ -140,8 +141,6 @@ void main() {
         await tester.drag(slider, const Offset(20, 0));
         await tester.pumpAndSettle();
         await tester.tap(find.byTooltip('关闭阅读设置'));
-        await tester.pumpAndSettle();
-        await tester.tap(find.byType(BackButton).hitTestable());
         await tester.pumpAndSettle();
         await tester.tap(find.byType(BackButton).hitTestable());
         await tester.pumpAndSettle();

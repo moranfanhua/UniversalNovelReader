@@ -6,13 +6,14 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:unr/data/library.dart';
 import 'package:unr/domain/models.dart';
-import 'package:unr/sources/sfacg_api.dart';
-import 'package:unr/sources/sfacg_markup.dart';
-import 'package:unr/sources/sfacg_source.dart';
+import 'package:unr/sources/sfacg/sfacg_api.dart';
+import 'package:unr/sources/sfacg/sfacg_markup.dart';
+import 'package:unr/sources/sfacg/sfacg_source.dart';
 import 'package:unr/sources/comment_source.dart';
 import 'package:unr/ui/comment_content.dart';
 import 'package:unr/ui/comments_sheet.dart';
 import 'package:unr/ui/reader.dart';
+import 'helpers/reading_taps.dart';
 
 class CommentLibrary extends Library {
   CommentLibrary(super.root, super.source);
@@ -23,10 +24,85 @@ class CommentLibrary extends Library {
           Paragraph('第$i段正文内容。' * 3, remoteIndex: i),
       ]);
   @override
-  Future<void> remember(Book book, int chapter, int paragraph) async {}
+  Future<void> remember(Book book, int chapter, int paragraph) async {
+    progress[book.key] = [chapter, paragraph];
+  }
+
+  @override
+  Future<void> save() async => notifyListeners();
 }
 
 void main() {
+  for (final mode in ReadingMode.values) {
+    for (final width in [390.0, 1400.0]) {
+      testWidgets('显示段评开关控制入口和计数请求（${mode.name}，宽度$width）', (tester) async {
+        tester.view.physicalSize = Size(width, 900);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        var requests = 0;
+        final api = SfacgApi(
+          client: MockClient((request) async {
+            expect(request.method, 'HEAD');
+            requests++;
+            return http.Response('', 200, headers: {'x-total-count': '7'});
+          }),
+        );
+        addTearDown(api.close);
+        final library = CommentLibrary(Directory.systemTemp, SfacgSource(api))
+          ..readingMode = mode
+          ..showParagraphComments = false;
+        addTearDown(library.dispose);
+        const book = Book(
+          id: '1',
+          title: '小说',
+          author: '作者',
+          chapters: [Chapter(id: '1', title: '一')],
+        );
+        await tester.pumpWidget(
+          MaterialApp(
+            home: ReaderPage(library: library, book: book),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(find.byTooltip('阅读本段段评'), findsNothing);
+        expect(requests, 0);
+
+        Future<void> toggleComments() async {
+          await showReadingControls(tester);
+          await tester.tap(find.byTooltip('阅读设置'));
+          await tester.pumpAndSettle();
+          final saved = List<int>.of(library.progress[book.key]!);
+          await tester.tap(
+            find.byKey(const ValueKey('reading-paragraph-comments')),
+          );
+          await tester.pumpAndSettle();
+          await tester.tap(find.byTooltip('关闭阅读设置'));
+          await tester.pumpAndSettle();
+          expect(library.progress[book.key], saved);
+        }
+
+        await toggleComments();
+        expect(library.showParagraphComments, isTrue);
+        expect(find.byTooltip('阅读本段段评'), findsWidgets);
+        for (var i = 0; i < 5; i++) {
+          await tester.pump(const Duration(milliseconds: 200));
+        }
+        expect(requests, greaterThan(0));
+        await toggleComments();
+        expect(library.showParagraphComments, isFalse);
+        expect(find.byTooltip('阅读本段段评'), findsNothing);
+        final before = requests;
+        for (var i = 0; i < 5; i++) {
+          await tester.pump(const Duration(milliseconds: 200));
+        }
+        expect(requests, before);
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox.shrink());
+      });
+    }
+  }
+
   test('基础、静态和动态表情解析使用官方图片地址，未知标签保留', () {
     String? url(String text) =>
         SfacgMarkup.imageUrl(SfacgMarkup.tags.firstMatch(text)!);
@@ -147,7 +223,19 @@ void main() {
     }
     expect(find.text('7'), findsWidgets);
     expect(requested, isNotEmpty);
-    expect(requested.length, lessThan(12));
+    final viewport = tester.getRect(find.byType(SingleChildScrollView));
+    for (final row in requested) {
+      final bounds = tester.getRect(
+        find.byWidgetPredicate(
+          (widget) =>
+              widget is SelectableText &&
+              widget.data == '　　${'第$row段正文内容。' * 3}',
+        ),
+      );
+      expect(bounds.top, lessThan(viewport.bottom + 150));
+      expect(bounds.bottom, greaterThan(viewport.top - 150));
+    }
+    expect(requested.length, lessThan(40));
     expect(requested.toSet().length, requested.length);
     final before = requested.length;
     await tester.drag(

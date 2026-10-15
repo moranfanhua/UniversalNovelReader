@@ -1,10 +1,13 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import '../data/library.dart';
+import '../data/app_log.dart';
 import '../domain/models.dart';
 import '../formats/ebook.dart';
 import 'reader.dart';
 import 'home.dart';
+import 'chapter_directory.dart';
+import 'add_to_shelf_button.dart';
 
 class BookPage extends StatefulWidget {
   const BookPage({super.key, required this.library, required this.book});
@@ -82,7 +85,13 @@ class _BookPageState extends State<BookPage> {
           context,
         ).showSnackBar(const SnackBar(content: Text('导出完成')));
       }
-    } catch (e) {
+    } catch (e, stack) {
+      AppLog.instance.record(
+        LogLevel.error,
+        'export.failed',
+        error: e,
+        stackTrace: stack,
+      );
       if (mounted) setState(() => error = '$e');
     } finally {
       if (mounted) setState(() => busy = false);
@@ -95,15 +104,23 @@ class _BookPageState extends State<BookPage> {
       error = null;
     });
     try {
-      final next = await widget.library.source.getBook(book.id);
-      await widget.library.add(next);
+      final service = widget.library.sourceFor(book);
+      if (service == null) throw const SourceException('当前作品的书源不可用');
+      final next = await service.getBook(book.id);
+      await widget.library.updateBook(next);
       if (mounted) {
         setState(() {
           book = next;
           cached = widget.library.cachedContents(next);
         });
       }
-    } catch (e) {
+    } catch (e, stack) {
+      AppLog.instance.record(
+        LogLevel.error,
+        'book.refresh_failed',
+        error: e,
+        stackTrace: stack,
+      );
       if (mounted) setState(() => error = '$e');
     } finally {
       if (mounted) setState(() => busy = false);
@@ -115,7 +132,7 @@ class _BookPageState extends State<BookPage> {
     appBar: AppBar(
       title: const Text('作品详情'),
       actions: [
-        if (book.source == 'sfacg')
+        if (widget.library.sourceFor(book) != null)
           IconButton(
             tooltip: '刷新目录',
             onPressed: busy ? null : _refresh,
@@ -174,7 +191,7 @@ class _BookPageState extends State<BookPage> {
                                     Text(book.author),
                                     const SizedBox(height: 8),
                                     Text(
-                                      '${book.chapters.length} 章 · ${book.source == 'sfacg' ? '菠萝包轻小说' : '本地小说'}',
+                                      '${book.chapters.length} 章 · ${widget.library.sourceName(book)}',
                                     ),
                                   ],
                                 ),
@@ -207,9 +224,22 @@ class _BookPageState extends State<BookPage> {
                                         _refreshCached();
                                       },
                                 icon: const Icon(Icons.menu_book),
-                                label: const Text('继续阅读'),
+                                label: Text(
+                                  widget
+                                              .library
+                                              .progress[book.key]
+                                              ?.isNotEmpty ==
+                                          true
+                                      ? '继续阅读'
+                                      : '开始阅读',
+                                ),
                               ),
-                              if (book.source == 'sfacg')
+                              AddToShelfButton(
+                                library: widget.library,
+                                book: book,
+                                enabled: !busy,
+                              ),
+                              if (widget.library.sourceFor(book) != null)
                                 OutlinedButton.icon(
                                   onPressed: busy
                                       ? null
@@ -251,37 +281,28 @@ class _BookPageState extends State<BookPage> {
                       ),
                     ),
                   ),
-                  SliverList.builder(
-                    itemCount: book.chapters.length,
-                    itemBuilder: (context, i) {
-                      final c = book.chapters[i];
-                      return ListTile(
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 24,
-                        ),
-                        leading: Text('${i + 1}'),
-                        title: Text(c.title),
-                        subtitle: Text(c.volume),
-                        trailing: c.vip
-                            ? const Icon(Icons.lock_outline, size: 18)
-                            : null,
-                        onTap: busy
-                            ? null
-                            : () async {
-                                await Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (_) => ReaderPage(
-                                      library: widget.library,
-                                      book: book,
-                                      initialChapter: i,
-                                    ),
-                                  ),
-                                );
-                                _refreshCached();
-                              },
-                      );
-                    },
+                  FutureBuilder<Map<String, ChapterContent>>(
+                    future: cached,
+                    builder: (context, snapshot) => ChapterDirectory(
+                      chapters: book.chapters,
+                      cachedChapterIds: snapshot.data?.keys.toSet() ?? {},
+                      selectedChapter:
+                          widget.library.progress[book.key]?.firstOrNull,
+                      enabled: !busy,
+                      onChapterSelected: (i) async {
+                        await Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => ReaderPage(
+                              library: widget.library,
+                              book: book,
+                              initialChapter: i,
+                            ),
+                          ),
+                        );
+                        _refreshCached();
+                      },
+                    ),
                   ),
                 ],
               ),

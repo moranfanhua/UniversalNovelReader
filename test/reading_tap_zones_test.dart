@@ -155,7 +155,7 @@ void main() {
         expect(find.widgetWithText(TextButton, '上一页'), findsNothing);
         expect(find.widgetWithText(TextButton, '下一页'), findsNothing);
         if (mode == ReadingMode.scroll) {
-          expect(find.byType(ReadingTapZones), findsNothing);
+          expect(find.byType(ReadingTapZones), findsOneWidget);
           final view = find.byType(SingleChildScrollView);
           final controller = tester
               .widget<SingleChildScrollView>(view)
@@ -169,18 +169,18 @@ void main() {
           }
           expect(controller.offset, offset);
           expect(library.requests, requests);
-          expect(find.text('2 / 3'), findsOneWidget);
+          expect(readingChapter(tester), 1);
           await tester.pumpWidget(const SizedBox.shrink());
           return;
         }
         await tapReadingSide(tester, 1);
         await tester.pumpAndSettle();
         await tester.pump(const Duration(milliseconds: 700));
-        expect(find.text('3 / 3'), findsOneWidget);
+        expect(readingChapter(tester), 2);
         await tapReadingSide(tester, -1);
         await tester.pumpAndSettle();
         await tester.pump(const Duration(milliseconds: 700));
-        expect(find.text('2 / 3'), findsOneWidget);
+        expect(readingChapter(tester), 1);
         expect(tester.takeException(), isNull);
         await tester.pumpWidget(const SizedBox.shrink());
       },
