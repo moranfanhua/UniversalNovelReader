@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../../domain/models.dart';
+import '../../data/app_log.dart';
+import '../logged_request.dart';
 import 'fanqie_app_api.dart';
 import 'fanqie_crypto.dart';
 
@@ -72,9 +74,11 @@ class FanqieAuth {
     });
     final http.Response response;
     try {
-      response = await (() async => http.Response.fromStream(
-        await client.send(request),
-      ))().timeout(const Duration(seconds: 25));
+      response = await sendLoggedRequest(
+        client,
+        request,
+        event: 'http.fanqie.auth',
+      );
     } on TimeoutException {
       throw const SourceException('认证请求超时，请稍后重试');
     } on http.ClientException {
@@ -90,7 +94,13 @@ class FanqieAuth {
     try {
       document =
           jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
-    } catch (_) {
+    } catch (error, stack) {
+      AppLog.instance.record(
+        LogLevel.error,
+        'fanqie.auth_response_invalid',
+        error: error,
+        stackTrace: stack,
+      );
       throw const SourceException('番茄认证返回无法识别的数据，请稍后重试或导入 App 会话');
     }
     final data = document['data'] is Map
@@ -103,6 +113,11 @@ class FanqieAuth {
             '${data['error_code'] ?? document['error_code'] ?? -1}',
           ) ??
           -1;
+      AppLog.instance.record(
+        LogLevel.warning,
+        'fanqie.auth_rejected',
+        error: SourceException('', code: code),
+      );
       if (code == 7) {
         throw const SourceException(
           '番茄认证限制了本次请求（错误码 7：访问太频繁），请稍后重试或导入 App 会话',

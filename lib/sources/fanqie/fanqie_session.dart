@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'fanqie_api.dart';
+import '../../data/app_log.dart';
 
 class FanqieSession {
   static const _key = 'unr.fanqie.session.v1';
@@ -14,7 +15,13 @@ class FanqieSession {
     try {
       final cookie = await storage.read(key: _key);
       if (cookie != null) api.setCookie(cookie);
-    } catch (_) {
+    } catch (error, stack) {
+      AppLog.instance.record(
+        LogLevel.warning,
+        'session.fanqie.restore_failed',
+        error: error,
+        stackTrace: stack,
+      );
       api.sessionNotice = '无法恢复本机番茄会话，请重新导入。已缓存章节仍可阅读。';
     }
     try {
@@ -22,7 +29,13 @@ class FanqieSession {
       if (device != null) {
         api.app.restore(jsonDecode(device) as Map<String, dynamic>);
       }
-    } catch (_) {
+    } catch (error, stack) {
+      AppLog.instance.record(
+        LogLevel.warning,
+        'session.fanqie.device_restore_failed',
+        error: error,
+        stackTrace: stack,
+      );
       api.sessionNotice ??= '无法恢复番茄本机设备，将在下次联网时重新注册。已缓存章节仍可阅读。';
     }
     api.onSessionChanged = () async {
@@ -39,7 +52,13 @@ class FanqieSession {
           );
         }
         api.sessionNotice = null;
-      } catch (_) {
+      } catch (error, stack) {
+        AppLog.instance.record(
+          LogLevel.error,
+          'session.fanqie.save_failed',
+          error: error,
+          stackTrace: stack,
+        );
         api.sessionNotice = '无法写入本机安全存储，重启后需重新导入番茄会话。';
       }
     };

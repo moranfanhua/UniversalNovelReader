@@ -1,6 +1,7 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import '../data/library.dart';
+import '../data/app_log.dart';
 import '../domain/models.dart';
 import '../formats/ebook.dart';
 import 'reader.dart';
@@ -84,7 +85,13 @@ class _BookPageState extends State<BookPage> {
           context,
         ).showSnackBar(const SnackBar(content: Text('导出完成')));
       }
-    } catch (e) {
+    } catch (e, stack) {
+      AppLog.instance.record(
+        LogLevel.error,
+        'export.failed',
+        error: e,
+        stackTrace: stack,
+      );
       if (mounted) setState(() => error = '$e');
     } finally {
       if (mounted) setState(() => busy = false);
@@ -107,7 +114,13 @@ class _BookPageState extends State<BookPage> {
           cached = widget.library.cachedContents(next);
         });
       }
-    } catch (e) {
+    } catch (e, stack) {
+      AppLog.instance.record(
+        LogLevel.error,
+        'book.refresh_failed',
+        error: e,
+        stackTrace: stack,
+      );
       if (mounted) setState(() => error = '$e');
     } finally {
       if (mounted) setState(() => busy = false);

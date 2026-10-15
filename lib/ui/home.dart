@@ -3,6 +3,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../data/library.dart';
+import '../data/app_log.dart';
 import '../domain/models.dart';
 import '../formats/ebook.dart';
 import '../sources/novel_search.dart';
@@ -109,7 +110,13 @@ class _HomePageState extends State<HomePage> {
           ),
         );
       }
-    } catch (e) {
+    } catch (e, stack) {
+      AppLog.instance.record(
+        LogLevel.error,
+        'book.open_failed',
+        error: e,
+        stackTrace: stack,
+      );
       if (mounted) setState(() => error = '$e');
     } finally {
       if (mounted) setState(() => busy = false);
@@ -153,7 +160,13 @@ class _HomePageState extends State<HomePage> {
           }
         });
       }
-    } catch (e) {
+    } catch (e, stack) {
+      AppLog.instance.record(
+        LogLevel.error,
+        'search.failed',
+        error: e,
+        stackTrace: stack,
+      );
       if (mounted && generation == searchGeneration) {
         setState(() => error = '$e');
       }
@@ -191,7 +204,13 @@ class _HomePageState extends State<HomePage> {
           context,
         ).showSnackBar(SnackBar(content: Text('已导入《${imported.book.title}》')));
       }
-    } catch (e) {
+    } catch (e, stack) {
+      AppLog.instance.record(
+        LogLevel.error,
+        'import.failed',
+        error: e,
+        stackTrace: stack,
+      );
       if (mounted) setState(() => error = '$e');
     } finally {
       if (mounted) setState(() => busy = false);

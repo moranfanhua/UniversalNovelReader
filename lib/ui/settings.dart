@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../data/library.dart';
 import 'reading_settings.dart';
 import 'platform_order.dart';
+import 'logs.dart';
 
 class SoftwareSettingsPage extends StatefulWidget {
   const SoftwareSettingsPage({
@@ -89,6 +90,14 @@ class SettingsPage extends StatelessWidget {
               gbk: gbk,
               onEncodingChanged: onEncodingChanged,
             ),
+          ),
+          const SizedBox(height: 16),
+          _entry(
+            context,
+            'logs',
+            '日志',
+            Icons.receipt_long_outlined,
+            (_) => const LogsPage(),
           ),
         ],
       ),
