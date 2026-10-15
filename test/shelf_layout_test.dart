@@ -217,10 +217,14 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('软件设置'));
     await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('settings-shelf-entry')));
+    await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('shelf-layout')), findsOneWidget);
     await tester.tap(find.text('列表'));
     await tester.pumpAndSettle();
     expect(model.shelfLayout, ShelfLayout.list);
+    await tester.tap(find.byType(BackButton));
+    await tester.pumpAndSettle();
     await tester.tap(find.byType(BackButton));
     await tester.pumpAndSettle();
     await tester.tap(find.text('书库'));

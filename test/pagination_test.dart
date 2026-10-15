@@ -109,7 +109,7 @@ void main() {
         ),
       ),
     );
-    await tester.tap(find.byKey(const ValueKey('settings-reading-tab')));
+    await tester.tap(find.byKey(const ValueKey('settings-reading-entry')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('翻页阅读'));
     await tester.pump();
