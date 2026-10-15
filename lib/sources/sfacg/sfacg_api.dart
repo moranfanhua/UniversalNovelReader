@@ -7,7 +7,6 @@ import 'package:uuid/uuid.dart';
 
 import '../../domain/models.dart';
 import 'sfacg_signature.dart';
-import 'sfacg_website.dart';
 
 class SfacgApi {
   // The API checks the App protocol profile on chapter reads. A random UUID
@@ -32,12 +31,9 @@ class SfacgApi {
   bool websiteSession = false;
   Future<void> Function()? onSessionChanged;
   bool get hasSession =>
+      !websiteSession &&
       cookies['.SFCommunity']?.isNotEmpty == true &&
-      (websiteSession || cookies['session_APP']?.isNotEmpty == true);
-  SfacgWebsite get website => SfacgWebsite(
-    client,
-    cookies.entries.map((entry) => '${entry.key}=${entry.value}').join('; '),
-  );
+      cookies['session_APP']?.isNotEmpty == true;
 
   void setCookie(String value, {bool website = false}) {
     if (RegExp(r'[\x00-\x1f\x7f]').hasMatch(value)) {
@@ -67,24 +63,12 @@ class SfacgApi {
     websiteSession = website;
   }
 
-  Future<void> importCookie(String value, {bool website = false}) async {
+  Future<void> importCookie(String value) async {
     final candidate =
         SfacgApi(client: client, device: device, appUserAgent: appUserAgent)
           ..clockOffset = clockOffset
-          ..setCookie(value, website: website);
-    if (website) {
-      await candidate.website.validateSession();
-    } else {
-      final user = await candidate.get('user');
-      final userId = user is Map
-          ? int.tryParse(
-              '${user['accountId'] ?? user['userId'] ?? user['id'] ?? ''}',
-            )
-          : null;
-      if (userId == null || userId <= 0) {
-        throw const SourceException('菠萝包会话未登录或已失效，请重新登录');
-      }
-    }
+          ..setCookie(value);
+    await candidate.validateSession();
     cookies
       ..clear()
       ..addAll(candidate.cookies);
@@ -92,6 +76,16 @@ class SfacgApi {
     nonce = candidate.nonce;
     clockOffset = candidate.clockOffset;
     await onSessionChanged?.call();
+  }
+
+  Future<void> validateSession() async {
+    if (!hasSession) throw const SourceException('请使用账号密码登录或导入完整 App 会话');
+    // APK AccountApi.getUserWithFields returns Account.accountId.
+    final user = await get('user');
+    final id = user is Map ? int.tryParse('${user['accountId']}') : null;
+    if (id == null || id <= 0 || !hasSession) {
+      throw const SourceException('菠萝包会话未登录或已失效，请重新登录');
+    }
   }
 
   Future<dynamic> get(String path, {Map<String, String>? query}) =>
@@ -247,11 +241,12 @@ class SfacgApi {
     await candidate.request(
       'sessions',
       body: {'username': account.trim(), 'password': password, 'shuMeiId': ''},
+      retry: false,
     );
     if (!candidate.hasSession) {
       throw const SourceException('登录接口没有返回完整 App 会话，可能需要完成平台验证');
     }
-    await candidate.get('user');
+    await candidate.validateSession();
     cookies
       ..clear()
       ..addAll(candidate.cookies);

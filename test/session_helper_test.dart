@@ -36,47 +36,6 @@ void main() {
     messenger.setMockMethodCallHandler(events, null);
   });
 
-  test('网页登录会话验证成功后才替换账号，匿名与无效会话保留原值', () async {
-    var valid = false, authenticated = false, saves = 0;
-    final api = SfacgApi(
-      client: MockClient((request) async {
-        expect(request.url.host, 'passport.sfacg.com');
-        expect(request.url.path, '/Ajax/GetLoginInfo.ashx');
-        expect(request.headers['cookie'], '.SFCommunity=synthetic-web');
-        return http.Response(
-          'unrLoginInfo([{login:"$authenticated"}])',
-          valid ? 200 : 401,
-        );
-      }),
-    )..setCookie('.SFCommunity=old; session_APP=old-app');
-    addTearDown(api.close);
-    api.onSessionChanged = () async {
-      saves++;
-    };
-    await expectLater(
-      api.importCookie('.SFCommunity=synthetic-web', website: true),
-      throwsA(isA<SourceException>()),
-    );
-    expect(api.cookies['.SFCommunity'], 'old');
-    expect(api.websiteSession, isFalse);
-    valid = true;
-    await expectLater(
-      api.importCookie('.SFCommunity=synthetic-web', website: true),
-      throwsA(isA<SourceException>()),
-    );
-    expect(api.cookies['.SFCommunity'], 'old');
-    authenticated = true;
-    await api.importCookie('.SFCommunity=synthetic-web', website: true);
-    expect(api.cookies, {'.SFCommunity': 'synthetic-web'});
-    expect(api.websiteSession, isTrue);
-    expect(api.hasSession, isTrue);
-    expect(saves, 1);
-    expect(
-      () => api.setCookie('.SFCommunity=x\u0000', website: true),
-      throwsA(isA<SourceException>()),
-    );
-  });
-
   test('菠萝包按官方 accountId 校验会话，拒绝匿名及无效账号且保留原会话', () async {
     Object? user;
     var saves = 0;
@@ -116,14 +75,14 @@ void main() {
     expect(saves, 2);
   });
 
-  test('网页登录会话标识随安全存储恢复，退出清除；旧的不完整 App 会话仍拒绝', () async {
+  test('旧网页会话恢复后不可用于认证，退出清除；不完整 App 会话仍拒绝', () async {
     final api = await SfacgSession.open();
     addTearDown(api.close);
     api.setCookie('.SFCommunity=synthetic-web', website: true);
     await api.onSessionChanged!();
     final restored = await SfacgSession.open();
     addTearDown(restored.close);
-    expect(restored.hasSession, isTrue);
+    expect(restored.hasSession, isFalse);
     expect(restored.websiteSession, isTrue);
     expect(
       () => restored.setCookie('.SFCommunity=incomplete'),
@@ -183,40 +142,30 @@ void main() {
     variant: TargetPlatformVariant({TargetPlatform.android}),
   );
 
-  testWidgets('菠萝包网页登录验证后保存为官网会话', (tester) async {
-    messenger.setMockMethodCallHandler(helper, (call) async {
-      expect(call.arguments, {'source': 'sfacg', 'vpn': false});
-      return '.SFCommunity=synthetic-web';
-    });
-    var saves = 0;
-    final api = SfacgApi(
-      client: MockClient((request) async {
-        expect(request.url.host, 'passport.sfacg.com');
-        return http.Response(
-          'unrLoginInfo([{login:"true",name:"synthetic"}])',
-          200,
-        );
-      }),
-    );
-    addTearDown(api.close);
-    api.onSessionChanged = () async {
-      saves++;
-    };
-    final library = Library(Directory.systemTemp, SfacgSource(api));
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(body: AccountPage(library: library)),
-      ),
-    );
-    await tester.tap(find.text('网页登录'));
-    await tester.pumpAndSettle();
-    expect(find.text('登录菠萝包'), findsNothing);
-    await tester.tap(find.text('打开官网登录'));
-    await tester.pumpAndSettle();
-    expect(api.websiteSession, isTrue);
-    expect(saves, 1);
-    expect(find.text('已保存登录会话'), findsOneWidget);
-  }, variant: TargetPlatformVariant({TargetPlatform.android}));
+  testWidgets(
+    '菠萝包仅提供 App 登录，不调用网页助手',
+    (tester) async {
+      messenger.setMockMethodCallHandler(helper, (_) async => fail('不得打开网页'));
+      final api = SfacgApi();
+      addTearDown(api.close);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: AccountPage(
+              library: Library(Directory.systemTemp, SfacgSource(api)),
+            ),
+          ),
+        ),
+      );
+      expect(find.text('网页登录'), findsNothing);
+      expect(find.text('VPN 辅助登录'), findsOneWidget);
+      await tester.tap(find.text('账号密码登录'));
+      await tester.pumpAndSettle();
+      expect(find.text('登录菠萝包'), findsOneWidget);
+      expect(find.text('打开官网登录'), findsNothing);
+    },
+    variant: TargetPlatformVariant({TargetPlatform.android}),
+  );
 
   testWidgets(
     'VPN 入口要求证书，拒绝授权可恢复并在退出时停止',

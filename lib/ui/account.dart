@@ -114,10 +114,8 @@ class _AccountPageState extends State<AccountPage> {
     super.dispose();
   }
 
-  Future<void> authenticate({
-    bool useCookie = false,
-    bool website = false,
-  }) async {
+  Future<void> authenticate({bool useCookie = false}) async {
+    if (busy) return;
     final api = widget.library.source.api;
     setState(() {
       busy = true;
@@ -125,20 +123,14 @@ class _AccountPageState extends State<AccountPage> {
     });
     try {
       if (useCookie) {
-        await api.importCookie(cookie.text, website: website);
+        await api.importCookie(cookie.text);
       } else {
         await api.login(account.text.trim(), password.text);
       }
-      password.clear();
-      cookie.clear();
       if (mounted) {
-        setState(
-          () => message =
-              api.sessionNotice ??
-              (api.websiteSession
-                  ? '菠萝包官网登录成功，会话已保存在本机安全存储中'
-                  : '菠萝包登录成功，会话已保存在本机安全存储中'),
-        );
+        password.clear();
+        cookie.clear();
+        setState(() => message = api.sessionNotice ?? '菠萝包登录成功，会话已保存在本机安全存储中');
       }
     } catch (e) {
       if (mounted) setState(() => message = '$e');
@@ -147,36 +139,17 @@ class _AccountPageState extends State<AccountPage> {
     }
   }
 
-  Future<void> _webLogin({bool vpn = false}) async {
-    setState(() {
-      busy = true;
-      message = null;
-    });
-    try {
-      final value = vpn
-          ? await Navigator.push<String>(
-              context,
-              MaterialPageRoute(
-                builder: (_) =>
-                    const SessionHelperPage(source: 'sfacg', name: '菠萝包'),
-              ),
-            )
-          : await SessionHelper.openLogin('sfacg');
-      if (mounted && value != null) {
-        cookie.text = value;
-        await authenticate(useCookie: true, website: !vpn);
-      }
-    } catch (_) {
-      if (mounted) {
-        setState(
-          () => message = vpn
-              ? '无法打开 App 会话辅助，请重试或使用其他登录方式'
-              : '无法打开网页登录，请重试或使用账号密码登录',
-        );
-      }
-    } finally {
-      if (mounted) setState(() => busy = false);
-    }
+  Future<void> _appLogin() async {
+    if (busy) return;
+    final value = await Navigator.push<String>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const SessionHelperPage(source: 'sfacg', name: '菠萝包'),
+      ),
+    );
+    if (!mounted || value == null) return;
+    cookie.text = value;
+    await authenticate(useCookie: true);
   }
 
   @override
@@ -196,7 +169,7 @@ class _AccountPageState extends State<AccountPage> {
           if (widget.library.source.api.websiteSession)
             const Padding(
               padding: EdgeInsets.only(top: 12),
-              child: Text('正文统一使用 App 接口；VIP 正文、发送段评、回复和点赞需要账号密码登录或导入 App 会话。'),
+              child: Text('旧网页会话已停用，请使用账号密码登录或导入 App 会话。'),
             ),
           const SizedBox(height: 12),
           if (widget.method == null)
@@ -204,24 +177,12 @@ class _AccountPageState extends State<AccountPage> {
               onPassword: busy
                   ? null
                   : () => _openMethod(AccountLoginMethod.password),
-              onWeb: !SessionHelper.supported || busy
-                  ? null
-                  : () => _openMethod(AccountLoginMethod.web),
-              onVpn: !SessionHelper.supported || busy
-                  ? null
-                  : () => _webLogin(vpn: true),
+              onVpn: !SessionHelper.supported || busy ? null : _appLogin,
             ),
-          if (widget.method == AccountLoginMethod.web) ...[
-            OutlinedButton.icon(
-              onPressed: busy ? null : () => _webLogin(),
-              icon: const Icon(Icons.public),
-              label: const Text('打开官网登录'),
-            ),
-            const SizedBox(height: 12),
-          ],
           if (widget.method == AccountLoginMethod.password) ...[
             TextField(
               controller: account,
+              enabled: !busy,
               decoration: const InputDecoration(
                 labelText: '账号',
                 border: OutlineInputBorder(),
@@ -230,6 +191,7 @@ class _AccountPageState extends State<AccountPage> {
             const SizedBox(height: 12),
             TextField(
               controller: password,
+              enabled: !busy,
               obscureText: true,
               decoration: const InputDecoration(
                 labelText: '密码',
@@ -242,11 +204,7 @@ class _AccountPageState extends State<AccountPage> {
               child: const Text('登录菠萝包'),
             ),
             const SizedBox(height: 8),
-            Text(
-              SessionHelper.supported
-                  ? '如需验证码或安全验证，请返回选择网页登录。'
-                  : '如需验证码或安全验证，请在官方 App 完成后导入会话。',
-            ),
+            Text('如需验证码或安全验证，请在官方 App 完成后使用 VPN 辅助或导入 App 会话。'),
           ],
           if (widget.method != null)
             ExpansionTile(

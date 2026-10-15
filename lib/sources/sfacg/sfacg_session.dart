@@ -37,6 +37,9 @@ class SfacgSession {
             json['cookie'] as String,
             website: json['website'] == true,
           );
+          if (api.websiteSession) {
+            api.sessionNotice = '已停止使用旧网页会话，请使用账号密码登录或导入 App 会话。原会话数据已保留。';
+          }
         }
       } catch (_) {
         api.close();
@@ -48,7 +51,7 @@ class SfacgSession {
       api = SfacgApi()..sessionNotice = '无法恢复本机菠萝包会话，请重新登录。本地书库仍可使用。';
     }
     api.onSessionChanged = () async {
-      if (!api.hasSession) {
+      if (!api.hasSession && !api.websiteSession) {
         await storage.delete(key: _key);
         return;
       }
