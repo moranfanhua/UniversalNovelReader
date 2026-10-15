@@ -244,12 +244,13 @@ class _HomePageState extends State<HomePage> {
           (textScaler.scale(titleSize) * 1.3).ceilToDouble() * 2 +
           (textScaler.scale(detailSize) * 1.4).ceilToDouble() * 2 +
           4;
-      return Center(
+      return Align(
+        alignment: Alignment.topLeft,
         child: SizedBox(
-          width: columns * width + (columns - 1) * spacing,
+          width: columns * width + (columns - 1) * spacing + 40,
           child: GridView.builder(
             key: const PageStorageKey('shelf-grid'),
-            padding: const EdgeInsets.symmetric(vertical: 20),
+            padding: const EdgeInsets.all(20),
             gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: columns,
               mainAxisSpacing: 20,

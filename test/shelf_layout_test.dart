@@ -97,7 +97,7 @@ void main() {
     expect(failing.shelfLayout, ShelfLayout.grid);
   });
 
-  testWidgets('宫格卡片居中，封面与文字区域等宽并保留比例', (tester) async {
+  testWidgets('宫格整体左对齐，卡片文字居中且与封面等宽', (tester) async {
     viewport(tester);
     final model = library()..books.add(shelfBook('1', '长书名需要分两行显示的作品名称'));
     await tester.pumpWidget(UnrApp(library: model));
@@ -113,8 +113,15 @@ void main() {
     final text = tester.getRect(title);
     expect(cover.width, closeTo(text.width, .01));
     expect(cover.height / cover.width, closeTo(1.5, .01));
-    expect(cover.center.dx, closeTo(tester.view.physicalSize.width / 2, .01));
-    expect(tester.widget<Text>(title).textAlign, TextAlign.center);
+    final selector = tester.getRect(
+      find.byKey(const ValueKey('bookshelf-selector')),
+    );
+    expect(cover.left, closeTo(selector.left, .01));
+    for (final label in tester.widgetList<Text>(
+      find.descendant(of: card, matching: find.byType(Text)),
+    )) {
+      expect(label.textAlign, TextAlign.center);
+    }
     expect(tester.widget<Text>(title).style!.fontSize, lessThan(14));
     expect(tester.takeException(), isNull);
   }, variant: platforms);
