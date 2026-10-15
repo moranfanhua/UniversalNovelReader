@@ -1,0 +1,58 @@
+name: Android Native Smoke Tests
+
+on:
+  push:
+    branches: [dev]
+    paths:
+      - '.github/workflows/smoke-testing.yml'
+      - '.github/actions/**'
+      - 'android/**'
+      - 'pubspec.yaml'
+      - 'pubspec.lock'
+  pull_request:
+    branches: [dev, master]
+    paths:
+      - '.github/workflows/smoke-testing.yml'
+      - '.github/actions/**'
+      - 'android/**'
+      - 'pubspec.yaml'
+      - 'pubspec.lock'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: smoke-tests-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android-native:
+    name: Test Android session helper and NetBare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - uses: ./.github/actions/setup-flutter
+      # 配置 Android 工程，生成未入库的 Gradle wrapper 和 local.properties。
+      - run: flutter build apk --debug --no-pub --config-only
+      - name: Run native unit tests
+        working-directory: android
+        run: bash ./gradlew :app:testDebugUnitTest --no-daemon
+      - name: Upload failed native test results
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: android-native-test-results
+          path: |
+            build/app/reports/tests/testDebugUnitTest/
+            build/app/test-results/testDebugUnitTest/
+          if-no-files-found: ignore
+          retention-days: 7
