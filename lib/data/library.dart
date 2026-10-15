@@ -73,6 +73,13 @@ class Library extends ChangeNotifier {
   static const recentBookLimit = 50;
   final List<Book> recentBooks = [];
   bool isOnShelf(Book book) => books.any((item) => item.key == book.key);
+  final Set<String> _pinnedBookKeys = {};
+  bool isBookPinned(Book book) => _pinnedBookKeys.contains(book.key);
+  List<Book> _pinnedFirst(List<Book> items) => [
+    ...items.where(isBookPinned),
+    ...items.where((book) => !isBookPinned(book)),
+  ];
+  List<Book> get sortedRecentBooks => _pinnedFirst(recentBooks);
   final List<Bookshelf> shelves = [];
   ShelfSort shelfSort = ShelfSort.lastActive;
   ShelfLayout shelfLayout = ShelfLayout.grid;
@@ -132,7 +139,7 @@ class Library extends ChangeNotifier {
           ? position[a.key]!.compareTo(position[b.key]!)
           : comparison;
     });
-    return result;
+    return _pinnedFirst(result);
   }
 
   final Map<String, List<int>> progress = {};
@@ -193,6 +200,9 @@ class Library extends ChangeNotifier {
         (data['shelves'] as List? ?? []).map(
           (j) => Bookshelf.fromJson(Map<String, dynamic>.from(j)),
         ),
+      );
+      library._pinnedBookKeys.addAll(
+        (data['pinnedBookKeys'] as List? ?? []).whereType<String>(),
       );
       library.fontSize = (data['fontSize'] as num? ?? 20).toDouble().clamp(
         14,
@@ -317,6 +327,7 @@ class Library extends ChangeNotifier {
     final json = jsonEncode({
       'books': books.map((b) => b.toJson()).toList(),
       'recentBooks': recentBooks.map((b) => b.toJson()).toList(),
+      'pinnedBookKeys': _pinnedBookKeys.toList(),
       'shelves': shelves.map((s) => s.toJson()).toList(),
       'progress': progress,
       'fontSize': fontSize,
@@ -538,6 +549,71 @@ class Library extends ChangeNotifier {
       await save();
     } catch (_) {
       shelfSort = old;
+      notifyListeners();
+      rethrow;
+    }
+  }
+
+  Future<void> setBookPinned(Book book, bool pinned) async {
+    final wasPinned = isBookPinned(book);
+    if (wasPinned == pinned) return;
+    if (pinned) {
+      _pinnedBookKeys.add(book.key);
+    } else {
+      _pinnedBookKeys.remove(book.key);
+    }
+    try {
+      await save();
+    } catch (_) {
+      if (wasPinned) {
+        _pinnedBookKeys.add(book.key);
+      } else {
+        _pinnedBookKeys.remove(book.key);
+      }
+      notifyListeners();
+      rethrow;
+    }
+  }
+
+  Future<void> removeFromShelf(Book book, {String? shelfId}) async {
+    final oldBooks = books.toList();
+    final oldRecent = recentBooks.toList();
+    final oldShelves = shelves.toList();
+    final wasPinned = isBookPinned(book);
+    if (shelfId == recentShelfId) {
+      recentBooks.removeWhere((item) => item.key == book.key);
+    } else {
+      if (shelfId == null) {
+        books.removeWhere((item) => item.key == book.key);
+      } else if (!shelves.any((shelf) => shelf.id == shelfId)) {
+        throw const SourceException('当前书架不存在');
+      }
+      for (var i = 0; i < shelves.length; i++) {
+        final shelf = shelves[i];
+        if ((shelfId == null || shelf.id == shelfId) &&
+            shelf.bookKeys.contains(book.key)) {
+          shelves[i] = shelf.copyWith(
+            bookKeys: shelf.bookKeys.where((key) => key != book.key).toList(),
+          );
+        }
+      }
+    }
+    if (!isOnShelf(book) && !recentBooks.any((item) => item.key == book.key)) {
+      _pinnedBookKeys.remove(book.key);
+    }
+    try {
+      await save();
+    } catch (_) {
+      books
+        ..clear()
+        ..addAll(oldBooks);
+      recentBooks
+        ..clear()
+        ..addAll(oldRecent);
+      shelves
+        ..clear()
+        ..addAll(oldShelves);
+      if (wasPinned) _pinnedBookKeys.add(book.key);
       notifyListeners();
       rethrow;
     }

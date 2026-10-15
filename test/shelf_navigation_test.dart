@@ -115,7 +115,7 @@ void main() {
       }, variant: platforms);
     }
 
-    testWidgets('长按书架作品保留详情入口（${layout.name}）', (tester) async {
+    testWidgets('长按书架作品显示底栏并可进入详情（${layout.name}）', (tester) async {
       viewport(tester);
       library
         ..shelfLayout = layout
@@ -123,6 +123,11 @@ void main() {
       await tester.pumpWidget(UnrApp(library: library));
       await tester.pumpAndSettle();
       await tester.longPress(find.byKey(ValueKey('shelf-book-${book.key}')));
+      await tester.pumpAndSettle();
+      expect(find.text('置顶'), findsOneWidget);
+      expect(find.text('移除'), findsOneWidget);
+      expect(find.byType(BookPage), findsNothing);
+      await tester.tap(find.text('作品详情'));
       await tester.pumpAndSettle();
       expect(find.byType(BookPage), findsOneWidget);
       expect(find.byType(ReaderPage), findsNothing);
@@ -179,6 +184,8 @@ void main() {
     expect(find.byType(ReaderPage), findsNothing);
     expect(find.textContaining('暂无可阅读章节'), findsOneWidget);
     await tester.longPress(card);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('作品详情'));
     await tester.pumpAndSettle();
     expect(find.byType(BookPage), findsOneWidget);
     expect(tester.takeException(), isNull);

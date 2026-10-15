@@ -13,6 +13,8 @@ import 'my.dart';
 import 'import_shelf.dart';
 import '../domain/bookshelf.dart';
 
+enum _ShelfBookAction { details, pin, remove }
+
 class HomePage extends StatefulWidget {
   const HomePage({super.key, required this.library});
   final Library library;
@@ -275,6 +277,84 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  Future<void> _shelfBookActions(Book book) async {
+    if (busy) return;
+    final shelfId = selectedShelf;
+    final pinned = library.isBookPinned(book);
+    final action = await showModalBottomSheet<_ShelfBookAction>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.info_outline),
+              title: const Text('作品详情'),
+              onTap: () => Navigator.pop(context, _ShelfBookAction.details),
+            ),
+            ListTile(
+              leading: Icon(pinned ? Icons.push_pin : Icons.push_pin_outlined),
+              title: Text(pinned ? '取消置顶' : '置顶'),
+              onTap: () => Navigator.pop(context, _ShelfBookAction.pin),
+            ),
+            ListTile(
+              leading: const Icon(Icons.remove_circle_outline),
+              title: const Text('移除'),
+              onTap: () => Navigator.pop(context, _ShelfBookAction.remove),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || action == null) return;
+    if (action == _ShelfBookAction.details) {
+      await _openShelfBook(book, details: true);
+      return;
+    }
+    setState(() => busy = true);
+    try {
+      if (action == _ShelfBookAction.pin) {
+        await library.setBookPinned(book, !library.isBookPinned(book));
+      } else {
+        await library.removeFromShelf(book, shelfId: shelfId);
+      }
+    } catch (e) {
+      if (mounted) setState(() => error = '书架操作失败：$e');
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  Widget _shelfCover(Book book) => Stack(
+    fit: StackFit.expand,
+    children: [
+      BookCover(book: book, library: library),
+      if (library.isBookPinned(book))
+        Positioned(
+          top: 6,
+          right: 6,
+          child: Tooltip(
+            message: '已置顶',
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.primaryContainer,
+                shape: BoxShape.circle,
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(4),
+                child: Icon(
+                  Icons.push_pin,
+                  size: 16,
+                  color: Theme.of(context).colorScheme.onPrimaryContainer,
+                ),
+              ),
+            ),
+          ),
+        ),
+    ],
+  );
+
   Widget _shelfGrid(List<Book> shelf) => LayoutBuilder(
     builder: (context, constraints) {
       final compact = constraints.maxWidth < 600;
@@ -323,14 +403,11 @@ class _HomePageState extends State<HomePage> {
                 key: ValueKey('shelf-book-${book.key}'),
                 borderRadius: BorderRadius.circular(14),
                 onTap: () => _openShelfBook(book),
-                onLongPress: () => _openShelfBook(book, details: true),
+                onLongPress: () => _shelfBookActions(book),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    SizedBox(
-                      height: width * 1.5,
-                      child: BookCover(book: book, library: library),
-                    ),
+                    SizedBox(height: width * 1.5, child: _shelfCover(book)),
                     SizedBox(height: 10 * scale),
                     Text(
                       book.title,
@@ -425,17 +502,13 @@ class _HomePageState extends State<HomePage> {
             key: ValueKey('shelf-book-${book.key}'),
             borderRadius: BorderRadius.circular(14),
             onTap: () => _openShelfBook(book),
-            onLongPress: () => _openShelfBook(book, details: true),
+            onLongPress: () => _shelfBookActions(book),
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 6),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  SizedBox(
-                    width: 64,
-                    height: 96,
-                    child: BookCover(book: book, library: library),
-                  ),
+                  SizedBox(width: 64, height: 96, child: _shelfCover(book)),
                   const SizedBox(width: 16),
                   Expanded(
                     child: Column(
@@ -487,7 +560,7 @@ class _HomePageState extends State<HomePage> {
 
   Widget _buildLibrary(BuildContext context) {
     if (selectedShelf == Library.recentShelfId) {
-      return _buildPage(context, library.recentBooks);
+      return _buildPage(context, library.sortedRecentBooks);
     }
     final keys = library.shelves
         .where((s) => s.id == selectedShelf)

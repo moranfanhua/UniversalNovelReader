@@ -9,6 +9,14 @@ class Bookshelf {
   final String id, name, source, remoteId;
   final List<String> bookKeys;
 
+  Bookshelf copyWith({List<String>? bookKeys}) => Bookshelf(
+    id: id,
+    name: name,
+    source: source,
+    remoteId: remoteId,
+    bookKeys: bookKeys ?? this.bookKeys,
+  );
+
   Map<String, dynamic> toJson() => {
     'id': id,
     'name': name,
