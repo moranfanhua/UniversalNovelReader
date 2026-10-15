@@ -7,6 +7,7 @@ import '../domain/models.dart';
 import '../formats/ebook.dart';
 import '../sources/novel_search.dart';
 import 'book_page.dart';
+import 'reader.dart';
 import 'image_bytes.dart';
 import 'my.dart';
 import 'import_shelf.dart';
@@ -237,8 +238,12 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  Future<void> _openShelfBook(Book book) async {
+  Future<void> _openShelfBook(Book book, {bool details = false}) async {
     if (busy) return;
+    if (!details && book.chapters.isEmpty) {
+      setState(() => error = '当前作品暂无可阅读章节，可长按作品查看详情。');
+      return;
+    }
     setState(() => busy = true);
     try {
       await library.markActive(book);
@@ -246,7 +251,9 @@ class _HomePageState extends State<HomePage> {
       await Navigator.push(
         context,
         MaterialPageRoute<void>(
-          builder: (_) => BookPage(library: library, book: book),
+          builder: (_) => details
+              ? BookPage(library: library, book: book)
+              : ReaderPage(library: library, book: book),
         ),
       );
     } catch (e) {
@@ -316,6 +323,7 @@ class _HomePageState extends State<HomePage> {
                 key: ValueKey('shelf-book-${book.key}'),
                 borderRadius: BorderRadius.circular(14),
                 onTap: () => _openShelfBook(book),
+                onLongPress: () => _openShelfBook(book, details: true),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -417,6 +425,7 @@ class _HomePageState extends State<HomePage> {
             key: ValueKey('shelf-book-${book.key}'),
             borderRadius: BorderRadius.circular(14),
             onTap: () => _openShelfBook(book),
+            onLongPress: () => _openShelfBook(book, details: true),
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 6),
               child: Row(

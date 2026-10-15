@@ -241,9 +241,12 @@ void main() {
     expect(find.byKey(const ValueKey('shelf-book-sfacg:1')), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('shelf-book-sfacg:1')));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('加入书架'));
+    expect(find.byType(ReaderPage), findsOneWidget);
+    expect(find.byType(BookPage), findsNothing);
+    await showReadingControls(tester);
+    await tester.tap(find.byTooltip('加入书架'));
     await tester.pumpAndSettle();
-    expect(find.text('已加入书架'), findsOneWidget);
+    expect(find.byTooltip('已加入书架'), findsOneWidget);
     expect(library.books.single.key, 'sfacg:1');
     await tester.pumpWidget(const SizedBox.shrink());
   }, variant: platforms);

@@ -10,6 +10,8 @@ import 'package:unr/main.dart';
 import 'package:unr/sources/sfacg/sfacg_api.dart';
 import 'package:unr/sources/sfacg/sfacg_source.dart';
 import 'package:unr/ui/home.dart';
+import 'package:unr/ui/reader.dart';
+import 'helpers/reading_taps.dart';
 
 const chapters = [
   Chapter(id: '1', title: '第一章'),
@@ -47,6 +49,9 @@ class LayoutLibrary extends Library {
 
   @override
   Future<Map<String, ChapterContent>> cachedContents(Book book) async => {};
+  @override
+  Future<ChapterContent> read(Book book, Chapter chapter) async =>
+      const ChapterContent([Paragraph('测试正文')]);
 }
 
 void main() {
@@ -199,8 +204,10 @@ void main() {
     );
     await tester.tap(find.text('第二本'));
     await tester.pumpAndSettle();
-    expect(find.text('作品详情'), findsOneWidget);
-    await tester.tap(find.byType(BackButton));
+    expect(find.byType(ReaderPage), findsOneWidget);
+    expect(find.text('作品详情'), findsNothing);
+    await showReadingControls(tester);
+    await tester.tap(find.byType(BackButton).hitTestable());
     await tester.pumpAndSettle();
     expect(model.shelfLayout, ShelfLayout.list);
     await tester.tap(find.byTooltip('切换为宫格'));
