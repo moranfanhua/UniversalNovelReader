@@ -118,6 +118,49 @@ void main() {
     );
   });
 
+  test('App 目录按 catalog_data 排序，保留分卷、字数和权限并拒绝缺章', () {
+    final data = <String, dynamic>{
+      'item_list': [],
+      'catalog_data': [
+        {'catalog_id': 'volume', 'catalog_title': '第一卷'},
+        {'item_id': chapterId},
+        {'item_id': nextId, 'need_unlock': true},
+      ],
+      'item_data_list': [
+        {'item_id': nextId, 'title': '第二章', 'volume_name': '第二卷'},
+        {
+          'item_id': chapterId,
+          'title': '第一章',
+          'volume_name': '第一卷',
+          'chapter_word_number': 2500,
+        },
+      ],
+    };
+    final chapters = FanqieSource.parseAppDirectory(data);
+    expect(chapters.map((chapter) => chapter.id), [chapterId, nextId]);
+    expect(chapters.map((chapter) => chapter.volume), ['第一卷', '第二卷']);
+    expect(chapters.first.wordCount, 2500);
+    expect(chapters.last.vip, isTrue);
+    final missing = Map<String, dynamic>.from(data)
+      ..['item_data_list'] = [(data['item_data_list'] as List).first];
+    expect(
+      () => FanqieSource.parseAppDirectory(missing),
+      throwsA(isA<SourceException>()),
+    );
+    final duplicate = Map<String, dynamic>.from(data)
+      ..['item_list'] = [chapterId, chapterId];
+    expect(
+      () => FanqieSource.parseAppDirectory(duplicate),
+      throwsA(isA<SourceException>()),
+    );
+    final wrong = Map<String, dynamic>.from(data)
+      ..['item_list'] = [chapterId, '7143038691944959019'];
+    expect(
+      () => FanqieSource.parseAppDirectory(wrong),
+      throwsA(isA<SourceException>()),
+    );
+  });
+
   test('解析页面状态中的嵌套对象、引号和分号，不执行页面脚本', () {
     final state = {
       'page': {
@@ -184,23 +227,35 @@ void main() {
                 },
               ],
             });
-          case '/page/$bookId':
-            return http.Response(
-              page({
-                'page': {
-                  'bookId': bookId,
-                  'bookName': '测试书',
-                  'author': '作者',
-                  'abstract': '简介',
-                  'lastPublishTime': '1670144602',
-                  'wordNumber': '3201288',
+          case '/reading/bookapi/directory/all_items/v/':
+            expect(request.url.host, 'api5-normal-sinfonlineb.fqnovel.com');
+            expect(request.url.queryParameters['book_id'], bookId);
+            expect(request.headers['x-argus'], isNotEmpty);
+            return jsonResponse({
+              'book_info': {
+                'book_id': bookId,
+                'book_name': '测试书',
+                'author': '作者',
+                'abstract': '简介',
+                'last_publish_time': '1670144602',
+                'word_number': '3201288',
+              },
+              'item_list': [chapterId, nextId],
+              'item_data_list': [
+                {
+                  'item_id': chapterId,
+                  'title': '第一章',
+                  'volume_name': '第一卷',
+                  'chapter_word_number': '2500',
                 },
-              }),
-              200,
-              headers: {'content-type': 'text/html; charset=utf-8'},
-            );
-          case '/api/reader/directory/detail':
-            return jsonResponse(directory());
+                {
+                  'item_id': nextId,
+                  'title': '第二章',
+                  'volume_name': '第二卷',
+                  'need_unlock': true,
+                },
+              ],
+            });
           case '/reading/bookapi/multi-detail/v/':
             expect(request.url.queryParameters['book_id'], bookId);
             return http.Response(

@@ -34,6 +34,7 @@ class _ImportShelfPageState extends State<ImportShelfPage> {
   }
 
   Future<void> _load(BookshelfSource service) async {
+    if (busy) return;
     setState(() {
       source = service;
       shelves = null;
@@ -72,27 +73,54 @@ class _ImportShelfPageState extends State<ImportShelfPage> {
       cancelled = false;
     });
     try {
-      ids ??= (await source!.getShelfBookIds(selected!)).toSet().toList();
+      final service = source!;
+      ids ??= (await service.getShelfBookIds(selected!)).toSet().toList();
       if (!mounted || cancelled) return;
-      setState(() => total = ids!.length);
+      final existing = {
+        for (final book in library.recentBooks) book.key: book,
+        for (final book in library.books) book.key: book,
+      };
       for (final id in ids!) {
+        final book = existing['${service.id}:$id'];
+        if (book != null) loaded[id] = book;
+      }
+      setState(() {
+        total = ids!.length;
+        completed = loaded.length;
+      });
+      final pending = ids!.where((id) => !loaded.containsKey(id)).toList();
+      final batchSize = service.shelfBookBatchSize;
+      if (batchSize <= 0) throw const SourceException('书源的作品批量大小无效');
+      for (var offset = 0; offset < pending.length; offset += batchSize) {
         if (!mounted || cancelled) return;
+        final batch = pending.skip(offset).take(batchSize).toList();
         try {
-          if (!loaded.containsKey(id)) {
-            final existing = library.books
-                .where((b) => b.source == source!.id && b.id == id)
-                .firstOrNull;
-            final book = existing ?? await source!.getBook(id);
-            if (book.source != source!.id || book.id != id) {
-              throw const SourceException('平台返回了其他作品');
+          final results = await service.getShelfBooks(batch);
+          if (!mounted || cancelled) return;
+          final byId = <String, ShelfBookResult>{};
+          for (final result in results) {
+            if (!batch.contains(result.id) || byId.containsKey(result.id)) {
+              throw const SourceException('平台返回了无效或重复的作品');
             }
-            loaded[id] = book;
+            byId[result.id] = result;
+          }
+          for (final id in batch) {
+            final result = byId[id];
+            final book = result?.book;
+            if (book == null) {
+              failures.add('$id：${result?.error ?? '平台未返回作品详情'}');
+            } else if (book.source != service.id || book.id != id) {
+              failures.add('$id：平台返回了其他作品');
+            } else {
+              loaded[id] = book;
+            }
           }
         } catch (e) {
-          failures.add('$id：$e');
+          if (!mounted || cancelled) return;
+          failures.addAll(batch.map((id) => '$id：$e'));
         }
         if (!mounted || cancelled) return;
-        setState(() => completed++);
+        setState(() => completed += batch.length);
       }
       if (failures.isNotEmpty) {
         setState(
@@ -117,7 +145,10 @@ class _ImportShelfPageState extends State<ImportShelfPage> {
         name: name.text,
         source: source!,
         remote: selected!,
-        imported: loaded.values.toList(),
+        imported: ids!
+            .where(loaded.containsKey)
+            .map((id) => loaded[id]!)
+            .toList(),
       );
       if (mounted) Navigator.pop(context, result);
     } finally {
@@ -194,7 +225,13 @@ class _ImportShelfPageState extends State<ImportShelfPage> {
                       : null,
                 ),
                 const SizedBox(height: 12),
-                Text(selected != null ? '正在获取作品 $completed/$total' : '正在读取书架'),
+                Text(
+                  saving
+                      ? '正在保存书架'
+                      : selected != null
+                      ? '正在获取作品 $completed/$total'
+                      : '正在读取书架',
+                ),
                 if (!saving)
                   TextButton(
                     onPressed: () {
@@ -285,7 +322,7 @@ class _ImportShelfPageState extends State<ImportShelfPage> {
                   onSubmitted: busy ? null : (_) => _import(),
                 ),
                 const SizedBox(height: 12),
-                const Text('导入作品和目录，正文可在阅读时获取，也可在作品页面下载。'),
+                const Text('导入作品基本信息，目录在打开作品时加载，正文可在阅读时获取或在作品页面下载。'),
                 const SizedBox(height: 20),
                 FilledButton(
                   onPressed: busy ? null : _import,

@@ -11,6 +11,7 @@ import 'package:unr/domain/models.dart';
 import 'package:unr/main.dart';
 import 'package:unr/ui/home.dart';
 import 'package:unr/sources/bookshelf_source.dart';
+import 'package:unr/sources/novel_source.dart';
 import 'package:unr/sources/fanqie/fanqie_api.dart';
 import 'package:unr/sources/fanqie/fanqie_source.dart';
 import 'package:unr/sources/sfacg/sfacg_api.dart';
@@ -53,11 +54,24 @@ class FakeShelfSource extends SfacgSource {
     if (fail && id == '2') throw const SourceException('作品暂时不可用');
     return id == '1' ? first : second;
   }
+
+  @override
+  Future<List<ShelfBookResult>> getShelfBooks(List<String> ids) => Future.wait(
+    ids.map((id) async {
+      try {
+        return ShelfBookResult.success(id, await getBook(id));
+      } catch (error) {
+        return ShelfBookResult.failure(id, error);
+      }
+    }),
+  );
 }
 
 class MemoryShelfLibrary extends Library {
-  MemoryShelfLibrary(FakeShelfSource source)
-    : super(Directory.systemTemp, source);
+  MemoryShelfLibrary(
+    SfacgSource source, {
+    Iterable<NovelSource> sources = const [],
+  }) : super(Directory.systemTemp, source, novelSources: sources);
   bool failSave = false;
   @override
   Future<void> save() async {
@@ -309,16 +323,20 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
   }
 
-  Future<void> enterImport(WidgetTester tester) async {
+  Future<void> enterImport(
+    WidgetTester tester, {
+    String platform = '菠萝包轻小说',
+    String shelf = '收藏',
+  }) async {
     await tester.tap(find.byTooltip('导入'));
     await tester.pumpAndSettle();
     expect(find.text('从本地导入'), findsOneWidget);
     await tester.tap(find.text('从软件导入'));
     await tester.pumpAndSettle();
     expect(find.text('选择平台'), findsOneWidget);
-    await tester.tap(find.text('菠萝包轻小说'));
+    await tester.tap(find.text(platform));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('收藏'));
+    await tester.tap(find.text(shelf));
     await tester.pumpAndSettle();
     await tester.enterText(
       find.byKey(const ValueKey('import-shelf-name')),
@@ -442,6 +460,245 @@ void main() {
     await tester.tap(find.byTooltip('返回'));
     await tester.pumpAndSettle();
     expect(library.shelves.length, 1);
+    expect(tester.takeException(), isNull);
+  }, variant: platforms);
+
+  testWidgets('复用最近阅读的目录和进度，不混用其他平台相同 ID', (tester) async {
+    viewport(tester);
+    final source = FakeShelfSource();
+    final library = MemoryShelfLibrary(source)
+      ..recentBooks.add(first)
+      ..books.add(
+        const Book(
+          id: '2',
+          source: 'fanqie',
+          title: '其他平台',
+          author: '',
+          chapters: [],
+        ),
+      );
+    library.progress[first.key] = [0, 7];
+    addTearDown(source.api.close);
+    addTearDown(library.dispose);
+    await tester.pumpWidget(UnrApp(library: library));
+    await enterImport(tester);
+    await tester.tap(find.widgetWithText(FilledButton, '导入'));
+    await tester.pumpAndSettle();
+    expect(source.calls, ['2']);
+    expect(
+      library.books.where((book) => book.key == first.key).single,
+      same(first),
+    );
+    expect(library.progress[first.key], [0, 7]);
+    expect(library.shelves.single.bookKeys, ['sfacg:1', 'sfacg:2']);
+    expect(library.books.any((book) => book.key == 'fanqie:2'), isTrue);
+    expect(tester.takeException(), isNull);
+  }, variant: platforms);
+
+  test('菠萝包复用书架返回的作品信息，不另取详情或目录', () async {
+    var requests = 0;
+    final api = SfacgApi(
+      client: MockClient((request) async {
+        requests++;
+        expect(request.url.path, '/user/Pockets');
+        return http.Response(
+          jsonEncode({
+            'status': {'httpCode': 200},
+            'data': [
+              {
+                'pocketId': 10,
+                'name': '收藏',
+                'typeId': 2,
+                'expand': {
+                  'novels': [
+                    {
+                      'novelId': 1,
+                      'novelName': '作品',
+                      'authorName': '作者',
+                      'novelCover': 'https://example.com/cover.jpg',
+                      'charCount': 12345,
+                      'lastUpdateTime': '2026-10-01T12:00:00',
+                    },
+                  ],
+                },
+              },
+            ],
+          }),
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        );
+      }),
+    )..setCookie('.SFCommunity=fake; session_APP=fake');
+    addTearDown(api.close);
+    final source = SfacgSource(api);
+    final shelves = await source.getShelves();
+    final results = await source.getShelfBooks(
+      await source.getShelfBookIds(shelves.single),
+    );
+    final preview = results.single.book!;
+    expect(preview.key, 'sfacg:1');
+    expect(preview.title, '作品');
+    expect(preview.cover, 'https://example.com/cover.jpg');
+    expect(preview.wordCount, 12345);
+    expect(preview.chapters, isEmpty);
+    expect(requests, 1);
+  });
+
+  test('菠萝包缺少预览时并行取轻量详情，单本失败保留其余作品', () async {
+    final pending = <String, Completer<http.Response>>{};
+    final api = SfacgApi(
+      client: MockClient((request) async {
+        expect(request.url.path, matches(r'^/novels/[1-4]$'));
+        final id = request.url.pathSegments.last;
+        expect(pending.containsKey(id), isFalse);
+        final response = Completer<http.Response>();
+        pending[id] = response;
+        return response.future;
+      }),
+    );
+    addTearDown(api.close);
+    final request = SfacgSource(api).getShelfBooks(['1', '2', '3', '4']);
+    await Future<void>.delayed(Duration.zero);
+    expect(pending.keys, unorderedEquals(['1', '2', '3', '4']));
+    for (final id in ['4', '3', '2', '1']) {
+      pending[id]!.complete(
+        http.Response(
+          jsonEncode({
+            'status': {'httpCode': id == '3' ? 404 : 200},
+            'data': {'novelId': int.parse(id), 'novelName': '作品$id'},
+          }),
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        ),
+      );
+    }
+    final result = await request;
+    expect(result.map((item) => item.id), ['1', '2', '3', '4']);
+    expect(result.where((item) => item.book != null).length, 3);
+    expect(result[2].error, isA<SourceException>());
+    expect(
+      result
+          .where((item) => item.book != null)
+          .every((item) => item.book!.chapters.isEmpty),
+      isTrue,
+    );
+  });
+
+  testWidgets('番茄大书架按百本批量导入，仅重试缺失并保持原书架顺序', (tester) async {
+    viewport(tester);
+    final ids = List.generate(105, (i) => '${7143038691944959011 + i}');
+    final missing = {ids[1], ids[102]};
+    var failMissing = true;
+    final batches = <List<String>>[];
+    final api = FanqieApi(
+      client: MockClient((request) async {
+        expect(request.url.host, 'api5-normal-sinfonlineb.fqnovel.com');
+        Object data;
+        if (request.url.path.endsWith('folder/list/v1/')) {
+          data = {'folders': [], 'has_more': false};
+        } else if (request.url.path.endsWith('bookshelf/info/v/')) {
+          data = {
+            'book_shelf_info': [
+              for (final id in ids) {'book_id': id, 'book_type': 0},
+            ],
+          };
+        } else {
+          expect(request.url.path, '/reading/bookapi/multi-detail/v/');
+          final batch = request.url.queryParameters['book_id']!.split(',');
+          batches.add(batch);
+          data = [
+            for (final id in batch.reversed)
+              if (!failMissing || !missing.contains(id))
+                {'book_id': id, 'book_name': '作品$id', 'author': '作者'},
+          ];
+        }
+        return http.Response(
+          jsonEncode({'code': 0, 'data': data}),
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        );
+      }),
+    )..setCookie('sessionid=fake');
+    api.app.restore({'deviceId': '1234567890', 'installId': '2345678901'});
+    final sfacg = FakeShelfSource();
+    final library = MemoryShelfLibrary(sfacg, sources: [FanqieSource(api)]);
+    addTearDown(api.close);
+    addTearDown(sfacg.api.close);
+    addTearDown(library.dispose);
+    await tester.pumpWidget(UnrApp(library: library));
+    await enterImport(tester, platform: '番茄小说', shelf: '默认书架');
+    await tester.tap(find.widgetWithText(FilledButton, '导入'));
+    await tester.pumpAndSettle();
+    expect(batches.map((batch) => batch.length), [100, 5]);
+    expect(library.books, isEmpty);
+    expect(find.text('仅导入已获取的 103 本'), findsOneWidget);
+    failMissing = false;
+    await tester.ensureVisible(find.text('重试失败作品'));
+    await tester.tap(find.text('重试失败作品'));
+    await tester.pumpAndSettle();
+    expect(batches.last, [ids[1], ids[102]]);
+    expect(batches.length, 3);
+    expect(library.shelves.single.bookKeys, ids.map((id) => 'fanqie:$id'));
+    expect(library.books.every((book) => book.chapters.isEmpty), isTrue);
+    expect(tester.takeException(), isNull);
+  }, variant: platforms);
+
+  testWidgets('菠萝包取消后不再请求下一批，也不保存已经完成的预览', (tester) async {
+    viewport(tester);
+    final pending = <Completer<http.Response>>[];
+    final api = SfacgApi(
+      client: MockClient((request) async {
+        if (request.url.path == '/user/Pockets') {
+          return http.Response(
+            jsonEncode({
+              'status': {'httpCode': 200},
+              'data': [
+                {
+                  'pocketId': 10,
+                  'name': '收藏',
+                  'typeId': 2,
+                  'expand': {
+                    'novels': [
+                      for (var id = 1; id <= 9; id++) {'novelId': id},
+                    ],
+                  },
+                },
+              ],
+            }),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }
+        final response = Completer<http.Response>();
+        pending.add(response);
+        return response.future;
+      }),
+    )..setCookie('.SFCommunity=fake; session_APP=fake');
+    final library = MemoryShelfLibrary(SfacgSource(api));
+    addTearDown(api.close);
+    addTearDown(library.dispose);
+    await tester.pumpWidget(UnrApp(library: library));
+    await enterImport(tester);
+    await tester.tap(find.widgetWithText(FilledButton, '导入'));
+    await tester.pump();
+    expect(pending.length, 4);
+    await tester.tap(find.text('取消导入'));
+    for (var i = 0; i < pending.length; i++) {
+      pending[i].complete(
+        http.Response(
+          jsonEncode({
+            'status': {'httpCode': 200},
+            'data': {'novelId': i + 1, 'novelName': '作品${i + 1}'},
+          }),
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        ),
+      );
+    }
+    await tester.pumpAndSettle();
+    expect(pending.length, 4);
+    expect(library.books, isEmpty);
+    expect(library.shelves, isEmpty);
     expect(tester.takeException(), isNull);
   }, variant: platforms);
 }

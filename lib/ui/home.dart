@@ -262,14 +262,34 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _openShelfBook(Book book, {bool details = false}) async {
     if (busy) return;
-    if (!details && book.chapters.isEmpty) {
+    final service = library.sourceFor(book);
+    if (!details && book.chapters.isEmpty && service == null) {
       setState(() => error = '当前作品暂无可阅读章节，可长按作品查看详情。');
       return;
     }
-    setState(() => busy = true);
+    setState(() {
+      busy = true;
+      error = null;
+    });
+    final openingTab = tab, openingShelf = selectedShelf;
+    bool active() =>
+        mounted &&
+        tab == openingTab &&
+        selectedShelf == openingShelf &&
+        (ModalRoute.of(context)?.isCurrent ?? false);
     try {
+      if (book.chapters.isEmpty && service != null) {
+        final full = await service.getBook(book.id);
+        if (!active()) return;
+        if (full.key != book.key || full.chapters.isEmpty) {
+          throw const SourceException('书源未返回对应作品的完整目录，请重试');
+        }
+        await library.updateBook(full);
+        book = full;
+      }
+      if (!active()) return;
       await library.markActive(book);
-      if (!mounted) return;
+      if (!mounted || !active()) return;
       await Navigator.push(
         context,
         MaterialPageRoute<void>(
@@ -279,7 +299,7 @@ class _HomePageState extends State<HomePage> {
         ),
       );
     } catch (e) {
-      if (mounted) setState(() => error = '$e');
+      if (active()) setState(() => error = '$e');
     } finally {
       if (mounted) setState(() => busy = false);
     }
@@ -453,7 +473,7 @@ class _HomePageState extends State<HomePage> {
                       ),
                     ),
                     Text(
-                      '${library.sourceName(book)} · ${book.chapters.length} 章',
+                      '${library.sourceName(book)} · ${book.chapters.isEmpty && library.sourceFor(book) != null ? '目录待加载' : '${book.chapters.length} 章'}',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       textAlign: TextAlign.center,
@@ -476,7 +496,7 @@ class _HomePageState extends State<HomePage> {
   String _readingStatus(Book book) {
     final saved = library.progress[book.key];
     if (saved == null || saved.isEmpty) return '未读过';
-    if (book.chapters.isEmpty) return '暂无章节目录';
+    if (book.chapters.isEmpty) return _emptyDirectoryLabel(book);
     final index = saved.first.clamp(0, book.chapters.length - 1);
     final remaining = book.chapters.length - index - 1;
     return '已读至第 ${index + 1} 章${remaining > 0 ? ' · $remaining 章未读' : ''}';
@@ -502,10 +522,13 @@ class _HomePageState extends State<HomePage> {
         label = '刚刚更新';
       }
     }
-    if (book.chapters.isEmpty) return '$label · 暂无章节目录';
+    if (book.chapters.isEmpty) return '$label · ${_emptyDirectoryLabel(book)}';
     final latest = book.chapters.last;
     return '$label · 第${book.chapters.length}章 ${latest.title}${latest.wordCount == null ? '' : '（${latest.wordCount}字）'}';
   }
+
+  String _emptyDirectoryLabel(Book book) =>
+      library.sourceFor(book) == null ? '暂无章节目录' : '目录待加载';
 
   Widget _shelfList(List<Book> shelf) => Center(
     child: ConstrainedBox(
