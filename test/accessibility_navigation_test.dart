@@ -124,7 +124,7 @@ void main() {
         await mouse.moveTo(tester.getCenter(find.text('测试书').last));
         await tester.tap(find.text('测试书').last);
         await tester.pumpAndSettle();
-        await tester.tap(find.text('继续阅读'));
+        await tester.tap(find.text(cycle == 0 ? '开始阅读' : '继续阅读'));
         await tester.pumpAndSettle();
         await showReadingControls(tester);
         await mouse.moveTo(tester.getCenter(find.byTooltip('阅读设置')));

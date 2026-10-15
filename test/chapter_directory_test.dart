@@ -52,6 +52,70 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
   }
 
+  testWidgets('详情阅读按钮只依据当前作品的非空阅读记录', (tester) async {
+    configure(tester);
+    final library = DirectoryLibrary();
+    addTearDown(library.dispose);
+    addTearDown(library.source.api.close);
+    library.progress['sfacg:${book.id}'] = [2, 0];
+    library.pageOffsets[book.key] = 0;
+    await library.markActive(book);
+    for (final saved in <List<int>?>[
+      null,
+      [],
+      [0, 0],
+      [2, 0],
+    ]) {
+      if (saved == null) {
+        library.progress.remove(book.key);
+      } else {
+        library.progress[book.key] = saved;
+      }
+      await tester.pumpWidget(
+        MaterialApp(
+          home: BookPage(library: library, book: book),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final hasProgress = saved?.isNotEmpty == true;
+      expect(find.text(hasProgress ? '继续阅读' : '开始阅读'), findsOneWidget);
+      expect(find.text(hasProgress ? '开始阅读' : '继续阅读'), findsNothing);
+      expect(find.text('目录 · 已缓存 1 / 5 章'), findsOneWidget);
+    }
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  }, variant: platforms);
+
+  testWidgets('首次阅读返回详情后改为继续阅读，并恢复已读章节', (tester) async {
+    configure(tester);
+    final library = DirectoryLibrary();
+    addTearDown(library.dispose);
+    addTearDown(library.source.api.close);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: BookPage(library: library, book: book),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('开始阅读'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('正文1').hitTestable(), findsOneWidget);
+    await showReadingControls(tester);
+    await tester.tap(find.text('下一章'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('正文2').hitTestable(), findsOneWidget);
+    await showReadingControls(tester);
+    await tester.tap(find.byType(BackButton).hitTestable());
+    await tester.pumpAndSettle();
+    expect(library.progress[book.key]?.first, 1);
+    expect(find.text('开始阅读'), findsNothing);
+    await tester.tap(find.text('继续阅读'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('正文2').hitTestable(), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  }, variant: platforms);
+
   testWidgets('分卷默认折叠，独立展开收起并保持全书序号与缓存和权限标记', (tester) async {
     var selected = -1;
     await tester.pumpWidget(

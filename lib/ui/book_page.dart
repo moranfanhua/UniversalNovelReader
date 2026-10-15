@@ -210,7 +210,15 @@ class _BookPageState extends State<BookPage> {
                                         _refreshCached();
                                       },
                                 icon: const Icon(Icons.menu_book),
-                                label: const Text('继续阅读'),
+                                label: Text(
+                                  widget
+                                              .library
+                                              .progress[book.key]
+                                              ?.isNotEmpty ==
+                                          true
+                                      ? '继续阅读'
+                                      : '开始阅读',
+                                ),
                               ),
                               if (widget.library.sourceFor(book) != null)
                                 OutlinedButton.icon(
