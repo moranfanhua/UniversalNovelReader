@@ -20,7 +20,6 @@ class MainActivity : FlutterActivity() {
     private val consumedKeys = mutableSetOf<Int>()
     private var sessionChannel: MethodChannel? = null
     private var captureEvents: EventChannel? = null
-    private var loginResult: MethodChannel.Result? = null
     private var vpnResult: MethodChannel.Result? = null
     private var vpnPlatform: SessionPlatform? = null
     private var helperGeneration = 0
@@ -85,14 +84,6 @@ class MainActivity : FlutterActivity() {
                             vpnResult?.error("cancelled", "已取消 VPN 授权", null)
                             vpnResult = null; vpnPlatform = null
                             result.success(null)
-                        }
-                        "openLogin" -> {
-                            check(loginResult == null) { "网页登录正在进行" }
-                            val source = SessionPlatform.fromId(call.argument<String>("source"))
-                            check(call.argument<Boolean>("vpn") != true) { "VPN 辅助请打开官方 App" }
-                            SessionCapture.stop()
-                            loginResult = result
-                            startActivityForResult(Intent(this, WebLoginActivity::class.java).putExtra("source", source.id), 5134)
                         }
                         "openApp" -> {
                             val source = SessionPlatform.fromId(call.argument<String>("source"))
@@ -171,10 +162,7 @@ class MainActivity : FlutterActivity() {
             if (resultCode == Activity.RESULT_OK && source != null) {
                 try { SessionCapture.start(source); result?.success(SessionCapture.snapshot()) }
                 catch (_: Exception) { result?.error("vpn", "无法启动 VPN，请检查授权与运行状态", null) }
-            } else result?.error("cancelled", "未授权 VPN，网页登录仍可直接使用", null)
-        } else if (requestCode == 5134) {
-            loginResult?.success(if (resultCode == Activity.RESULT_OK) data?.getStringExtra("cookie") else null)
-            loginResult = null
+            } else result?.error("cancelled", "未授权 VPN，请使用短信、账号密码或导入 App 会话", null)
         }
     }
 
@@ -212,7 +200,6 @@ class MainActivity : FlutterActivity() {
         sessionChannel?.setMethodCallHandler(null)
         captureEvents?.setStreamHandler(null)
         sessionChannel = null; captureEvents = null
-        loginResult?.success(null); loginResult = null
         vpnResult?.error("cancelled", "会话辅助已关闭", null); vpnResult = null
         volumeKeysEnabled = false
         consumedKeys.clear()

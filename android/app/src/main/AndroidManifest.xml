@@ -20,13 +20,6 @@
             <meta-data android:name="android.net.VpnService.SUPPORTS_ALWAYS_ON" android:value="false" />
         </service>
         <activity
-            android:name=".WebLoginActivity"
-            android:windowSoftInputMode="adjustResize"
-            android:exported="false"
-            android:excludeFromRecents="true"
-            android:configChanges="orientation|screenSize|keyboardHidden"
-            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
-        <activity
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTop"

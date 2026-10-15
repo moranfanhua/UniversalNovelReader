@@ -32,6 +32,4 @@ class SessionHelper {
       _channel.invokeMethod<void>('openApp', {'source': source});
   static Future<String?> captureResult(String source) =>
       _channel.invokeMethod<String>('captureResult', {'source': source});
-  static Future<String?> openLogin(String source) => _channel
-      .invokeMethod<String>('openLogin', {'source': source, 'vpn': false});
 }

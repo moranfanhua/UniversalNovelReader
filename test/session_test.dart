@@ -81,7 +81,8 @@ void main() {
     addTearDown(api.close);
     expect(api.device, device);
     expect(api.websiteSession, isTrue);
-    expect(api.hasSession, isTrue);
+    expect(api.hasSession, isFalse);
+    expect(api.sessionNotice, contains('原会话数据已保留'));
     expect(await const FlutterSecureStorage().read(key: key), value);
   });
   test('安全存储不可读时继续启动，提示恢复失败且不覆盖旧会话', () async {

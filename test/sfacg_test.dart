@@ -196,6 +196,60 @@ void main() {
     api.close();
   });
 
+  test('登录拒绝匿名校验，失败不覆盖已有会话', () async {
+    final api = SfacgApi(
+      client: MockClient((request) async {
+        if (request.url.path == '/sessions') {
+          expect(jsonDecode(request.body), {
+            'username': 'reader',
+            'password': 'test-password',
+            'shuMeiId': '',
+          });
+          return http.Response(
+            jsonEncode({
+              'status': {'httpCode': 200},
+              'data': {},
+            }),
+            200,
+            headers: {
+              'set-cookie':
+                  '.SFCommunity=new; Path=/, session_APP=new-app; Path=/',
+            },
+          );
+        }
+        return ok({'accountId': 0, 'userId': 42});
+      }),
+    )..setCookie('.SFCommunity=old; session_APP=old-app');
+    addTearDown(api.close);
+    api.onSessionChanged = () async => fail('未校验的会话不得保存');
+    await expectLater(
+      api.login('reader', 'test-password'),
+      throwsA(isA<SourceException>()),
+    );
+    expect(api.cookies['session_APP'], 'old-app');
+  });
+
+  test('登录服务错误不自动重发密码请求', () async {
+    var attempts = 0;
+    final api = SfacgApi(
+      client: MockClient((request) async {
+        attempts++;
+        return http.Response(
+          jsonEncode({
+            'status': {'httpCode': 503},
+          }),
+          503,
+        );
+      }),
+    );
+    addTearDown(api.close);
+    await expectLater(
+      api.login('reader', 'test-password'),
+      throwsA(isA<SourceException>()),
+    );
+    expect(attempts, 1);
+  });
+
   test('登录 401 保留错误阶段与错误码，同时隐藏账号密码', () async {
     final api = SfacgApi(
       client: MockClient(

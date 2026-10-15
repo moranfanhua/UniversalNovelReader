@@ -81,7 +81,9 @@ class FanqieAuth {
       throw const SourceException('无法连接番茄认证服务，请检查网络');
     }
     if (response.statusCode != 200) {
-      throw SourceException('番茄认证请求失败（HTTP ${response.statusCode}），请尝试网页登录');
+      throw SourceException(
+        '番茄认证请求失败（HTTP ${response.statusCode}），请稍后重试或导入 App 会话',
+      );
     }
     Map<String, dynamic> document;
     if (_closed) throw const SourceException('已退出番茄登录');
@@ -89,7 +91,7 @@ class FanqieAuth {
       document =
           jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
     } catch (_) {
-      throw const SourceException('番茄认证返回无法识别的数据，请尝试网页登录');
+      throw const SourceException('番茄认证返回无法识别的数据，请稍后重试或导入 App 会话');
     }
     final data = document['data'] is Map
         ? Map<String, dynamic>.from(document['data'])
@@ -103,12 +105,12 @@ class FanqieAuth {
           -1;
       if (code == 7) {
         throw const SourceException(
-          '番茄认证限制了本次请求（错误码 7：访问太频繁），请稍后重试或使用网页登录',
+          '番茄认证限制了本次请求（错误码 7：访问太频繁），请稍后重试或导入 App 会话',
           code: 7,
         );
       }
       throw SourceException(
-        '番茄认证未通过（错误码 $code），请检查输入；如需安全验证请使用网页登录',
+        '番茄认证未通过（错误码 $code），请检查输入；如需安全验证请在官方 App 完成登录后导入 App 会话',
         code: code,
       );
     }
@@ -158,7 +160,7 @@ class FanqieAuth {
     });
     if (_cookies['sessionid']?.isNotEmpty != true &&
         _cookies['sessionid_ss']?.isNotEmpty != true) {
-      throw const SourceException('番茄登录未返回完整会话，请使用网页登录');
+      throw const SourceException('番茄登录未返回完整会话，请在官方 App 完成登录后导入 App 会话');
     }
     return _cookies.entries
         .map((entry) => '${entry.key}=${entry.value}')
