@@ -87,12 +87,19 @@ class _HomePageState extends State<HomePage> {
           : Uri.tryParse(link[0]!)?.host.toLowerCase();
       final sourceHint =
           sourceId ??
-          ([
-                    'fanqienovel.com',
-                    'www.fanqienovel.com',
-                    'reading.snssdk.com',
-                  ].contains(host) ||
-                  RegExp(r'^[1-9]\d{14,19}$').hasMatch(input.trim())
+          ({
+                'qidian.com',
+                'www.qidian.com',
+                'm.qidian.com',
+                'book.qidian.com',
+              }.contains(host)
+              ? 'qidian'
+              : [
+                      'fanqienovel.com',
+                      'www.fanqienovel.com',
+                      'reading.snssdk.com',
+                    ].contains(host) ||
+                    RegExp(r'^[1-9]\d{14,19}$').hasMatch(input.trim())
               ? 'fanqie'
               : 'sfacg');
       final service = library.searchSources.firstWhere(

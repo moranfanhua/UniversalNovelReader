@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import '../data/library.dart';
 import '../sources/sfacg/sfacg_session.dart';
 import '../sources/fanqie/fanqie_source.dart';
+import '../sources/qidian/qidian_source.dart';
+import 'qidian_account.dart';
 import '../sources/session_helper.dart';
 import 'fanqie_account.dart';
 import 'session_helper_page.dart';
@@ -23,7 +25,10 @@ class AccountSettingsPage extends StatelessWidget {
           children: [
             for (final (index, source) in platformDisplayOrder(
               library.searchSources.where(
-                (source) => source.id == 'sfacg' || source is FanqieSource,
+                (source) =>
+                    source.id == 'sfacg' ||
+                    source is FanqieSource ||
+                    source is QidianSource,
               ),
             ).indexed)
               Card(
@@ -34,21 +39,29 @@ class AccountSettingsPage extends StatelessWidget {
                 child: ListTile(
                   leading: ClipRRect(
                     borderRadius: BorderRadius.circular(10),
-                    child: Image.asset(
-                      source is FanqieSource
-                          ? 'assets/fanqie_icon.webp'
-                          : 'assets/sfacg_icon.jpg',
-                      width: 44,
-                      height: 44,
-                      excludeFromSemantics: true,
-                    ),
+                    child: source is QidianSource
+                        ? const SizedBox(
+                            width: 44,
+                            height: 44,
+                            child: Icon(Icons.auto_stories, color: Colors.red),
+                          )
+                        : Image.asset(
+                            source is FanqieSource
+                                ? 'assets/fanqie_icon.webp'
+                                : 'assets/sfacg_icon.jpg',
+                            width: 44,
+                            height: 44,
+                            excludeFromSemantics: true,
+                          ),
                   ),
                   title: Text(source.name),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () => Navigator.push<void>(
                     context,
                     MaterialPageRoute(
-                      builder: (_) => source is FanqieSource
+                      builder: (_) => source is QidianSource
+                          ? QidianAccountPage(api: source.api)
+                          : source is FanqieSource
                           ? FanqieAccountPage(api: source.api)
                           : Scaffold(
                               appBar: AppBar(title: Text(source.name)),
