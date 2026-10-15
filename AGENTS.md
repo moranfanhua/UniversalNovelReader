@@ -72,6 +72,11 @@ python -m unittest discover -s .github/scripts/tests -v
 * 提交前运行 `git diff --check`，并检查将提交的差异。若其他任务存在错误或空白问题，说明其归属，不擅自修正。
 * 只有用户要求或当前任务确需设备验证时才安装调试包；先确认设备与应用标识，保留现有数据，避免卸载重装。真实登录结果必须实际核实，不能用 mock 测试代替。
 
+## Issue 分析与 PR 审查
+
+* 用户要求分析本项目 Issue、故障反馈、日志或功能诉求时，读取并使用 `.agents/skills/issue-analysis/SKILL.md`，可通过 `$issue-analysis` 调用。区分已证实事实、待验证假设与缺失证据，结合用户版本和当前实现判断，不把分析请求视为修复或对外回复授权。
+* 用户要求审查本项目 PR 时，必须读取并使用 `.agents/skills/pr-review/SKILL.md`，可通过 `$pr-review` 调用。启动两个独立子智能体，先分别审查同一提交，再交换候选问题交叉核验，等待双方结果后由主智能体依据证据裁定分歧并汇总。普通开发后的自查不自动触发该流程。
+
 ## 文件、隐私与许可
 
 * `README.md` 只维护开源库、参考来源、版权与许可声明。版本说明写入根目录 `CHANGELOG.md`，agent 约定写在本文件，skill 写入 `.agents/skills/`。

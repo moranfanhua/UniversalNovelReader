@@ -1,0 +1,4 @@
+interface:
+  display_name: "UNR PR 交叉审查"
+  short_description: "两个子智能体独立审查 UNR PR，交叉核验候选问题并汇总有证据的结论"
+  default_prompt: "使用 $pr-review 审查这个 UNR PR，等待两个独立子智能体完成审查和交叉核验，再汇总结论。"
