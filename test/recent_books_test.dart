@@ -171,6 +171,74 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
   }
 
+  for (final (input, onShelf) in [('1', true), ('作品', false)]) {
+    for (final mode in ReadingMode.values) {
+      testWidgets('重新打开已有作品同步目录并恢复新增章节（$input，${mode.name}）', (tester) async {
+        viewport(tester);
+        final previous = sample('1');
+        source.opened = const Book(
+          id: '1',
+          title: '作品1',
+          author: '作者',
+          chapters: [
+            Chapter(id: 'chapter', title: '第一章'),
+            Chapter(id: 'new-chapter', title: '新增第二章'),
+          ],
+        );
+        final library = RecentLibrary(source)..readingMode = mode;
+        addTearDown(library.dispose);
+        if (onShelf) library.books.add(previous);
+        library.recentBooks.addAll([sample('2'), previous]);
+        await tester.pumpWidget(UnrApp(library: library));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('书源'));
+        await tester.pumpAndSettle();
+        await tester.enterText(find.byType(TextField), input);
+        await tester.tap(find.byTooltip('搜索或添加作品'));
+        await tester.pumpAndSettle();
+        if (input != '1') {
+          await tester.tap(find.byKey(ValueKey('search-${previous.key}')));
+          await tester.pumpAndSettle();
+        }
+        expect(find.byType(BookPage), findsOneWidget);
+        expect(library.isOnShelf(previous), onShelf);
+        if (onShelf) expect(library.books.single.chapters.length, 2);
+        expect(library.recentBooks.map((book) => book.key), [
+          'sfacg:2',
+          previous.key,
+        ]);
+        expect(library.recentBooks.last.chapters.length, 2);
+        expect(library.progress, isEmpty);
+        await tester.tap(find.text('开始阅读'));
+        await tester.pumpAndSettle();
+        await showReadingControls(tester);
+        await tester.tap(find.text('下一章'));
+        await tester.pumpAndSettle();
+        expect(readingChapter(tester), 1);
+        await showReadingControls(tester);
+        await tester.tap(find.byType(BackButton).hitTestable());
+        await tester.pumpAndSettle();
+        expect(library.progress[previous.key]?.first, 1);
+        await tester.tap(find.byType(BackButton));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('书库'));
+        await tester.pumpAndSettle();
+        if (!onShelf) {
+          await tester.tap(find.byKey(const ValueKey('bookshelf-selector')));
+          await tester.pumpAndSettle();
+          await tester.tap(find.text('最近阅读').last);
+          await tester.pumpAndSettle();
+        }
+        await tester.tap(find.byKey(ValueKey('shelf-book-${previous.key}')));
+        await tester.pumpAndSettle();
+        expect(readingChapter(tester), 1);
+        expect(library.isOnShelf(previous), onShelf);
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox.shrink());
+      }, variant: platforms);
+    }
+  }
+
   for (final mode in ReadingMode.values) {
     testWidgets('正文成功显示后才加入最近阅读，加载中和失败不记录（${mode.name}）', (tester) async {
       viewport(tester);

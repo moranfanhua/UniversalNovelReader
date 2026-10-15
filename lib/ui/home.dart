@@ -99,6 +99,7 @@ class _HomePageState extends State<HomePage> {
         orElse: () => throw const SourceException('对应书源尚未启用'),
       );
       final book = await service.getBook(input);
+      await library.updateBook(book);
       await library.markActive(book);
       if (mounted) {
         await Navigator.push(
