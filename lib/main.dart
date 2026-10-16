@@ -9,6 +9,8 @@ import 'sources/sfacg/sfacg_session.dart';
 import 'sources/sfacg/sfacg_source.dart';
 import 'sources/fanqie/fanqie_source.dart';
 import 'sources/fanqie/fanqie_session.dart';
+import 'sources/qidian/qidian_source.dart';
+import 'sources/qidian/qidian_session.dart';
 import 'ui/home.dart';
 import 'ui/logs.dart';
 import 'ui/app_theme.dart';
@@ -28,9 +30,13 @@ void main() async {
       jsonDecode(await rootBundle.loadString('assets/fanqie_cipher.json')),
     );
     final fanqieApi = await FanqieSession.open();
+    final qidianApi = await QidianSession.open();
     final library = await Library.open(
       SfacgSource(api, cipher: cipher),
-      novelSources: [FanqieSource(fanqieApi, cipher: fanqieCipher)],
+      novelSources: [
+        FanqieSource(fanqieApi, cipher: fanqieCipher),
+        QidianSource(qidianApi),
+      ],
     );
     log.record(LogLevel.info, 'app.started');
     runApp(UnrApp(library: library));
