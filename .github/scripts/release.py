@@ -17,6 +17,7 @@ import zipfile
 
 
 ABIS = ("armeabi-v7a", "arm64-v8a", "x86_64")
+LICENSE_FILES = ("LICENSE", "LICENSE-other.md")
 VERSION = re.compile(r"(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z.-]+))?")
 
 
@@ -186,7 +187,7 @@ def windows(root, version):
                 raise ValueError("Windows 构建目录中不应含符号链接")
             if file.is_file():
                 archive.write(file, file.relative_to(source).as_posix())
-        for name in ("LICENSE", "README.md"):
+        for name in (*LICENSE_FILES, "README.md"):
             archive.write(root / name, name)
     return destination
 
@@ -215,7 +216,7 @@ def validate_assets(root, version):
         with zipfile.ZipFile(file) as archive:
             entries = set(archive.namelist())
             if name.endswith(".zip"):
-                required = {"unr.exe", "flutter_windows.dll", "data/app.so", "data/icudtl.dat", "LICENSE", "README.md"}
+                required = {"unr.exe", "flutter_windows.dll", "data/app.so", "data/icudtl.dat", *LICENSE_FILES, "README.md"}
             else:
                 abis = ABIS if name.endswith("universal.apk") else (next(abi for abi in ABIS if name.endswith(f"{abi}.apk")),)
                 required = {"AndroidManifest.xml", *[f"lib/{abi}/libapp.so" for abi in abis]}
@@ -227,9 +228,10 @@ def validate_assets(root, version):
 def finalize(root, version):
     files = validate_assets(root, version)
     destination = release_directory(root)
-    license_file = destination / "LICENSE"
-    shutil.copyfile(root / "LICENSE", license_file)
-    files.append(license_file)
+    for name in LICENSE_FILES:
+        license_file = destination / name
+        shutil.copyfile(root / name, license_file)
+        files.append(license_file)
     checksums = destination / "SHA256SUMS"
     with checksums.open("w", encoding="utf-8", newline="\n") as handle:
         for file in files:
