@@ -1,5 +1,23 @@
 # 更新日志
 
+## v0.3.2
+
+### 新增 | New
+
+* 显示模式新增“跟随系统”，也可固定为日间或夜间模式；软件设置新增“外观”入口，与阅读设置及阅读器快捷切换共用同一偏好。新书库默认跟随系统，升级时保留原有日夜选择。[#17](https://github.com/moranfanhua/UniversalNovelReader/pull/17)
+* 阅读设置支持将段评入口设为“固定右侧”或“跟随段尾”，适用于滚动、翻页和宽屏双页阅读；段尾空间不足时气泡另起一行，跨页长段仅在段尾显示跟随入口。[#16](https://github.com/moranfanhua/UniversalNovelReader/pull/16)
+
+### 改进 | Improved
+
+* 段评入口改为紧凑气泡，评论数显示在气泡内，超过 999 条显示为“999+”；固定右侧时对齐段落末行，计数更新不再挤动正文。[#16](https://github.com/moranfanhua/UniversalNovelReader/pull/16)
+* 统一正文排版与分页测量，适配系统粗体、文字缩放及文字间距变化，改善页末文字与段评气泡的显示；插图段评保持完整入口并可点击。[#16](https://github.com/moranfanhua/UniversalNovelReader/pull/16)
+* Android 状态栏与底部导航栏随当前日夜模式调整颜色和图标明暗，阅读器隐藏操作栏时也保持一致。[#17](https://github.com/moranfanhua/UniversalNovelReader/pull/17)
+
+### 修复 | Fix
+
+* 修复从番茄书架导入连载作品后，首次打开时报“番茄 App 未返回完整章节目录”的问题；按 App 返回的章节列表顺序加载普通连载目录，兼容可选目录字段缺失或为空的情况。[#15](https://github.com/moranfanhua/UniversalNovelReader/pull/15)
+* 修复在 Windows 上构建 Android 包时，项目与 Pub 缓存位于不同盘符导致的 Kotlin 增量编译失败。[#17](https://github.com/moranfanhua/UniversalNovelReader/pull/17)
+
 ## v0.3.1
 
 ### 改进 | Improved
