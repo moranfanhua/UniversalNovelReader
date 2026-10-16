@@ -1,0 +1,1 @@
+enum ParagraphCommentPlacement { right, paragraphEnd }

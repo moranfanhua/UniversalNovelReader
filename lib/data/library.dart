@@ -8,6 +8,7 @@ import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
 import 'package:pinyin/pinyin.dart';
 import '../domain/models.dart';
+import '../domain/reading_preferences.dart';
 import '../domain/bookshelf.dart';
 import '../sources/bookshelf_source.dart';
 import '../sources/sfacg/sfacg_source.dart';
@@ -149,6 +150,8 @@ class Library extends ChangeNotifier {
   ReadingMode readingMode = ReadingMode.scroll;
   bool volumeKeyPaging = true;
   bool showParagraphComments = true;
+  ParagraphCommentPlacement paragraphCommentPlacement =
+      ParagraphCommentPlacement.right;
   final Map<String, int> pageOffsets = {};
   // Entry alignment and preceding spread origin, indexed by book and chapter.
   final Map<String, List<int>> pagedChapterEntries = {};
@@ -212,6 +215,11 @@ class Library extends ChangeNotifier {
       library.night = data['night'] == true;
       library.volumeKeyPaging = data['volumeKeyPaging'] != false;
       library.showParagraphComments = data['showParagraphComments'] != false;
+      library.paragraphCommentPlacement = ParagraphCommentPlacement.values
+          .firstWhere(
+            (placement) => placement.name == data['paragraphCommentPlacement'],
+            orElse: () => ParagraphCommentPlacement.right,
+          );
       library._disabledSearchSources.addAll(
         (data['disabledSearchSources'] as List? ?? []).whereType<String>(),
       );
@@ -341,6 +349,7 @@ class Library extends ChangeNotifier {
       'readingMode': readingMode.name,
       'volumeKeyPaging': volumeKeyPaging,
       'showParagraphComments': showParagraphComments,
+      'paragraphCommentPlacement': paragraphCommentPlacement.name,
       'disabledSearchSources': _disabledSearchSources.toList(),
       'pageOffsets': pageOffsets,
       'pagedChapterEntries': pagedChapterEntries,
@@ -410,6 +419,7 @@ class Library extends ChangeNotifier {
     readingMode = ReadingMode.scroll;
     volumeKeyPaging = true;
     showParagraphComments = true;
+    paragraphCommentPlacement = ParagraphCommentPlacement.right;
     night = false;
     await save();
   }
