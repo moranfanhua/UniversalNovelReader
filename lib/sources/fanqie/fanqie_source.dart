@@ -309,7 +309,20 @@ class FanqieSource extends FanqieComments
   static List<Chapter> parseAppDirectory(Map<String, dynamic> data) {
     final items = data['item_data_list'], itemIds = data['item_list'];
     final catalog = data['catalog_data'];
-    if (items is! List || itemIds is! List || items.isEmpty) {
+    if (items is! List ||
+        items.isEmpty ||
+        itemIds != null && itemIds is! List) {
+      throw const SourceException('番茄 App 未返回完整章节目录');
+    }
+    final info = data['book_info'];
+    // APK CatalogDataHelper uses catalog_data only for non-serial EPUB books.
+    // Serial novels use the ordered item_data_list, even when catalog_data and
+    // the legacy item_list are absent or empty.
+    final usesCatalog =
+        info is Map &&
+        '${info['novel_text_type']}' == '1' &&
+        '${info['genre']}' != '0';
+    if (usesCatalog && (catalog is! List || catalog.isEmpty)) {
       throw const SourceException('番茄 App 未返回完整章节目录');
     }
     final catalogById = <String, Map>{};
@@ -326,11 +339,6 @@ class FanqieSource extends FanqieComments
         catalogById[cid] = entry;
       }
     }
-    // App responses can leave item_list empty and put ordering in catalog_data.
-    final ids = itemIds.isEmpty ? catalogById.keys.toList() : itemIds;
-    if (ids.length != items.length) {
-      throw const SourceException('番茄 App 未返回完整章节目录');
-    }
     final byId = <String, Map>{};
     for (final item in items) {
       if (item is! Map) throw const SourceException('番茄 App 章节格式已变化');
@@ -340,10 +348,20 @@ class FanqieSource extends FanqieComments
       }
       byId[cid] = item;
     }
+    final ids = usesCatalog ? catalogById.keys.toList() : byId.keys.toList();
+    if (ids.length != items.length ||
+        itemIds is List &&
+            itemIds.isNotEmpty &&
+            (itemIds.length != ids.length ||
+                !Iterable<int>.generate(
+                  ids.length,
+                ).every((i) => '${itemIds[i]}' == ids[i]))) {
+      throw const SourceException('番茄 App 未返回完整章节目录');
+    }
     final chapters = <Chapter>[];
     final seen = <String>{};
     for (final rawId in ids) {
-      final cid = '$rawId', item = byId['$rawId'];
+      final cid = rawId, item = byId[rawId];
       if (item == null || !seen.add(cid)) {
         throw const SourceException('番茄 App 目录包含重复或缺失章节');
       }
