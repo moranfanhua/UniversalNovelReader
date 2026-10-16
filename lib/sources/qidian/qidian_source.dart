@@ -1,13 +1,17 @@
 import 'dart:convert';
 import 'dart:math' as math;
+import 'dart:typed_data';
+
+import 'package:archive/archive.dart';
 
 import '../../domain/models.dart';
 import '../novel_source.dart';
+import '../chapter_batch_source.dart';
 import 'qidian_api.dart';
 import 'qidian_crypto.dart';
 import 'qidian_fock.dart';
 
-class QidianSource implements SearchableNovelSource {
+class QidianSource implements SearchableNovelSource, ChapterBatchSource {
   QidianSource(this.api);
   final QidianApi api;
   @override
@@ -222,8 +226,38 @@ class QidianSource implements SearchableNovelSource {
       api.responseData(response);
       throw const SourceException('起点未返回章节正文');
     }
+    return _decodeContent(bid, cid, vip, response.bodyBytes, session);
+  }
+
+  void _checkSession(QidianCredentials? session) {
+    if (!identical(session, api.credentials)) {
+      throw const SourceException('起点账号已切换，请重新下载章节');
+    }
+  }
+
+  Future<QidianReadingKey> _readingKey(
+    String bid,
+    QidianCredentials? session,
+  ) async {
+    final data = await api.request('/argus/api/v4/bookcontent/getkey', {
+      'bookId': bid,
+      'ui': '0',
+    });
+    _checkSession(session);
+    return QidianReadingKey.fromJson(data);
+  }
+
+  Future<ChapterContent> _decodeContent(
+    String bid,
+    String cid,
+    bool vip,
+    Uint8List bytes,
+    QidianCredentials? session, {
+    Future<QidianReadingKey> Function()? getKey,
+  }) async {
+    _checkSession(session);
     final data = QidianCrypto.decodeChapter(
-      response.bodyBytes,
+      bytes,
       chapterId: cid,
       device: api.device,
       userId: session?.userId ?? '0',
@@ -242,22 +276,159 @@ class QidianSource implements SearchableNovelSource {
       // Image-only chapters have no FOCK text payload. The block parser below
       // still requires valid content before the chapter can enter the cache.
       if (content.trim().isNotEmpty) {
-        final keyData = await api.request('/argus/api/v4/bookcontent/getkey', {
-          'bookId': bid,
-          'ui': '0',
-        });
-        checkSession();
+        final key = await (getKey?.call() ?? _readingKey(bid, session));
+        _checkSession(session);
         content = QidianFock.decode(
           content,
           chapterId: cid,
           device: api.device,
-          readingKey: QidianReadingKey.fromJson(keyData),
+          readingKey: key,
         );
       }
     } else if (type != '0') {
       throw const SourceException('起点正文加密格式暂不支持');
     }
     return parseContent(content, data['Blocks']);
+  }
+
+  @override
+  int get chapterBatchSize => 100;
+  @override
+  int get chapterBatchConcurrency => 1;
+
+  @override
+  Future<List<ChapterBatchResult>> readChapterBatch(
+    Book book,
+    List<Chapter> chapters,
+  ) async {
+    if (chapters.isEmpty) return [];
+    if (book.source != id ||
+        chapters.length > chapterBatchSize ||
+        chapters.map((c) => c.id).toSet().length != chapters.length) {
+      throw const SourceException('起点批量下载作品或章节数量无效');
+    }
+    final bid = bookId(book.id);
+    final directory = {
+      for (final chapter in book.chapters) chapter.id: chapter,
+    };
+    final session = api.credentials;
+    final results = <String, ChapterBatchResult>{};
+    Set<String> owned = {};
+    Object? ownershipError;
+    if (chapters.any((c) => directory[c.id]?.vip == true)) {
+      try {
+        if (session == null) throw const SourceException('请先登录起点读书，仅可下载已有权限章节');
+        final payload = api.responsePayload(
+          await api.send('/argus/api/v2/subscription/getboughtchapterlist', {
+            'bookId': bid,
+          }, post: true),
+        );
+        _checkSession(session);
+        if (payload is! List) throw const SourceException('起点已购章节列表格式已变化');
+        owned = payload.map((value) => '$value').toSet();
+      } catch (error) {
+        ownershipError = error;
+      }
+    }
+    _checkSession(session);
+    final eligible = <Chapter>[];
+    for (final chapter in chapters) {
+      final selected = directory[chapter.id];
+      if (selected == null) {
+        results[chapter.id] = ChapterBatchResult.failure(
+          chapter.id,
+          const SourceException('起点作品与章节不匹配'),
+        );
+      } else if (selected.vip && !owned.contains(selected.id)) {
+        results[selected.id] = ChapterBatchResult.failure(
+          selected.id,
+          ownershipError ?? const SourceException('此章节尚未购买，请先在起点官方 App 购买后重试'),
+        );
+      } else {
+        bookId(selected.id);
+        eligible.add(selected);
+      }
+    }
+    if (eligible.isNotEmpty) {
+      try {
+        // Official QDChapterBatchDownloadLoader, default 100 chapters per task.
+        final data = await api.request(
+          '/argus/newapi/v1/bookcontent/getcontentbatch',
+          {'b': bid, 'c': eligible.map((c) => c.id).join(','), 'useImei': '0'},
+          post: true,
+        );
+        _checkSession(session);
+        final key = await _readingKey(bid, session);
+        // FockUtil.unlock(DownloadUrl, bookId, "BatchChapterCos_...") uses the
+        // book ID for key derivation; the third argument is its cache label.
+        final address = QidianFock.decode(
+          '${data['DownloadUrl'] ?? ''}',
+          chapterId: bid,
+          device: api.device,
+          readingKey: key,
+        );
+        final bytes = await api.downloadArchive(
+          address,
+          '${data['Md5'] ?? ''}',
+        );
+        _checkSession(session);
+        final decoder = ZipDecoder();
+        final archive = decoder.decodeBytes(bytes);
+        if (decoder.directory.fileHeaders.length != archive.files.length) {
+          throw const SourceException('起点批量文件包含重复章节');
+        }
+        final entries = <String, ArchiveFile>{};
+        final requested = eligible.map((c) => c.id).toSet();
+        var totalBytes = 0;
+        for (final file in archive.files) {
+          if (!file.isFile) continue;
+          final match = RegExp(
+            '^${bid}_([1-9]\\d{0,11})_\\d{1,20}\\.qd\$',
+          ).firstMatch(file.name);
+          final cid = match?[1];
+          totalBytes += file.size;
+          if (cid == null ||
+              !requested.contains(cid) ||
+              entries.containsKey(cid) ||
+              file.size > 2 * 1024 * 1024 ||
+              totalBytes > 32 * 1024 * 1024) {
+            throw const SourceException('起点批量文件包含不匹配、重复或过大的章节');
+          }
+          entries[cid] = file;
+        }
+        for (final chapter in eligible) {
+          try {
+            final file = entries[chapter.id];
+            if (file == null) throw const SourceException('起点未返回该章节正文，请重试');
+            final contentBytes = file.content;
+            if (contentBytes.length != file.size ||
+                getCrc32(contentBytes) != file.crc32) {
+              throw const SourceException('起点章节文件校验失败，请重试');
+            }
+            final content = await _decodeContent(
+              bid,
+              chapter.id,
+              chapter.vip,
+              contentBytes,
+              session,
+              getKey: () async => key,
+            );
+            results[chapter.id] = ChapterBatchResult.success(
+              chapter.id,
+              content,
+            );
+          } catch (error) {
+            results[chapter.id] = ChapterBatchResult.failure(chapter.id, error);
+          }
+        }
+      } catch (error) {
+        for (final chapter in eligible) {
+          results[chapter.id] = ChapterBatchResult.failure(chapter.id, error);
+        }
+      }
+    }
+    _checkSession(session);
+    return chapters.map((c) => results[c.id]!).toList();
   }
 
   static ChapterContent parseContent(String content, Object? rawBlocks) {

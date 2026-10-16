@@ -1,9 +1,13 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
 
 import '../../domain/models.dart';
+import '../../data/app_log.dart';
 import '../logged_request.dart';
 import 'qidian_crypto.dart';
 
@@ -123,6 +127,55 @@ class QidianApi {
     Map<String, String> params, {
     bool post = false,
   }) async => responseData(await send(path, params, post: post));
+
+  Future<Uint8List> downloadArchive(String address, String digest) =>
+      AppLog.instance.capture('qidian.download_failed', () async {
+        final uri = Uri.tryParse(address);
+        if (uri == null ||
+            uri.scheme != 'https' ||
+            uri.userInfo.isNotEmpty ||
+            uri.hasFragment ||
+            uri.hasPort && uri.port != 443 ||
+            ![
+              '.myqcloud.com',
+              '.qidian.com',
+              '.yuewen.com',
+            ].any(uri.host.endsWith) ||
+            !RegExp(r'^[a-fA-F0-9]{32}$').hasMatch(digest)) {
+          throw const SourceException('起点批量下载地址或校验信息无效');
+        }
+        // COS is a separate origin: never forward account cookies or QDSign.
+        final request = http.Request('GET', uri)..followRedirects = false;
+        try {
+          final response = await client
+              .send(request)
+              .timeout(const Duration(seconds: 25));
+          const maxBytes = 32 * 1024 * 1024;
+          if (response.statusCode != 200 ||
+              (response.contentLength ?? 0) > maxBytes) {
+            unawaited(response.stream.listen(null).cancel());
+            throw SourceException('起点批量正文下载失败（HTTP ${response.statusCode}）');
+          }
+          final buffer = BytesBuilder(copy: false);
+          await for (final chunk in response.stream.timeout(
+            const Duration(seconds: 25),
+          )) {
+            buffer.add(chunk);
+            if (buffer.length > maxBytes) {
+              throw const SourceException('起点批量正文超过大小限制');
+            }
+          }
+          final bytes = buffer.takeBytes();
+          if (md5.convert(bytes).toString() != digest.toLowerCase()) {
+            throw const SourceException('起点批量正文校验失败，请重试');
+          }
+          return bytes;
+        } on TimeoutException {
+          throw const SourceException('起点批量正文下载超时，请重试');
+        } on http.ClientException {
+          throw const SourceException('起点批量正文网络连接失败，请重试');
+        }
+      });
 
   /// The App exchanges YW SDK credentials for a reader account and cmfuToken.
   Future<QidianCredentials> validateLogin(String guid, String key) async {
