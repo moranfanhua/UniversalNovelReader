@@ -12,6 +12,7 @@ import 'package:unr/formats/ebook.dart';
 import 'package:unr/sources/fanqie/fanqie_api.dart';
 import 'package:unr/sources/fanqie/fanqie_source.dart';
 import 'package:unr/sources/fanqie/fanqie_session.dart';
+import 'package:unr/sources/novel_search.dart';
 import 'package:unr/sources/sfacg/sfacg_api.dart';
 import 'package:unr/sources/sfacg/sfacg_source.dart';
 import 'package:unr/ui/account.dart';
@@ -239,6 +240,45 @@ void main() {
     expect(restored.wordCount, full.wordCount);
     expect(restored.chapters.first.wordCount, 2500);
     expect(full.updatedAt?.isUtc, isTrue);
+  });
+
+  test('多书名搜索保留平台首条命中，不被显示书名与收藏数降位', () async {
+    const alias = '方舟：这里万籁俱寂，别丢下我';
+    const title = '明日方舟：我才是博士最重要的人';
+    const targetId = '7607719187175181337';
+    final api = FanqieApi(
+      client: MockClient((request) async {
+        if (request.url.path ==
+            '/api/novel/channel/homepage/search/search/v1/') {
+          expect(request.url.host, 'novel.snssdk.com');
+          expect(request.url.queryParameters['q'], alias);
+          return jsonResponse({
+            'ret_data': [
+              {'book_id': targetId, 'title': title, 'author': '作者'},
+              {'book_id': bookId, 'title': '方舟：其他作品', 'author': '作者'},
+            ],
+          });
+        }
+        expect(request.url.path, '/reading/bookapi/multi-detail/v/');
+        return http.Response(
+          jsonEncode({
+            'code': 0,
+            'data': [
+              {'book_id': targetId, 'shelf_cnt_history': 1},
+              {'book_id': bookId, 'shelf_cnt_history': 1000000},
+            ],
+          }),
+          200,
+        );
+      }),
+    );
+    addTearDown(api.close);
+    api.app.restore({'deviceId': '123456789', 'installId': '234567890'});
+    final result = await searchNovels([FanqieSource(api)], alias);
+    expect(result.failedSources, isEmpty);
+    expect(result.books.map((book) => book.id), [targetId, bookId]);
+    expect(result.books.first.title, title);
+    expect(result.books.first.favoriteCount, 1);
   });
 
   test('收藏数使用累计值，忽略近期计数与无效值，详情失败仍返回搜索结果', () async {
