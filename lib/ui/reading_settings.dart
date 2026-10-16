@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../data/library.dart';
 import '../data/reader_fonts.dart';
 import '../domain/reading_preferences.dart';
+import 'theme_settings.dart';
 
 Future<void> showReadingSettings(BuildContext context, Library library) =>
     showModalBottomSheet<void>(
@@ -362,15 +363,7 @@ class _ReadingSettingsState extends State<ReadingSettings> {
             (v) => library.lineHeight = v,
             '${library.lineHeight.toStringAsFixed(1)} 倍',
           ),
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('夜间模式'),
-            value: library.night,
-            onChanged: (value) {
-              setState(() => library.night = value);
-              _save();
-            },
-          ),
+          ThemeSettings(library: library),
           const SizedBox(height: 8),
           const Text('当前阅读效果'),
           const SizedBox(height: 8),

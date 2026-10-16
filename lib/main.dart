@@ -11,6 +11,7 @@ import 'sources/fanqie/fanqie_source.dart';
 import 'sources/fanqie/fanqie_session.dart';
 import 'ui/home.dart';
 import 'ui/logs.dart';
+import 'ui/app_theme.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -37,6 +38,9 @@ void main() async {
     log.record(LogLevel.error, 'app.start_failed', error: e, stackTrace: stack);
     runApp(
       MaterialApp(
+        theme: AppTheme.light(),
+        darkTheme: AppTheme.dark(),
+        builder: AppTheme.wrapSystemUi,
         home: Scaffold(
           appBar: AppBar(title: const Text('启动失败')),
           body: Center(
@@ -78,17 +82,14 @@ class UnrApp extends StatelessWidget {
       locale: const Locale('zh', 'CN'),
       supportedLocales: const [Locale('zh', 'CN'), Locale('en')],
       localizationsDelegates: GlobalMaterialLocalizations.delegates,
-      theme: ThemeData(
-        useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xff52745c),
-          brightness: library.night ? Brightness.dark : Brightness.light,
-        ),
-        scaffoldBackgroundColor: library.night
-            ? const Color(0xff161c19)
-            : const Color(0xfff6f5ef),
-        appBarTheme: const AppBarTheme(centerTitle: false),
-      ),
+      theme: AppTheme.light(),
+      darkTheme: AppTheme.dark(),
+      themeMode: switch (library.themeMode) {
+        AppThemeMode.system => ThemeMode.system,
+        AppThemeMode.light => ThemeMode.light,
+        AppThemeMode.dark => ThemeMode.dark,
+      },
+      builder: AppTheme.wrapSystemUi,
       home: HomePage(library: library),
     ),
   );
