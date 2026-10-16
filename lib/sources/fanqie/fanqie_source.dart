@@ -7,7 +7,7 @@ import '../bookshelf_source.dart';
 import 'fanqie_comments.dart';
 
 class FanqieSource extends FanqieComments
-    implements SearchableNovelSource, BookshelfSource {
+    implements PlatformRankedSearchSource, BookshelfSource {
   FanqieSource(super.api, {Map<String, String>? cipher})
     : cipher = cipher ?? {};
   final Map<String, String> cipher;
@@ -15,6 +15,8 @@ class FanqieSource extends FanqieComments
   String get id => 'fanqie';
   @override
   String get name => '番茄小说';
+  @override
+  String get searchNotice => '番茄同一作品可能有多个书名，搜索结果可能显示其他书名。';
   @override
   Future<List<RemoteBookshelf>> getShelves() async {
     if (!hasSession) throw const SourceException('请先在“我的 → 账号设置”登录番茄小说');

@@ -57,6 +57,13 @@ class SearchSfacg extends SfacgSource {
       response(keyword);
 }
 
+class PlatformSearchSource extends SearchSource
+    implements PlatformRankedSearchSource {
+  PlatformSearchSource(super.id, super.response);
+  @override
+  String get searchNotice => '同一作品可能有多个书名，搜索结果可能显示其他书名。';
+}
+
 class SearchMemoryLibrary extends Library {
   SearchMemoryLibrary(super.root, super.source, {super.novelSources});
   bool failSave = false;
@@ -326,6 +333,49 @@ void main() {
     ]);
   });
 
+  test('平台排序保留命中顺序和同源去重，跨源结果不丢失且不随响应时序变化', () async {
+    final first = Completer<List<Book>>(), second = Completer<List<Book>>();
+    final platform = PlatformSearchSource('fanqie', (_) => second.future);
+    final pending = searchNovels([
+      SearchSource('sfacg', (_) => first.future),
+      platform,
+    ], '旧书名');
+    second.complete([
+      book('1', '其他显示书名', source: 'fanqie', favorites: 1),
+      book('1', '重复结果', source: 'fanqie', favorites: 9999999),
+      book('2', '旧书名', source: 'fanqie', favorites: 100),
+    ]);
+    first.complete([
+      book('1', '旧书名', favorites: 50),
+      book('2', '旧书名续篇', favorites: 1000000),
+    ]);
+    final result = await pending;
+    expect(result.books.map((book) => book.key), [
+      'fanqie:1',
+      'sfacg:1',
+      'sfacg:2',
+      'fanqie:2',
+    ]);
+    expect(result.books.first.title, '其他显示书名');
+    expect(result.books.first.favoriteCount, 1);
+    expect(result.notices, [platform.searchNotice]);
+    expect(result.failedSources, isEmpty);
+  });
+
+  test('空结果和失败平台不留下搜索提示，也不影响成功平台', () async {
+    final result = await searchNovels([
+      PlatformSearchSource('empty', (_) async => []),
+      PlatformSearchSource(
+        'failed',
+        (_) async => throw const SourceException('失败'),
+      ),
+      SearchSource('sfacg', (_) async => [book('1', '故事')]),
+    ], '故事');
+    expect(result.books.single.key, 'sfacg:1');
+    expect(result.failedSources, ['测试书源']);
+    expect(result.notices, isEmpty);
+  });
+
   test('失败平台单独报告，成功平台和空结果不受影响，空关键词不请求', () async {
     var requests = 0;
     final sources = [
@@ -393,6 +443,75 @@ void main() {
     expect(source.opened, ['1']);
     expect(find.text('已调用正确书源'), findsOneWidget);
   });
+
+  for (final width in [320.0, 1200.0]) {
+    testWidgets('多书名提示兼容宽度 $width 和大字号，重搜及切换平台清理提示', (tester) async {
+      tester.view.physicalSize = Size(width, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final root = Directory.systemTemp.createTempSync('unr-search-notice-');
+      addTearDown(() => root.deleteSync(recursive: true));
+      final api = SfacgApi();
+      addTearDown(api.close);
+      var response = 0;
+      final source = PlatformSearchSource('fanqie', (_) async {
+        if (response == 1) return [];
+        if (response == 2) throw const SourceException('失败');
+        return [book('1', '明日方舟：我才是博士最重要的人', source: 'fanqie')];
+      });
+      final library = SearchMemoryLibrary(
+        root,
+        SearchSfacg(api, (_) async => []),
+        novelSources: [source],
+      );
+      addTearDown(library.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: const TextScaler.linear(2)),
+            child: child!,
+          ),
+          home: HomePage(library: library),
+        ),
+      );
+      await tester.tap(find.text('书源'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), '方舟：这里万籁俱寂，别丢下我');
+      Future<void> search() async {
+        await tester.tap(find.byTooltip('搜索或添加作品'));
+        await tester.pumpAndSettle();
+      }
+
+      await search();
+      expect(find.text(source.searchNotice), findsOneWidget);
+      expect(find.text('明日方舟：我才是博士最重要的人'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+
+      response = 1;
+      await tester.enterText(find.byType(TextField), '另一个搜索词');
+      await search();
+      expect(find.text(source.searchNotice), findsNothing);
+      expect(find.text('没有搜索到作品'), findsOneWidget);
+
+      response = 2;
+      await search();
+      expect(find.text(source.searchNotice), findsNothing);
+      expect(find.textContaining('搜索失败，请重试'), findsOneWidget);
+
+      response = 0;
+      await search();
+      expect(find.text(source.searchNotice), findsOneWidget);
+      await library.setSearchSourceEnabled('fanqie', false);
+      await tester.pumpAndSettle();
+      expect(find.text(source.searchNotice), findsNothing);
+      expect(find.byKey(const ValueKey('search-fanqie:1')), findsNothing);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  }
 
   testWidgets('平台失败保留其他结果，全部失败显示重试而非无结果', (tester) async {
     final root = Directory.systemTemp.createTempSync('unr-search-errors-');

@@ -29,6 +29,7 @@ class _HomePageState extends State<HomePage> {
   String? error;
   final query = TextEditingController();
   List<Book>? results;
+  List<String> searchNotices = [];
   String? selectedShelf;
   Library get library => widget.library;
   late List<String> searchSourceIds;
@@ -62,6 +63,7 @@ class _HomePageState extends State<HomePage> {
       searchSourceIds = ids;
       searchGeneration++;
       results = null;
+      searchNotices = [];
       searchFailed = false;
       error = null;
     });
@@ -136,6 +138,7 @@ class _HomePageState extends State<HomePage> {
     if (sources.isEmpty) {
       setState(() {
         results = null;
+        searchNotices = [];
         searchFailed = false;
         error = '未选择搜索平台，请在软件设置的“搜索”中开启至少一个平台。';
       });
@@ -151,6 +154,7 @@ class _HomePageState extends State<HomePage> {
       if (mounted && generation == searchGeneration) {
         setState(() {
           results = data.books;
+          searchNotices = data.notices;
           searchFailed =
               data.failedSources.isNotEmpty &&
               data.failedSources.length == sources.length;
@@ -776,6 +780,14 @@ class _HomePageState extends State<HomePage> {
                           ),
                         ),
                       ),
+                      for (final notice in searchNotices)
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+                          child: Text(
+                            notice,
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ),
                       if (results?.isEmpty == true)
                         Padding(
                           padding: const EdgeInsets.all(24),
