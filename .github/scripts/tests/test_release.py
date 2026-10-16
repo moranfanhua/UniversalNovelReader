@@ -47,6 +47,7 @@ class ReleaseTests(unittest.TestCase):
         self.root = Path(self.temporary.name)
         (self.root / "pubspec.yaml").write_text("name: unr\nversion: 0.1.1+2\n", encoding="utf-8")
         (self.root / "LICENSE").write_text("test-license", encoding="utf-8")
+        (self.root / "LICENSE-other.md").write_text("test-third-party-license", encoding="utf-8")
         (self.root / "README.md").write_text("# 开源库\n", encoding="utf-8")
         (self.root / "CHANGELOG.md").write_text("# 更新日志\n\n## v0.1.1\n\n### 修复 | Fix\n\n* 修复阅读与段评问题。\n\n## v0.1.0\n\n* 旧版本功能。\n", encoding="utf-8")
         self.env = {"RELEASE_VERSION": "0.1.1", "GITHUB_EVENT_NAME": "push", "GITHUB_REF_TYPE": "tag", "GITHUB_REF_NAME": "v0.1.1", "GITHUB_REPOSITORY": "owner/unr", "GITHUB_SHA": "commit-sha", "GH_TOKEN": "synthetic-token"}
@@ -121,10 +122,22 @@ class ReleaseTests(unittest.TestCase):
             self.assertIn("plugin.dll", archive.namelist())
             self.assertIn("data/flutter_assets/assets/sfacg_cipher.json", archive.namelist())
             self.assertEqual(archive.read("LICENSE"), b"test-license")
+            self.assertEqual(archive.read("LICENSE-other.md"), b"test-third-party-license")
             self.assertIn("README.md", archive.namelist())
         (self.root / "build/windows/x64/runner/Release/flutter_windows.dll").unlink()
         with self.assertRaisesRegex(FileNotFoundError, "flutter_windows.dll"):
             release.windows(self.root, "0.1.1")
+
+    def test_windows_bundle_missing_third_party_notice_is_rejected(self):
+        self.assets()
+        path = self.root / "build/release/unr-0.1.1-windows-x64.zip"
+        with zipfile.ZipFile(path) as archive:
+            entries = [(entry, archive.read(entry)) for entry in archive.infolist() if entry.filename != "LICENSE-other.md"]
+        with zipfile.ZipFile(path, "w") as archive:
+            for entry, data in entries:
+                archive.writestr(entry, data)
+        with self.assertRaisesRegex(ValueError, "内容不完整"):
+            release.validate_assets(self.root, "0.1.1")
 
     def test_apks_preserve_universal_and_cover_all_three_abis(self):
         self.assets()
@@ -136,9 +149,13 @@ class ReleaseTests(unittest.TestCase):
     def test_finalize_requires_complete_same_version_assets_and_validates_checksums(self):
         self.assets()
         files = release.finalize(self.root, "0.1.1")
-        self.assertEqual(len(files), 7)
+        self.assertEqual({file.name for file in files}, {
+            *release.asset_names("0.1.1"), "LICENSE", "LICENSE-other.md", "SHA256SUMS",
+        })
+        self.assertEqual((self.root / "build/release/LICENSE-other.md").read_bytes(), b"test-third-party-license")
         records = (self.root / "build/release/SHA256SUMS").read_text(encoding="utf-8").splitlines()
-        self.assertEqual(len(records), 6)
+        self.assertEqual(len(records), 7)
+        self.assertIn("LICENSE-other.md", {line.split("  ")[1] for line in records})
         for line in records:
             digest, name = line.split("  ")
             self.assertEqual(digest, hashlib.sha256((self.root / "build/release" / name).read_bytes()).hexdigest())
@@ -162,8 +179,19 @@ class ReleaseTests(unittest.TestCase):
         self.assertIn("修复阅读与段评问题", api.created["body"])
         self.assertNotIn("旧版本功能", api.created["body"])
         self.assertFalse(any("generate-notes" in call[1] for call in api.calls))
-        self.assertEqual(len([call for call in api.calls if call[3] is not None]), 7)
+        uploads = [call for call in api.calls if call[3] is not None]
+        self.assertEqual(len(uploads), 8)
+        self.assertEqual([call[3].read_bytes() for call in uploads if call[1].endswith("?name=LICENSE-other.md")], [b"test-third-party-license"])
+        self.assertIn("[LICENSE-other.md](https://github.com/owner/unr/releases/download/v0.1.1/LICENSE-other.md)", api.created["body"])
         self.assertFalse(any(call[0] == "PATCH" for call in api.calls))
+
+    def test_missing_third_party_notice_blocks_all_release_writes(self):
+        self.assets()
+        (self.root / "LICENSE-other.md").unlink()
+        api = FakeGitHub()
+        with self.assertRaises(FileNotFoundError):
+            release.draft(self.root, self.env, api)
+        self.assertTrue(all(call[0] == "GET" for call in api.calls))
 
     def test_missing_changelog_blocks_all_release_writes(self):
         self.assets()
@@ -183,12 +211,12 @@ class ReleaseTests(unittest.TestCase):
 
     def test_rerun_reuses_draft_only_replaces_matching_asset_and_preserves_notes(self):
         self.assets()
-        existing = {"draft": True, "body": "维护者手写说明", "html_url": "https://github.com/owner/unr/releases/tag/v0.1.1", "upload_url": "https://uploads.github.com/repos/owner/unr/releases/1/assets{?name,label}", "assets": [{"id": 10, "name": "unr-0.1.1-windows-x64.zip"}, {"id": 11, "name": "manual-screenshot.png"}]}
+        existing = {"draft": True, "body": "维护者手写说明", "html_url": "https://github.com/owner/unr/releases/tag/v0.1.1", "upload_url": "https://uploads.github.com/repos/owner/unr/releases/1/assets{?name,label}", "assets": [{"id": 10, "name": "unr-0.1.1-windows-x64.zip"}, {"id": 11, "name": "manual-screenshot.png"}, {"id": 12, "name": "LICENSE-other.md"}]}
         api = FakeGitHub(existing=existing)
         release.draft(self.root, self.env, api)
         self.assertIsNone(api.created)
         self.assertEqual(existing["body"], "维护者手写说明")
-        self.assertEqual([call[1] for call in api.calls if call[0] == "DELETE"], ["/repos/owner/unr/releases/assets/10"])
+        self.assertEqual([call[1] for call in api.calls if call[0] == "DELETE"], ["/repos/owner/unr/releases/assets/10", "/repos/owner/unr/releases/assets/12"])
         self.assertFalse(any(call[0] == "PATCH" for call in api.calls))
 
     def test_published_release_moved_tag_and_manual_runs_never_modify_release(self):
