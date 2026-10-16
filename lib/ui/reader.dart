@@ -808,14 +808,17 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     }
   }
 
-  void _preferences() {
-    library.save().catchError((Object e) {
+  Future<void> _toggleTheme() async {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    try {
+      await library.setThemeMode(dark ? AppThemeMode.light : AppThemeMode.dark);
+    } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text('$e')));
+        ).showSnackBar(SnackBar(content: Text('显示模式保存失败：$e')));
       }
-    });
+    }
   }
 
   void _toggleControls() {
@@ -1099,12 +1102,11 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       ),
       IconButton(
         tooltip: '日夜模式',
-        onPressed: () {
-          library.night = !library.night;
-          _preferences();
-        },
+        onPressed: _toggleTheme,
         icon: Icon(
-          library.night ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
+          Theme.of(context).brightness == Brightness.dark
+              ? Icons.light_mode_outlined
+              : Icons.dark_mode_outlined,
         ),
       ),
     ],

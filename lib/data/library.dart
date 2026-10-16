@@ -19,6 +19,8 @@ import 'app_log.dart';
 
 enum ReadingMode { scroll, paged }
 
+enum AppThemeMode { system, light, dark }
+
 enum ShelfSort { updated, name, lastActive }
 
 enum ShelfLayout { grid, list }
@@ -146,7 +148,7 @@ class Library extends ChangeNotifier {
 
   final Map<String, List<int>> progress = {};
   double fontSize = 20;
-  bool night = false;
+  AppThemeMode themeMode = AppThemeMode.system;
   ReadingMode readingMode = ReadingMode.scroll;
   bool volumeKeyPaging = true;
   bool showParagraphComments = true;
@@ -212,7 +214,15 @@ class Library extends ChangeNotifier {
         14,
         32,
       );
-      library.night = data['night'] == true;
+      library.themeMode =
+          AppThemeMode.values
+              .where((mode) => mode.name == data['themeMode'])
+              .firstOrNull ??
+          switch (data['night']) {
+            true => AppThemeMode.dark,
+            false => AppThemeMode.light,
+            _ => AppThemeMode.system,
+          };
       library.volumeKeyPaging = data['volumeKeyPaging'] != false;
       library.showParagraphComments = data['showParagraphComments'] != false;
       library.paragraphCommentPlacement = ParagraphCommentPlacement.values
@@ -345,7 +355,9 @@ class Library extends ChangeNotifier {
       'shelves': shelves.map((s) => s.toJson()).toList(),
       'progress': progress,
       'fontSize': fontSize,
-      'night': night,
+      'themeMode': themeMode.name,
+      // Keep the explicit dark preference readable by older app versions.
+      'night': themeMode == AppThemeMode.dark,
       'readingMode': readingMode.name,
       'volumeKeyPaging': volumeKeyPaging,
       'showParagraphComments': showParagraphComments,
@@ -375,6 +387,19 @@ class Library extends ChangeNotifier {
 
   File _chapterFile(Book book, Chapter chapter) =>
       File('${root.path}/${safeKey(book.key)}/${safeKey(chapter.id)}.json');
+
+  Future<void> setThemeMode(AppThemeMode mode) async {
+    if (themeMode == mode) return;
+    final previous = themeMode;
+    themeMode = mode;
+    try {
+      await save();
+    } catch (_) {
+      themeMode = previous;
+      notifyListeners();
+      rethrow;
+    }
+  }
 
   Future<void> selectFont(String id) async {
     String? family;
@@ -420,7 +445,6 @@ class Library extends ChangeNotifier {
     volumeKeyPaging = true;
     showParagraphComments = true;
     paragraphCommentPlacement = ParagraphCommentPlacement.right;
-    night = false;
     await save();
   }
 
