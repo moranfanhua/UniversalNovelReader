@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 
 import '../../domain/models.dart';
 import '../novel_source.dart';
@@ -104,8 +105,11 @@ class QidianSource implements SearchableNovelSource {
     final author = data['AuthorInfo'];
     final chapterInfo = info['ChapterInfo'];
     final updated = chapterInfo is Map
-        ? int.tryParse('${chapterInfo['LastChapterUpdateTime']}')
-        : null;
+        ? math.max(
+            int.tryParse('${chapterInfo['LastChapterUpdateTime']}') ?? 0,
+            int.tryParse('${chapterInfo['LastVipChapterUpdateTime']}') ?? 0,
+          )
+        : 0;
     return Book(
       id: bid,
       source: id,
@@ -116,7 +120,7 @@ class QidianSource implements SearchableNovelSource {
       cover: _cover(bid),
       description: '${info['Description'] ?? ''}',
       wordCount: Book.parseWordCount(info['WordsCnt']),
-      updatedAt: updated == null || updated <= 0
+      updatedAt: updated <= 0
           ? null
           : DateTime.fromMillisecondsSinceEpoch(updated, isUtc: true),
       chapters: parseDirectory(directory),
@@ -228,24 +232,28 @@ class QidianSource implements SearchableNovelSource {
     if (code != 0) {
       throw SourceException('该起点章节暂无阅读权限，请在官方 App 确认可读状态', code: code ?? -1);
     }
-    var content = data['Content'] ?? data['content'];
-    if (content is! String || content.trim().isEmpty) {
+    var content = data['Content'] ?? data['content'] ?? '';
+    if (content is! String) {
       throw const SourceException('起点未返回完整正文，请重试');
     }
     final type = '${data['type'] ?? 0}';
     if (type == '1') {
       if (!vip) throw const SourceException('起点免费章节加密格式已变化');
-      final keyData = await api.request('/argus/api/v4/bookcontent/getkey', {
-        'bookId': bid,
-        'ui': '0',
-      });
-      checkSession();
-      content = QidianFock.decode(
-        content,
-        chapterId: cid,
-        device: api.device,
-        readingKey: QidianReadingKey.fromJson(keyData),
-      );
+      // Image-only chapters have no FOCK text payload. The block parser below
+      // still requires valid content before the chapter can enter the cache.
+      if (content.trim().isNotEmpty) {
+        final keyData = await api.request('/argus/api/v4/bookcontent/getkey', {
+          'bookId': bid,
+          'ui': '0',
+        });
+        checkSession();
+        content = QidianFock.decode(
+          content,
+          chapterId: cid,
+          device: api.device,
+          readingKey: QidianReadingKey.fromJson(keyData),
+        );
+      }
     } else if (type != '0') {
       throw const SourceException('起点正文加密格式暂不支持');
     }
