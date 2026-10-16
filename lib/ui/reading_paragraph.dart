@@ -41,19 +41,24 @@ class ReadingParagraph extends StatelessWidget {
       if (image != null) {
         return SizedBox(
           width: width,
-          child: Stack(
-            children: [
-              Padding(
-                padding: EdgeInsets.only(right: width - textWidth),
-                child: image!,
-              ),
-              if (comment != null)
-                Positioned(
-                  right: ParagraphCommentLayout.edge,
-                  bottom: 0,
-                  child: ExcludeReadingTap(child: comment!),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              minHeight: comment == null ? 0 : ParagraphCommentLayout.extent,
+            ),
+            child: Stack(
+              children: [
+                Padding(
+                  padding: EdgeInsets.only(right: width - textWidth),
+                  child: image!,
                 ),
-            ],
+                if (comment != null)
+                  Positioned(
+                    right: ParagraphCommentLayout.edge,
+                    bottom: 0,
+                    child: ExcludeReadingTap(child: comment!),
+                  ),
+              ],
+            ),
           ),
         );
       }
