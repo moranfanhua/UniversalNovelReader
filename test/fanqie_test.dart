@@ -121,6 +121,7 @@ void main() {
 
   test('App 目录按 catalog_data 排序，保留分卷、字数和权限并拒绝缺章', () {
     final data = <String, dynamic>{
+      'book_info': {'novel_text_type': '1', 'genre': '6'},
       'item_list': [],
       'catalog_data': [
         {'catalog_id': 'volume', 'catalog_title': '第一卷'},
@@ -160,6 +161,78 @@ void main() {
       () => FanqieSource.parseAppDirectory(wrong),
       throwsA(isA<SourceException>()),
     );
+    for (final catalog in [
+      null,
+      [],
+      (data['catalog_data'] as List).take(2).toList(),
+    ]) {
+      expect(
+        () =>
+            FanqieSource.parseAppDirectory({...data, 'catalog_data': catalog}),
+        throwsA(isA<SourceException>()),
+      );
+    }
+  });
+
+  test('App 普通连载目录使用 item_data_list 顺序，不依赖可选的旧目录字段', () {
+    final data = <String, dynamic>{
+      'book_info': {'genre': '0'},
+      'item_data_list': [
+        {
+          'item_id': nextId,
+          'title': '第一章',
+          'volume_name': '第一卷',
+          'chapter_word_number': 2500,
+        },
+        {
+          'item_id': chapterId,
+          'title': '第二章',
+          'volume_name': '第二卷',
+          'need_unlock': true,
+        },
+      ],
+    };
+    for (final itemList in [null, <String>[]]) {
+      for (final catalog in [
+        null,
+        [],
+        [
+          {'item_id': chapterId},
+          {'item_id': nextId},
+        ],
+      ]) {
+        for (final textType in [null, '1']) {
+          final chapters = FanqieSource.parseAppDirectory({
+            ...data,
+            'book_info': {'genre': '0', 'novel_text_type': textType},
+            'item_list': itemList,
+            'catalog_data': catalog,
+          });
+          expect(chapters.map((c) => c.id), [nextId, chapterId]);
+          expect(chapters.map((c) => c.volume), ['第一卷', '第二卷']);
+          expect(chapters.first.wordCount, 2500);
+          expect(chapters.last.vip, isTrue);
+        }
+      }
+    }
+    for (final items in [
+      null,
+      [],
+      [null],
+      [
+        {'item_id': 'invalid'},
+      ],
+      [
+        ...data['item_data_list'] as List,
+        (data['item_data_list'] as List).first,
+      ],
+    ]) {
+      expect(
+        () =>
+            FanqieSource.parseAppDirectory({...data, 'item_data_list': items}),
+        throwsA(isA<SourceException>()),
+      );
+    }
   });
 
   test('解析页面状态中的嵌套对象、引号和分号，不执行页面脚本', () {
@@ -240,8 +313,9 @@ void main() {
                 'abstract': '简介',
                 'last_publish_time': '1670144602',
                 'word_number': '3201288',
+                'genre': '0',
               },
-              'item_list': [chapterId, nextId],
+              'item_list': [],
               'item_data_list': [
                 {
                   'item_id': chapterId,
