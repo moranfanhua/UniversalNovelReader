@@ -113,20 +113,31 @@ void main() {
       await mount(
         tester,
         text: text,
-        width: 344,
+        width: 351,
         placement: ParagraphCommentPlacement.paragraphEnd,
         count: 80,
       );
       final body = tester.getRect(find.byType(SelectableText));
       final badge = tester.getRect(find.byType(ParagraphCommentButton));
-      // The Flutter test font uses 20px-wide glyphs, with 300px for text here.
+      // Leave SelectableText's caret reserve outside the full last line.
       if (text == '字' * 15) {
         expect(body.height, closeTo(38, .01));
         expect(badge.top, closeTo(body.bottom, .01));
         expect(badge.left, body.left);
       } else {
-        final lastLineLength = text.split('\n').last.length;
-        expect(badge.left, closeTo(body.left + lastLineLength * 20 + 4, .01));
+        final editable = tester
+            .state<EditableTextState>(find.byType(EditableText))
+            .renderEditable;
+        final last = editable
+            .getBoxesForSelection(
+              TextSelection(
+                baseOffset: text.length - 1,
+                extentOffset: text.length,
+              ),
+            )
+            .single;
+        final end = editable.localToGlobal(Offset(last.right, last.bottom));
+        expect(badge.left, closeTo(end.dx + 4, .01));
         expect(badge.bottom, lessThanOrEqualTo(body.bottom));
       }
       expect(tester.takeException(), isNull);

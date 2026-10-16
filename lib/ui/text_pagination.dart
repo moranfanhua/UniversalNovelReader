@@ -2,6 +2,7 @@ import 'package:flutter/painting.dart';
 import '../domain/models.dart';
 import '../domain/reading_preferences.dart';
 import 'paragraph_comment_layout.dart';
+import 'reading_text_layout.dart';
 
 class PageFragment {
   const PageFragment(
@@ -35,7 +36,16 @@ class TextPagination {
     Locale? locale,
     int? anchorParagraph,
     int anchorOffset = 0,
+    ReadingTextLayout? textLayout,
   }) {
+    final layout =
+        textLayout ??
+        ReadingTextLayout(
+          style: style,
+          scaler: scaler,
+          direction: direction,
+          locale: locale,
+        );
     final pages = <List<PageFragment>>[[]];
     var used = headingSpace;
     void next() {
@@ -61,12 +71,7 @@ class TextPagination {
         continue;
       }
       final text = '　　${paragraph.text}';
-      final painter = TextPainter(
-        text: TextSpan(text: text, style: style),
-        textScaler: scaler,
-        textDirection: direction,
-        locale: locale,
-      )..layout(maxWidth: textWidth);
+      final painter = layout.measure(text, textWidth);
       final ends = <int>[];
       for (final line in painter.computeLineMetrics()) {
         final position = painter.getPositionForOffset(
@@ -108,12 +113,7 @@ class TextPagination {
             break;
           }
           final fragment = text.substring(start, ends[candidate]);
-          final measure = TextPainter(
-            text: TextSpan(text: fragment, style: style),
-            textScaler: scaler,
-            textDirection: direction,
-            locale: locale,
-          )..layout(maxWidth: textWidth);
+          final measure = layout.measure(fragment, textWidth);
           final hasBadge =
               badge &&
               (commentPlacement == ParagraphCommentPlacement.right ||

@@ -3,6 +3,7 @@ import '../domain/models.dart';
 import '../domain/reading_preferences.dart';
 import 'reading_layout.dart';
 import 'text_pagination.dart';
+import 'reading_text_layout.dart';
 
 class ChapterPageLayout {
   ChapterPageLayout(
@@ -33,11 +34,15 @@ class ChapterPageLayout {
       1.0,
       double.infinity,
     );
-    style = Theme.of(context).textTheme.bodyLarge!.copyWith(
-      fontSize: fontSize,
-      fontFamily: fontFamily,
-      height: lineHeight,
+    textLayout = ReadingTextLayout.of(
+      context,
+      style: Theme.of(context).textTheme.bodyLarge!.copyWith(
+        fontSize: fontSize,
+        fontFamily: fontFamily,
+        height: lineHeight,
+      ),
     );
+    style = textLayout.style;
     headingStyle = Theme.of(context).textTheme.headlineSmall!;
     scaler = MediaQuery.textScalerOf(context);
     direction = Directionality.of(context);
@@ -69,6 +74,7 @@ class ChapterPageLayout {
   late final double canvasWidth, width, height, margin, minimum, gutter;
   late final double commentRightInset;
   late final TextStyle style, headingStyle;
+  late final ReadingTextLayout textLayout;
   late final TextScaler scaler;
   late final TextDirection direction;
   late final Locale? locale;
@@ -84,6 +90,7 @@ class ChapterPageLayout {
     comments,
     commentPlacement,
     commentRightInset,
+    textLayout.signature,
   );
 
   double headingSpace(String title) {
@@ -116,5 +123,6 @@ class ChapterPageLayout {
         commentPlacement: commentPlacement,
         commentRightInset: commentRightInset,
         headingSpace: headingSpace(title),
+        textLayout: textLayout,
       );
 }

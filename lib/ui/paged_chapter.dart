@@ -228,6 +228,7 @@ class PagedChapterState extends State<PagedChapter> {
         widget.comments,
         widget.commentPlacement,
         widget.horizontalMargin,
+        layout.textLayout.signature,
       );
       if (signature != nextSignature) {
         final enterAtEnd = signature == null && widget.startAtEnd;
@@ -246,6 +247,7 @@ class PagedChapterState extends State<PagedChapter> {
           headingSpace: headingSpace,
           anchorParagraph: enterAtEnd ? null : anchorParagraph,
           anchorOffset: anchorOffset,
+          textLayout: layout.textLayout,
         );
         page = 0;
         for (var i = 0; i < pages.length; i++) {
@@ -305,6 +307,7 @@ class PagedChapterState extends State<PagedChapter> {
           commentPlacement: widget.commentPlacement,
           commentRightInset: widget.horizontalMargin,
           headingSpace: nextHeadingSpace,
+          textLayout: layout.textLayout,
         );
         // Preview rows belong to another chapter; refresh their counts without
         // moving the saved reading position away from the left-hand page.

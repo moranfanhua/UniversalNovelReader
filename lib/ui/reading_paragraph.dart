@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../domain/reading_preferences.dart';
 import 'paragraph_comment_layout.dart';
 import 'reading_tap_zones.dart';
+import 'reading_text_layout.dart';
 
 class ReadingParagraph extends StatelessWidget {
   const ReadingParagraph({
@@ -26,7 +27,11 @@ class ReadingParagraph extends StatelessWidget {
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
       final width = constraints.maxWidth;
-      final scaler = textScaler ?? MediaQuery.textScalerOf(context);
+      final layout = ReadingTextLayout.of(
+        context,
+        style: style,
+        scaler: textScaler,
+      );
       final textWidth = ParagraphCommentLayout.textWidth(
         width,
         rightInset,
@@ -52,38 +57,34 @@ class ReadingParagraph extends StatelessWidget {
           ),
         );
       }
-      final painter = TextPainter(
-        text: TextSpan(text: text, style: style),
-        textScaler: scaler,
-        textDirection: Directionality.of(context),
-        locale: Localizations.maybeLocaleOf(context),
-      )..layout(maxWidth: textWidth);
-      final offset = comment == null
-          ? null
-          : ParagraphCommentLayout.offset(painter, width, placement);
-      final textHeight = painter.height;
+      final body = SizedBox(width: textWidth, child: layout.selectable(text));
+      if (comment == null) {
+        return Padding(
+          padding: EdgeInsets.only(right: width - textWidth),
+          child: body,
+        );
+      }
+      final painter = layout.measure(text, textWidth);
+      final offset = ParagraphCommentLayout.offset(painter, width, placement);
       final height = math.max(
         painter.height,
-        offset == null ? 0.0 : offset.dy + ParagraphCommentLayout.extent,
+        offset.dy + ParagraphCommentLayout.extent,
       );
       painter.dispose();
       return SizedBox(
         width: width,
-        height: height,
-        child: Stack(
-          children: [
-            SizedBox(
-              width: textWidth,
-              height: textHeight,
-              child: SelectableText(text, style: style, textScaler: scaler),
-            ),
-            if (offset != null)
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: height),
+          child: Stack(
+            children: [
+              body,
               Positioned(
                 left: offset.dx,
                 top: offset.dy,
                 child: ExcludeReadingTap(child: comment!),
               ),
-          ],
+            ],
+          ),
         ),
       );
     },
