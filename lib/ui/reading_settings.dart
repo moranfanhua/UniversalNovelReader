@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../data/library.dart';
 import '../data/reader_fonts.dart';
+import '../domain/reading_preferences.dart';
 
 Future<void> showReadingSettings(BuildContext context, Library library) =>
     showModalBottomSheet<void>(
@@ -202,6 +203,32 @@ class _ReadingSettingsState extends State<ReadingSettings> {
               _save();
             },
           ),
+          if (library.showParagraphComments) ...[
+            const Text('段评位置'),
+            const SizedBox(height: 8),
+            SegmentedButton<ParagraphCommentPlacement>(
+              key: const ValueKey('reading-comment-placement'),
+              showSelectedIcon: false,
+              segments: const [
+                ButtonSegment(
+                  value: ParagraphCommentPlacement.right,
+                  label: Text('固定右侧'),
+                ),
+                ButtonSegment(
+                  value: ParagraphCommentPlacement.paragraphEnd,
+                  label: Text('跟随段尾'),
+                ),
+              ],
+              selected: {library.paragraphCommentPlacement},
+              onSelectionChanged: (value) {
+                setState(
+                  () => library.paragraphCommentPlacement = value.single,
+                );
+                _save();
+              },
+            ),
+            const SizedBox(height: 16),
+          ],
           if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android)
             SwitchListTile(
               key: const ValueKey('reading-volume-keys'),

@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import '../domain/models.dart';
+import '../domain/reading_preferences.dart';
 import 'reading_layout.dart';
 import 'text_pagination.dart';
+import 'reading_text_layout.dart';
 
 class ChapterPageLayout {
   ChapterPageLayout(
@@ -12,23 +14,35 @@ class ChapterPageLayout {
     required double verticalMargin,
     required double lineHeight,
     required this.comments,
+    this.commentPlacement = ParagraphCommentPlacement.right,
     String? fontFamily,
     double footerHeight = 0,
     bool paged = true,
   }) {
     columns = paged ? ReadingLayout.columns(viewport.width) : 1;
+    commentRightInset = horizontalMargin;
     canvasWidth = ReadingLayout.canvasWidth(viewport.width, paged: paged);
-    width =
-        ((canvasWidth -
-                    horizontalMargin * 2 -
-                    (columns == 2 ? ReadingLayout.gutter : 0)) /
-                columns)
-            .clamp(1.0, double.infinity);
-    style = Theme.of(context).textTheme.bodyLarge!.copyWith(
-      fontSize: fontSize,
-      fontFamily: fontFamily,
-      height: lineHeight,
+    // Each page owns its right margin so edge badges remain inside hit bounds.
+    // Keep the existing central gap when the margins already fit within it.
+    gutter = columns == 2
+        ? (ReadingLayout.gutter - horizontalMargin * 2).clamp(
+            0.0,
+            double.infinity,
+          )
+        : 0;
+    width = ((canvasWidth - gutter) / columns - horizontalMargin * 2).clamp(
+      1.0,
+      double.infinity,
     );
+    textLayout = ReadingTextLayout.of(
+      context,
+      style: Theme.of(context).textTheme.bodyLarge!.copyWith(
+        fontSize: fontSize,
+        fontFamily: fontFamily,
+        height: lineHeight,
+      ),
+    );
+    style = textLayout.style;
     headingStyle = Theme.of(context).textTheme.headlineSmall!;
     scaler = MediaQuery.textScalerOf(context);
     direction = Directionality.of(context);
@@ -55,9 +69,12 @@ class ChapterPageLayout {
   }
 
   final bool comments;
+  final ParagraphCommentPlacement commentPlacement;
   late final int columns;
-  late final double canvasWidth, width, height, margin, minimum;
+  late final double canvasWidth, width, height, margin, minimum, gutter;
+  late final double commentRightInset;
   late final TextStyle style, headingStyle;
+  late final ReadingTextLayout textLayout;
   late final TextScaler scaler;
   late final TextDirection direction;
   late final Locale? locale;
@@ -71,6 +88,9 @@ class ChapterPageLayout {
     direction,
     locale,
     comments,
+    commentPlacement,
+    commentRightInset,
+    textLayout.signature,
   );
 
   double headingSpace(String title) {
@@ -100,6 +120,9 @@ class ChapterPageLayout {
         direction: direction,
         locale: locale,
         comments: comments,
+        commentPlacement: commentPlacement,
+        commentRightInset: commentRightInset,
         headingSpace: headingSpace(title),
+        textLayout: textLayout,
       );
 }

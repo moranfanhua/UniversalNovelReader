@@ -1,5 +1,8 @@
 import 'package:flutter/painting.dart';
 import '../domain/models.dart';
+import '../domain/reading_preferences.dart';
+import 'paragraph_comment_layout.dart';
+import 'reading_text_layout.dart';
 
 class PageFragment {
   const PageFragment(
@@ -8,11 +11,13 @@ class PageFragment {
     this.text,
     this.height, {
     this.image = false,
+    this.endsParagraph = true,
   });
   final int paragraph, offset;
   final String text;
   final double height;
   final bool image;
+  final bool endsParagraph;
 }
 
 class TextPagination {
@@ -25,10 +30,22 @@ class TextPagination {
     required TextDirection direction,
     double headingSpace = 0,
     bool comments = false,
+    ParagraphCommentPlacement commentPlacement =
+        ParagraphCommentPlacement.right,
+    double commentRightInset = 22,
     Locale? locale,
     int? anchorParagraph,
     int anchorOffset = 0,
+    ReadingTextLayout? textLayout,
   }) {
+    final layout =
+        textLayout ??
+        ReadingTextLayout(
+          style: style,
+          scaler: scaler,
+          direction: direction,
+          locale: locale,
+        );
     final pages = <List<PageFragment>>[[]];
     var used = headingSpace;
     void next() {
@@ -39,6 +56,13 @@ class TextPagination {
     for (var index = 0; index < paragraphs.length; index++) {
       final paragraph = paragraphs[index];
       final badge = comments && paragraph.remoteIndex != null;
+      final paragraphWidth = width + commentRightInset;
+      final textWidth = ParagraphCommentLayout.textWidth(
+        paragraphWidth,
+        commentRightInset,
+        badge,
+        commentPlacement,
+      );
       if (paragraph.image != null) {
         if (used > 0) next();
         final imageHeight = (height - 18).clamp(1.0, height);
@@ -47,12 +71,7 @@ class TextPagination {
         continue;
       }
       final text = '　　${paragraph.text}';
-      final painter = TextPainter(
-        text: TextSpan(text: text, style: style),
-        textScaler: scaler,
-        textDirection: direction,
-        locale: locale,
-      )..layout(maxWidth: (width - (badge ? 56 : 0)).clamp(1.0, width));
+      final painter = layout.measure(text, textWidth);
       final ends = <int>[];
       for (final line in painter.computeLineMetrics()) {
         final position = painter.getPositionForOffset(
@@ -79,7 +98,7 @@ class TextPagination {
           continue;
         }
         final room = height - used - 18;
-        if (room < painter.preferredLineHeight || (badge && room < 40)) {
+        if (room < painter.preferredLineHeight) {
           if (used > 0) {
             next();
             continue;
@@ -94,20 +113,31 @@ class TextPagination {
             break;
           }
           final fragment = text.substring(start, ends[candidate]);
-          final measure = TextPainter(
-            text: TextSpan(text: fragment, style: style),
-            textScaler: scaler,
-            textDirection: direction,
-            locale: locale,
-          )..layout(maxWidth: (width - (badge ? 56 : 0)).clamp(1.0, width));
-          final measured = badge
-              ? measure.height.clamp(40.0, double.infinity)
+          final measure = layout.measure(fragment, textWidth);
+          final hasBadge =
+              badge &&
+              (commentPlacement == ParagraphCommentPlacement.right ||
+                  ends[candidate] == text.length);
+          final measured = hasBadge
+              ? measure.height.clamp(
+                  ParagraphCommentLayout.offset(
+                        measure,
+                        paragraphWidth,
+                        commentPlacement,
+                      ).dy +
+                      ParagraphCommentLayout.extent,
+                  double.infinity,
+                )
               : measure.height;
           measure.dispose();
           if (measured > room && candidate > line) break;
           best = candidate;
           bestHeight = measured;
           if (measured > room) break;
+        }
+        if (bestHeight > room && used > 0) {
+          next();
+          continue;
         }
         final end = ends[best];
         pages.last.add(
@@ -116,6 +146,7 @@ class TextPagination {
             (start - 2).clamp(0, paragraph.text.length),
             text.substring(start, end),
             bestHeight,
+            endsParagraph: end == text.length,
           ),
         );
         used += bestHeight + 18;

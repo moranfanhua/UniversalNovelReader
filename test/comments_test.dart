@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:unr/data/library.dart';
 import 'package:unr/domain/models.dart';
+import 'package:unr/domain/reading_preferences.dart';
 import 'package:unr/sources/sfacg/sfacg_api.dart';
 import 'package:unr/sources/sfacg/sfacg_markup.dart';
 import 'package:unr/sources/sfacg/sfacg_source.dart';
@@ -89,6 +90,22 @@ void main() {
           await tester.pump(const Duration(milliseconds: 200));
         }
         expect(requests, greaterThan(0));
+        await showReadingControls(tester);
+        await tester.tap(find.byTooltip('阅读设置'));
+        await tester.pumpAndSettle();
+        final position = List<int>.of(library.progress[book.key]!);
+        final offset = library.pageOffsets[book.key];
+        await tester.tap(find.text('跟随段尾'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byTooltip('关闭阅读设置'));
+        await tester.pumpAndSettle();
+        expect(
+          library.paragraphCommentPlacement,
+          ParagraphCommentPlacement.paragraphEnd,
+        );
+        expect(library.progress[book.key], position);
+        expect(library.pageOffsets[book.key], offset);
+        expect(find.byTooltip('阅读本段段评'), findsWidgets);
         await toggleComments();
         expect(library.showParagraphComments, isFalse);
         expect(find.byTooltip('阅读本段段评'), findsNothing);

@@ -17,6 +17,8 @@ import 'chapter_page_layout.dart';
 import 'book_page_progress.dart';
 import 'chapter_directory.dart';
 import 'add_to_shelf_button.dart';
+import 'paragraph_comment_button.dart';
+import 'reading_paragraph.dart';
 
 class ReaderPage extends StatefulWidget {
   const ReaderPage({
@@ -541,39 +543,16 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     }
   }
 
-  Widget _commentButton(Paragraph paragraph, {int? chapterIndex}) => Tooltip(
-    message: '阅读本段段评',
-    child: TextButton(
-      style: TextButton.styleFrom(
-        minimumSize: const Size(40, 40),
-        padding: const EdgeInsets.symmetric(horizontal: 6),
-        visualDensity: VisualDensity.compact,
-      ),
-      onPressed: () => _comments(paragraph, chapterIndex: chapterIndex),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.chat_bubble_outline, size: 16),
-          if (comments?.commentCapabilities.counts == true)
-            const SizedBox(width: 3),
-          if (comments?.commentCapabilities.counts == true)
-            Flexible(
-              child: Text(
-                commentCounts[(chapterIndex ?? chapter, paragraph.remoteIndex)]
-                        ?.toString() ??
-                    (countErrors.contains((
-                          chapterIndex ?? chapter,
-                          paragraph.remoteIndex,
-                        ))
-                        ? '?'
-                        : '…'),
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-        ],
-      ),
-    ),
-  );
+  Widget _commentButton(Paragraph paragraph, {int? chapterIndex}) =>
+      ParagraphCommentButton(
+        onPressed: () => _comments(paragraph, chapterIndex: chapterIndex),
+        showCount: comments?.commentCapabilities.counts == true,
+        count: commentCounts[(chapterIndex ?? chapter, paragraph.remoteIndex)],
+        failed: countErrors.contains((
+          chapterIndex ?? chapter,
+          paragraph.remoteIndex,
+        )),
+      );
 
   Future<void> _savePosition() async {
     debounce?.cancel();
@@ -958,47 +937,48 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
         padding: EdgeInsets.fromLTRB(
           library.horizontalMargin,
           library.verticalMargin,
-          library.horizontalMargin,
+          0,
           library.verticalMargin + 40,
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              widget.book.chapters[block.index].title,
-              style: Theme.of(context).textTheme.headlineSmall,
+            Padding(
+              padding: EdgeInsets.only(right: library.horizontalMargin),
+              child: Text(
+                widget.book.chapters[block.index].title,
+                style: Theme.of(context).textTheme.headlineSmall,
+              ),
             ),
             const SizedBox(height: 32),
             for (var i = 0; i < block.content.paragraphs.length; i++)
               Padding(
                 key: block.keys[i],
                 padding: const EdgeInsets.only(bottom: 18),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: block.content.paragraphs[i].image != null
-                          ? BookImage(
-                              library: library,
-                              book: widget.book,
-                              url: block.content.paragraphs[i].image!,
-                            )
-                          : SelectableText(
-                              '　　${block.content.paragraphs[i].text}',
-                              style: TextStyle(
-                                fontSize: library.fontSize,
-                                fontFamily: library.readingFontFamily,
-                                height: library.lineHeight,
-                              ),
-                            ),
-                    ),
-                    if (comments != null &&
-                        block.content.paragraphs[i].remoteIndex != null)
-                      _commentButton(
-                        block.content.paragraphs[i],
-                        chapterIndex: block.index,
-                      ),
-                  ],
+                child: ReadingParagraph(
+                  text: '　　${block.content.paragraphs[i].text}',
+                  style: Theme.of(context).textTheme.bodyLarge!.copyWith(
+                    fontSize: library.fontSize,
+                    fontFamily: library.readingFontFamily,
+                    height: library.lineHeight,
+                  ),
+                  rightInset: library.horizontalMargin,
+                  placement: library.paragraphCommentPlacement,
+                  image: block.content.paragraphs[i].image == null
+                      ? null
+                      : BookImage(
+                          library: library,
+                          book: widget.book,
+                          url: block.content.paragraphs[i].image!,
+                        ),
+                  comment:
+                      comments != null &&
+                          block.content.paragraphs[i].remoteIndex != null
+                      ? _commentButton(
+                          block.content.paragraphs[i],
+                          chapterIndex: block.index,
+                        )
+                      : null,
                 ),
               ),
           ],
@@ -1052,6 +1032,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                           verticalMargin: library.verticalMargin,
                           lineHeight: library.lineHeight,
                           comments: comments != null,
+                          commentPlacement: library.paragraphCommentPlacement,
                           paged: library.readingMode == ReadingMode.paged,
                         );
                         final changed =
@@ -1175,6 +1156,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
           initialParagraph: paragraph,
           initialOffset: characterOffset,
           comments: comments != null,
+          commentPlacement: library.paragraphCommentPlacement,
           startAtEnd: pagedStartAtEnd,
           skipFirstPage: skipFirstPage,
           showPageIndicator: false,

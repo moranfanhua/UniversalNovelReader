@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:unr/data/library.dart';
 import 'package:unr/data/reader_fonts.dart';
 import 'package:unr/domain/models.dart';
+import 'package:unr/domain/reading_preferences.dart';
 import 'package:unr/sources/sfacg/sfacg_api.dart';
 import 'package:unr/sources/sfacg/sfacg_source.dart';
 import 'package:unr/ui/paged_chapter.dart';
@@ -59,11 +60,14 @@ void main() {
       return library;
     }
 
-    expect((await open()).showParagraphComments, isTrue);
+    final initial = await open();
+    expect(initial.showParagraphComments, isTrue);
+    expect(initial.paragraphCommentPlacement, ParagraphCommentPlacement.right);
     await File('${root.path}/index.json').writeAsString(
       jsonEncode({
         'books': [],
         'fontSize': 26,
+        'paragraphCommentPlacement': 'unknown',
         'progress': {
           'sfacg:1': [2, 3],
         },
@@ -71,14 +75,22 @@ void main() {
     );
     final migrated = await open();
     expect(migrated.showParagraphComments, isTrue);
+    expect(migrated.paragraphCommentPlacement, ParagraphCommentPlacement.right);
     migrated.showParagraphComments = false;
+    migrated.paragraphCommentPlacement = ParagraphCommentPlacement.paragraphEnd;
     await migrated.save();
     final restored = await open();
     expect(restored.showParagraphComments, isFalse);
+    expect(
+      restored.paragraphCommentPlacement,
+      ParagraphCommentPlacement.paragraphEnd,
+    );
     expect(restored.fontSize, 26);
     expect(restored.progress['sfacg:1'], [2, 3]);
     await restored.resetReadingPreferences();
-    expect((await open()).showParagraphComments, isTrue);
+    final defaults = await open();
+    expect(defaults.showParagraphComments, isTrue);
+    expect(defaults.paragraphCommentPlacement, ParagraphCommentPlacement.right);
     expect(restored.progress['sfacg:1'], [2, 3]);
   });
 
@@ -93,9 +105,19 @@ void main() {
     );
     final comments = find.byKey(const ValueKey('reading-paragraph-comments'));
     expect(tester.widget<SwitchListTile>(comments).value, isTrue);
+    await tester.tap(find.text('跟随段尾'));
+    await tester.pumpAndSettle();
+    expect(
+      library.paragraphCommentPlacement,
+      ParagraphCommentPlacement.paragraphEnd,
+    );
     await tester.tap(comments);
     await tester.pumpAndSettle();
     expect(library.showParagraphComments, isFalse);
+    expect(
+      find.byKey(const ValueKey('reading-comment-placement')),
+      findsNothing,
+    );
     await tester.tap(find.byKey(const ValueKey('reading-font')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Noto Sans SC · 黑体').last);
@@ -131,6 +153,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(library.readingFontId, '');
     expect(library.showParagraphComments, isTrue);
+    expect(library.paragraphCommentPlacement, ParagraphCommentPlacement.right);
     expect(
       [
         library.fontSize,
