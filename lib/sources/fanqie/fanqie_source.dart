@@ -7,7 +7,7 @@ import '../bookshelf_source.dart';
 import 'fanqie_comments.dart';
 
 class FanqieSource extends FanqieComments
-    implements SearchableNovelSource, BookshelfSource {
+    implements PlatformRankedSearchSource, BookshelfSource {
   FanqieSource(super.api, {Map<String, String>? cipher})
     : cipher = cipher ?? {};
   final Map<String, String> cipher;
@@ -15,6 +15,8 @@ class FanqieSource extends FanqieComments
   String get id => 'fanqie';
   @override
   String get name => '番茄小说';
+  @override
+  String get searchNotice => '番茄同一作品可能有多个书名，搜索结果可能显示其他书名。';
   @override
   Future<List<RemoteBookshelf>> getShelves() async {
     if (!hasSession) throw const SourceException('请先在“我的 → 账号设置”登录番茄小说');
@@ -109,6 +111,57 @@ class FanqieSource extends FanqieComments
       offset = next;
     }
     throw const SourceException('番茄书架作品过多，未能完整获取');
+  }
+
+  @override
+  int get shelfBookBatchSize => 100;
+
+  @override
+  Future<List<ShelfBookResult>> getShelfBooks(List<String> ids) async {
+    final data = await api.app.bookDetails(ids);
+    final details = <String, Map>{};
+    for (final info in data.whereType<Map>()) {
+      final bid = '${info['book_id']}';
+      if (!ids.contains(bid)) continue;
+      if (details.containsKey(bid)) {
+        throw const SourceException('番茄返回了重复的作品详情');
+      }
+      details[bid] = info;
+    }
+    return ids.map((bid) {
+      try {
+        final info = details[bid];
+        if (info == null) throw const SourceException('番茄未返回作品详情，作品可能已下架');
+        return ShelfBookResult.success(bid, _appBook(info));
+      } catch (error) {
+        return ShelfBookResult.failure(bid, error);
+      }
+    }).toList();
+  }
+
+  Book _appBook(Map info, {List<Chapter> chapters = const []}) {
+    final bid = '${info['book_id']}';
+    if (!_id.hasMatch(bid) ||
+        '${info['book_name'] ?? ''}'.trim().isEmpty ||
+        '${info['book_type'] ?? 0}' != '0') {
+      throw const SourceException('番茄未返回有效的小说作品详情');
+    }
+    final seconds = int.tryParse('${info['last_publish_time'] ?? ''}');
+    return Book(
+      id: bid,
+      source: id,
+      title: '${info['book_name']}',
+      author: '${info['author'] ?? ''}',
+      cover: '${info['thumb_url'] ?? info['audio_thumb_uri'] ?? ''}'
+          .replaceFirst(RegExp(r'^//'), 'https://'),
+      description: '${info['abstract'] ?? ''}',
+      favoriteCount: Book.parseFavoriteCount(info['shelf_cnt_history']),
+      wordCount: Book.parseWordCount(info['word_number']),
+      updatedAt: seconds == null || seconds <= 0
+          ? null
+          : DateTime.fromMillisecondsSinceEpoch(seconds * 1000, isUtc: true),
+      chapters: chapters,
+    );
   }
 
   static final _id = RegExp(r'^[1-9]\d{14,19}$');
@@ -233,35 +286,82 @@ class FanqieSource extends FanqieComments
   @override
   Future<Book> getBook(String input) async {
     final bid = await _resolveId(input);
-    final response = await api.fetch(
-      Uri.https('fanqienovel.com', '/page/$bid'),
+    // Official GetDirectoryForItemIdResponse includes both book_info and the
+    // ordered item_list / item_data_list. Request an uncached full snapshot.
+    final directory = await api.app.request(
+      '/reading/bookapi/directory/all_items/v/',
+      query: {
+        'book_id': bid,
+        'book_type': '0',
+        'need_version': 'true',
+        'book_info_md5': '',
+        'item_data_list_md5': '',
+        'catalog_data_md5': '',
+      },
     );
-    final state = initialState(utf8.decode(response.bodyBytes));
-    final info = state['page'];
-    if (info is! Map ||
-        '${info['bookId']}' != bid ||
-        '${info['bookName'] ?? ''}'.trim().isEmpty) {
+    final info = directory['book_info'];
+    if (info is! Map || '${info['book_id']}' != bid) {
       throw const SourceException('番茄未返回对应作品详情，作品可能已下架');
     }
-    final directory = await api.get(
-      '/api/reader/directory/detail',
-      query: {'bookId': bid},
-    );
-    final chapters = parseDirectory(directory);
-    final seconds = int.tryParse('${info['lastPublishTime'] ?? ''}');
-    return Book(
-      id: bid,
-      source: id,
-      title: '${info['bookName']}',
-      author: '${info['author'] ?? ''}',
-      cover: '${info['thumbUrl'] ?? ''}',
-      description: '${info['abstract'] ?? ''}',
-      wordCount: Book.parseWordCount(info['wordNumber'] ?? info['word_number']),
-      chapters: chapters,
-      updatedAt: seconds == null || seconds <= 0
-          ? null
-          : DateTime.fromMillisecondsSinceEpoch(seconds * 1000, isUtc: true),
-    );
+    return _appBook(info, chapters: parseAppDirectory(directory));
+  }
+
+  static List<Chapter> parseAppDirectory(Map<String, dynamic> data) {
+    final items = data['item_data_list'], itemIds = data['item_list'];
+    final catalog = data['catalog_data'];
+    if (items is! List || itemIds is! List || items.isEmpty) {
+      throw const SourceException('番茄 App 未返回完整章节目录');
+    }
+    final catalogById = <String, Map>{};
+    if (catalog is List) {
+      for (final entry in catalog) {
+        if (entry is! Map) throw const SourceException('番茄 App 分卷格式已变化');
+        final cid = '${entry['item_id'] ?? ''}';
+        if (cid.isEmpty || cid == '0') {
+          continue; // Volume headings have no item.
+        }
+        if (!_id.hasMatch(cid) || catalogById.containsKey(cid)) {
+          throw const SourceException('番茄 App 目录包含无效或重复章节');
+        }
+        catalogById[cid] = entry;
+      }
+    }
+    // App responses can leave item_list empty and put ordering in catalog_data.
+    final ids = itemIds.isEmpty ? catalogById.keys.toList() : itemIds;
+    if (ids.length != items.length) {
+      throw const SourceException('番茄 App 未返回完整章节目录');
+    }
+    final byId = <String, Map>{};
+    for (final item in items) {
+      if (item is! Map) throw const SourceException('番茄 App 章节格式已变化');
+      final cid = '${item['item_id']}';
+      if (!_id.hasMatch(cid) || byId.containsKey(cid)) {
+        throw const SourceException('番茄 App 目录包含无效或重复章节');
+      }
+      byId[cid] = item;
+    }
+    final chapters = <Chapter>[];
+    final seen = <String>{};
+    for (final rawId in ids) {
+      final cid = '$rawId', item = byId['$rawId'];
+      if (item == null || !seen.add(cid)) {
+        throw const SourceException('番茄 App 目录包含重复或缺失章节');
+      }
+      chapters.add(
+        Chapter(
+          id: cid,
+          title: '${item['title'] ?? cid}',
+          volume: '${item['volume_name'] ?? '正文'}',
+          vip:
+              item['need_unlock'] == true ||
+              item['show_vip_tag'] == true ||
+              catalogById[cid]?['need_unlock'] == true,
+          wordCount: Book.parseWordCount(item['chapter_word_number']),
+          url: 'https://fanqienovel.com/reader/$cid',
+        ),
+      );
+    }
+    return chapters;
   }
 
   static List<Chapter> parseDirectory(Map<String, dynamic> data) {

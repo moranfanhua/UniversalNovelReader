@@ -1,0 +1,20 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    # 根目录覆盖工作流，复合 Action 需要单独列出其目录。
+    directories:
+      - '/'
+      - '/.github/actions/setup-flutter'
+    target-branch: dev
+    schedule:
+      interval: weekly
+      day: monday
+      time: '09:00'
+      timezone: Asia/Shanghai
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: 'ci(deps): 更新 '
+    groups:
+      github-actions:
+        patterns:
+          - '*'

@@ -10,3 +10,10 @@ abstract interface class NovelSource {
 abstract interface class SearchableNovelSource implements NovelSource {
   Future<List<Book>> search(String keyword, {int page = 0});
 }
+
+/// The platform may match information absent from the returned book, such as
+/// alternate titles. Preserve its result order when merging search results.
+abstract interface class PlatformRankedSearchSource
+    implements SearchableNovelSource {
+  String? get searchNotice;
+}

@@ -3,9 +3,14 @@ import '../data/app_log.dart';
 import 'novel_source.dart';
 
 class NovelSearchResult {
-  const NovelSearchResult(this.books, this.failedSources);
+  const NovelSearchResult(
+    this.books,
+    this.failedSources, {
+    this.notices = const [],
+  });
   final List<Book> books;
   final List<String> failedSources;
+  final List<String> notices;
 }
 
 Future<NovelSearchResult> searchNovels(
@@ -17,7 +22,14 @@ Future<NovelSearchResult> searchNovels(
   final responses = await Future.wait(
     sources.map((source) async {
       try {
-        return (books: await source.search(query), failure: null);
+        return (
+          books: await source.search(query),
+          failure: null,
+          platformRanked: source is PlatformRankedSearchSource,
+          notice: source is PlatformRankedSearchSource
+              ? source.searchNotice
+              : null,
+        );
       } catch (error, stack) {
         AppLog.instance.record(
           LogLevel.error,
@@ -25,7 +37,12 @@ Future<NovelSearchResult> searchNovels(
           error: error,
           stackTrace: stack,
         );
-        return (books: <Book>[], failure: source.name);
+        return (
+          books: <Book>[],
+          failure: source.name,
+          platformRanked: false,
+          notice: null,
+        );
       }
     }),
   );
@@ -60,9 +77,32 @@ Future<NovelSearchResult> searchNovels(
         ? positions[a.book.key]!.compareTo(positions[b.book.key]!)
         : order;
   });
+  final sorted = ranked.map((entry) => entry.book).toList();
+  for (final response in responses.where(
+    (response) => response.platformRanked,
+  )) {
+    final ordered = <String, Book>{};
+    for (final book in response.books) {
+      ordered.putIfAbsent(book.key, () => books[book.key]!);
+    }
+    // Fill this platform's existing slots in server order. Keeping this separate
+    // from the comparator avoids conflicting cross-platform comparisons.
+    final iterator = ordered.values.iterator;
+    for (var i = 0; i < sorted.length; i++) {
+      if (ordered.containsKey(sorted[i].key)) {
+        iterator.moveNext();
+        sorted[i] = iterator.current;
+      }
+    }
+  }
   return NovelSearchResult(
-    ranked.map((entry) => entry.book).toList(),
+    sorted,
     responses.map((response) => response.failure).whereType<String>().toList(),
+    notices: {
+      for (final response in responses)
+        if (response.books.isNotEmpty && response.notice != null)
+          response.notice!,
+    }.toList(),
   );
 }
 

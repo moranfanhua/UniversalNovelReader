@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -25,8 +26,8 @@ const book = Book(
 );
 
 class ShelfNavigationLibrary extends Library {
-  ShelfNavigationLibrary()
-    : super(Directory.systemTemp, SfacgSource(SfacgApi()));
+  ShelfNavigationLibrary({SfacgSource? source})
+    : super(Directory.systemTemp, source ?? SfacgSource(SfacgApi()));
   final reads = <String>[];
   @override
   Future<void> save() async => notifyListeners();
@@ -39,6 +40,30 @@ class ShelfNavigationLibrary extends Library {
       for (var i = 0; i < 40; i++)
         Paragraph('章节${chapter.id}段$i ${'用于恢复阅读的正文。' * 70}'),
     ]);
+  }
+}
+
+const preview = Book(id: '1', title: '待加载作品', author: '作者', chapters: []);
+const loadedBook = Book(
+  id: '1',
+  title: '待加载作品',
+  author: '作者',
+  chapters: [
+    Chapter(id: '1', title: '第一章'),
+    Chapter(id: '2', title: '第二章'),
+  ],
+);
+
+class DirectorySource extends SfacgSource {
+  DirectorySource() : super(SfacgApi());
+  int calls = 0;
+  bool fail = false;
+  Completer<Book>? pending;
+  @override
+  Future<Book> getBook(String input) async {
+    calls++;
+    if (fail) throw const SourceException('目录获取失败，请重试');
+    return pending == null ? loadedBook : pending!.future;
   }
 }
 
@@ -188,6 +213,116 @@ void main() {
     await tester.tap(find.text('作品详情'));
     await tester.pumpAndSettle();
     expect(find.byType(BookPage), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  }, variant: platforms);
+
+  for (final mode in ReadingMode.values) {
+    testWidgets('导入的预览首次打开加载目录并保留续读位置，再次打开复用目录（${mode.name}）', (tester) async {
+      viewport(tester);
+      final source = DirectorySource();
+      final value = ShelfNavigationLibrary(source: source)
+        ..books.add(preview)
+        ..readingMode = mode;
+      value.progress[preview.key] = [1, 8];
+      value.pageOffsets[preview.key] = mode == ReadingMode.paged ? 72 : 0;
+      addTearDown(value.dispose);
+      addTearDown(source.api.close);
+      await tester.pumpWidget(UnrApp(library: value));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(ValueKey('shelf-book-${preview.key}')));
+      await tester.pumpAndSettle();
+      expect(source.calls, 1);
+      expect(value.books.single, same(loadedBook));
+      expect(readingChapter(tester), 1);
+      expect(value.reads.first, '2');
+      expect(value.progress[preview.key], [1, 8]);
+      if (mode == ReadingMode.paged) {
+        expect(readingPager(tester).anchorOffset, 72);
+      }
+      await showReadingControls(tester);
+      await tester.tap(find.byType(BackButton).hitTestable());
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(ValueKey('shelf-book-${preview.key}')));
+      await tester.pumpAndSettle();
+      expect(source.calls, 1);
+      expect(find.byType(ReaderPage), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    }, variant: platforms);
+  }
+
+  testWidgets('预览目录失败可重试，长按详情也会先补齐目录', (tester) async {
+    viewport(tester);
+    final source = DirectorySource()..fail = true;
+    final value = ShelfNavigationLibrary(source: source)..books.add(preview);
+    addTearDown(value.dispose);
+    addTearDown(source.api.close);
+    await tester.pumpWidget(UnrApp(library: value));
+    await tester.pumpAndSettle();
+    final card = find.byKey(ValueKey('shelf-book-${preview.key}'));
+    await tester.tap(card);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('目录获取失败'), findsOneWidget);
+    expect(find.byType(ReaderPage), findsNothing);
+    expect(value.books.single, same(preview));
+    expect(value.progress, isEmpty);
+    source.fail = false;
+    await tester.longPress(card);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('作品详情'));
+    await tester.pumpAndSettle();
+    expect(source.calls, 2);
+    expect(find.byType(BookPage), findsOneWidget);
+    expect(
+      tester.widget<BookPage>(find.byType(BookPage)).book,
+      same(loadedBook),
+    );
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  }, variant: platforms);
+
+  testWidgets('加载预览目录期间防重复点击，页面销毁后忽略结果', (tester) async {
+    viewport(tester);
+    final source = DirectorySource()..pending = Completer<Book>();
+    final value = ShelfNavigationLibrary(source: source)..books.add(preview);
+    addTearDown(value.dispose);
+    addTearDown(source.api.close);
+    await tester.pumpWidget(UnrApp(library: value));
+    await tester.pumpAndSettle();
+    final card = find.byKey(ValueKey('shelf-book-${preview.key}'));
+    await tester.tap(card);
+    await tester.pump();
+    await tester.tap(card);
+    await tester.pump();
+    expect(source.calls, 1);
+    await tester.pumpWidget(const SizedBox.shrink());
+    source.pending!.complete(loadedBook);
+    await tester.pumpAndSettle();
+    expect(value.books.single, same(preview));
+    expect(value.lastActiveTimes, isEmpty);
+    expect(tester.takeException(), isNull);
+  }, variant: platforms);
+
+  testWidgets('切换页面后忽略迟到的目录，不自动进入阅读器', (tester) async {
+    viewport(tester);
+    final source = DirectorySource()..pending = Completer<Book>();
+    final value = ShelfNavigationLibrary(source: source)..books.add(preview);
+    addTearDown(value.dispose);
+    addTearDown(source.api.close);
+    await tester.pumpWidget(UnrApp(library: value));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('目录待加载'), findsOneWidget);
+    await tester.tap(find.byKey(ValueKey('shelf-book-${preview.key}')));
+    await tester.pump();
+    await tester.tap(find.text('书源'));
+    await tester.pump();
+    source.pending!.complete(loadedBook);
+    await tester.pumpAndSettle();
+    expect(value.books.single, same(preview));
+    expect(value.lastActiveTimes, isEmpty);
+    expect(find.byType(ReaderPage), findsNothing);
+    expect(find.text('搜索书名或作者，也可粘贴作品 ID、链接'), findsOneWidget);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
   }, variant: platforms);

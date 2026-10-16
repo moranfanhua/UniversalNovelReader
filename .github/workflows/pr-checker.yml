@@ -1,0 +1,69 @@
+name: PR Conventions
+
+on:
+  pull_request_target:
+    branches: [dev, master]
+    types: [opened, edited, ready_for_review, reopened, synchronize]
+
+permissions:
+  pull-requests: read
+  statuses: write
+
+concurrency:
+  group: pr-conventions-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  conventions:
+    name: Check PR title and commits
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      # 仅处理事件元数据和 GitHub API 返回值，不检出或执行 PR 代码。
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const conventional = /^(build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(\([^()\r\n]+\))?!?: (?=[^\r\n]*\p{Script=Han})[^\r\n]+$/u;
+            const release = /^Release v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
+            const errors = [];
+            try {
+              if (pr.base.ref === 'master') {
+                if (!release.test(pr.title)) {
+                  errors.push('发版 PR 标题应为 Release v版本号。');
+                }
+              } else {
+                if (!conventional.test(pr.title)) {
+                  errors.push('PR 标题须使用中文约定式格式，例如 feat(reader): 支持阅读设置。');
+                }
+                if (/\p{Script=Han}[A-Za-z0-9]|[A-Za-z0-9]\p{Script=Han}/u.test(pr.title)) {
+                  errors.push('PR 标题的中英文、数字之间须留空格。');
+                }
+                const commits = await github.paginate(github.rest.pulls.listCommits, {
+                  ...context.repo,
+                  pull_number: pr.number,
+                  per_page: 100,
+                });
+                for (const commit of commits) {
+                  const subject = commit.commit.message.split('\n')[0];
+                  // 保留 merge commit 和正式版合回 dev 的现有行为。
+                  if (commit.parents.length > 1 || release.test(subject.replace(/ \(#\d+\)$/, ''))) continue;
+                  if (!conventional.test(subject)) {
+                    errors.push(`${commit.sha.slice(0, 7)} 的提交标题须使用中文约定式格式：${subject}`);
+                  }
+                }
+              }
+            } catch (error) {
+              core.error(error);
+              errors.push('无法读取完整的 PR 提交列表，请重试检查。');
+            }
+            await github.rest.repos.createCommitStatus({
+              ...context.repo,
+              sha: pr.head.sha,
+              context: 'pr-conventions',
+              state: errors.length ? 'failure' : 'success',
+              description: errors.length ? 'PR 标题或提交信息检查失败' : 'PR 标题与提交信息检查通过',
+              target_url: `${process.env.GITHUB_SERVER_URL}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+            });
+            await core.summary.addHeading('PR 规范检查').addList(errors.length ? errors : ['检查通过']).write();
+            if (errors.length) core.setFailed(errors.join('\n'));

@@ -1,4 +1,52 @@
-# 开源库
+## 声明
+
+UniversalNovelReader是一个非官方第三方阅读工具，与任何小说平台及其关联方无隶属、代理、合作或授权关系。平台名称、图标、商标、作品、评论、插图、封面等归各自权利人所有，本项目仅作技术说明与平台标识之用。
+
+### 1. 内容与权限
+
+本工具仅用于访问公开内容及用户已合法取得阅读权限的内容。本工具不提供、不托管、不存储、不索引、不推荐、不传播任何未经授权的作品内容或内容源，不绕过付费、登录、DRM、地域限制、反爬或其他技术措施，不自动购买、订阅、解锁、打赏、投票或分享。
+
+### 2. 账号与会话
+
+账号登录、Cookie、会话仅用于用户主动发起的站点访问。用户应自行确保有权使用该账号，并遵守对应平台条款。不得共享、出租、售卖账号或会话。若本地保存，应加密存储并允许用户清除，不上传至开发者服务器。
+
+### 3. 导入、下载、导出与缓存
+
+导入、下载、导出、缓存仅限用户对合法有权处理的内容，并遵守作品授权及平台条款。默认仅限本地个人使用，不得复制、传播、售卖、公开分享或商业利用。是否允许导出、下载、缓存，以平台规则和作品授权为准。
+
+### 4. 用户责任
+
+用户应遵守著作权法、平台协议及所在地法律。不得将本工具用于批量抓取、绕过限制、盗取内容、侵犯隐私、传播盗版或其他违法用途。因用户行为产生的后果由用户自行承担。
+
+### 5. 非官方与商标
+
+本项目为非官方工具，不声称获得任何平台授权。平台图标、商标仅用于标识对应平台，归权利人所有。若权利人反对，我们将更名、替换或移除相关标识。
+
+### 6. 侵权处理
+
+如认为本项目涉及侵权，请联系 [moranfanhua@outlook.com](mailto:moranfanhua@outlook.com)，提供权属证明、具体定位、联系方式及真实性声明。我们将在核实后依法采取删除、断开链接、下架等措施。
+
+### 7. 无担保与责任限制
+
+本工具按“现状”提供，不保证不中断、无错误或满足特定目的。在法律允许范围内，开发者不对用户不当使用或第三方内容承担责任。该声明不排除依法不能排除的责任。
+
+### 8. 其他
+
+本项目采用 GNU Affero General Public License v3.0（AGPL-3.0），完整许可证见 [LICENSE](LICENSE)。第三方依赖保留各自的版权与许可证。
+
+`archive` 的主体采用 MIT；其附带的 zlib/inflate 与 pointycastle 衍生代码采用 MIT，JZLib 衍生代码采用 BSD-3-Clause，bzip2 衍生代码采用 bzip2-1.0.6 许可。完整附带代码声明见 [LICENSE-other.md](LICENSE-other.md)，对应锁定版本 `archive 4.5.1` 发布包内的同名文件。
+
+`sky_engine` 随 Flutter SDK 分发，包含多种第三方组件的版权与许可声明，完整文本见该包内的 `LICENSE`；其许可不统一标记为 Flutter 框架的 BSD-3-Clause。
+
+云端可选字体 [Noto Sans SC](https://github.com/google/fonts/tree/main/ofl/notosanssc)、[Noto Serif SC](https://github.com/google/fonts/tree/main/ofl/notoserifsc) 使用 SIL Open Font License 1.1；由用户下载，原许可随字体保存在本机。
+
+### 9. 更新
+
+本声明可能更新，更新后公布即生效。继续使用视为接受更新版本。
+
+最后更新日期：2026.10.16
+
+## 开源库
 
 - [Flutter](https://github.com/flutter/flutter)、[flutter_localizations](https://github.com/flutter/flutter)、[flutter_test](https://github.com/flutter/flutter)、[flutter_web_plugins](https://github.com/flutter/flutter) — BSD-3-Clause
 - [http](https://pub.dev/packages/http)、[crypto](https://pub.dev/packages/crypto) — BSD-3-Clause
@@ -37,7 +85,7 @@
 - [Pointy Castle](https://pub.dev/packages/pointycastle) — MIT；番茄接口签名与阅读密钥注册使用的 AES、SM3 实现。
 - [pinyin](https://pub.dev/packages/pinyin) — BSD-2-Clause；书名排序使用的汉字转拼音实现。
 - [Bugaoshan（不高山上）](https://github.com/moranfanhua/Bugaoshan) — AGPL-3.0；运行日志页的筛选、分级列表与堆栈折叠交互参考来源。
-- [MaaAssistantArknights](https://github.com/moranfanhua/MaaAssistantArknights) — AGPL-3.0；项目 `maa-issue-log-analysis` skill 的证据时间线、版本对照与诉求评估方法为 UNR issue 分析 skill 的参考来源。
+- [MaaAssistantArknights](https://github.com/moranfanhua/MaaAssistantArknights) — AGPL-3.0；项目 `maa-issue-log-analysis` skill 的证据时间线、版本对照与诉求评估方法为 UNR issue 分析 skill 的参考来源；GitHub Actions 的快速测试、构建、冒烟测试、依赖更新、PR 规范与格式检查流程为 UNR CI 的设计参考。
 - [convert](https://pub.dev/packages/convert) — BSD-3-Clause；Pointy Castle 的传递依赖。
 - [fqapp](https://github.com/ch6vip/fqapp) — GPL-3.0；番茄签名、密钥注册与接口参数参考来源，原作者 ch6vip。
 - [NetBare-Android](https://github.com/MegatronKing/NetBare-Android/tree/df5b417ea663763932cabf1ef52f15b09ddc2e16) — 本地 VPN 与 HTTPS 拦截核心；源码头标注 GPL-3.0-or-later，上游仓库 LICENSE 为 MIT，均保留在 Android 模块中。
@@ -46,19 +94,3 @@
 - [AndroidX Core](https://android.googlesource.com/platform/frameworks/support/)、[AndroidX Annotation](https://android.googlesource.com/platform/frameworks/support/) — Apache-2.0；VPN 前台服务与 AndroidX 适配。
 - [Error Prone annotations](https://github.com/google/error-prone)、[J2ObjC annotations](https://github.com/google/j2objc)、[JSpecify](https://github.com/jspecify/jspecify) — Apache-2.0；Guava 的传递依赖。
 - [JUnit 4](https://github.com/junit-team/junit4) — EPL-1.0；Android 会话过滤测试。[Hamcrest](https://github.com/hamcrest/JavaHamcrest) — BSD-3-Clause；JUnit 的测试依赖。
-
-# 声明
-
-本项目采用 GNU Affero General Public License v3.0（AGPL-3.0），完整许可证见 [LICENSE](LICENSE)。第三方依赖保留各自的版权与许可证。
-
-`archive` 的主体采用 MIT；其附带的 zlib/inflate 与 pointycastle 衍生代码采用 MIT，JZLib 衍生代码采用 BSD-3-Clause，bzip2 衍生代码采用 bzip2-1.0.6 许可。完整第三方声明见该版本发布包内的 `LICENSE-other.md`。
-
-`sky_engine` 随 Flutter SDK 分发，包含多种第三方组件的版权与许可声明，完整文本见该包内的 `LICENSE`；其许可不统一标记为 Flutter 框架的 BSD-3-Clause。
-
-云端可选字体 [Noto Sans SC](https://github.com/google/fonts/tree/main/ofl/notosanssc)、[Noto Serif SC](https://github.com/google/fonts/tree/main/ofl/notoserifsc) 使用 SIL Open Font License 1.1；由用户下载，原许可随字体保存在本机。
-
-作品、评论与插图归相应权利人所有，本项目为非官方阅读工具，与小说平台无隶属关系。
-
-账号入口中的菠萝包轻小说图标来自[官方应用商店页面](https://apps.apple.com/cn/app/id928785539)，仅用于标识对应平台，图标及商标归相应权利人所有。
-
-本项目仅访问公开内容及用户已有阅读权限的内容，不自动购买章节。导入、下载和导出内容应遵守作品授权及平台条款；请勿未经授权传播他人作品。账号会话仅用于用户主动进行的站点访问。

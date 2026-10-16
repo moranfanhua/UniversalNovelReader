@@ -1,5 +1,22 @@
 # 更新日志
 
+## v0.3.1
+
+### 改进 | Improved
+
+* 加快番茄与菠萝包书架导入：番茄批量获取作品信息，菠萝包优先复用收藏夹中的作品资料；先导入基本信息，首次打开作品时再加载目录。已有书库与最近阅读中的作品保留目录、缓存和阅读进度。[#12](https://github.com/moranfanhua/UniversalNovelReader/pull/12)
+* 番茄作品详情与目录改用 App 接口获取，保留章节顺序、分卷、字数和权限标记。[#12](https://github.com/moranfanhua/UniversalNovelReader/pull/12)
+* 更新 Windows 与 Android 应用图标，Android 支持自适应图标。
+
+### 修复 | Fix
+
+* 修复番茄作品存在多个书名时，搜索命中的作品因显示书名不同或收藏数较少而排序靠后的问题；保留番茄返回的结果顺序，并提示搜索结果可能显示同一作品的其他书名。[#11](https://github.com/moranfanhua/UniversalNovelReader/pull/11)
+* 修复书架导入失败重试后作品顺序变化的问题，保持平台书架中的原有顺序。[#12](https://github.com/moranfanhua/UniversalNovelReader/pull/12)
+
+### 其他 | Other
+
+* 发布附件补充 archive 附带第三方代码的许可声明，Windows 压缩包同步包含 `LICENSE-other.md`。
+
 ## v0.3.0
 
 ### 亮点
