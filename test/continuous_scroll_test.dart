@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:unr/data/library.dart';
 import 'package:unr/domain/models.dart';
+import 'package:unr/domain/reading_preferences.dart';
+import 'package:unr/ui/reading_paragraph.dart';
 import 'package:unr/sources/comment_source.dart';
 import 'package:unr/sources/sfacg/sfacg_api.dart';
 import 'package:unr/sources/sfacg/sfacg_source.dart';
@@ -216,33 +218,36 @@ void main() {
     variant: TargetPlatformVariant.only(TargetPlatform.windows),
   );
 
-  testWidgets('已追加章节相同段号的段评仍请求对应书源章节', (tester) async {
-    final comments = PreviewComments();
-    final library = ScrollLibrary(comments: comments);
-    await open(tester, library);
-    await end(tester);
-    await Scrollable.ensureVisible(
-      tester.element(find.text('　　第2章段落0')),
-      alignment: 0,
-    );
-    await settle(tester);
-    final row = find.ancestor(
-      of: find.text('　　第2章段落0'),
-      matching: find.byType(Row),
-    );
-    final button = find.descendant(
-      of: row,
-      matching: find.widgetWithText(TextButton, '22'),
-    );
-    expect(button, findsOneWidget);
-    await tester.tap(button);
-    await settle(tester);
-    expect(comments.locations.last.chapter.id, '2');
-    expect(comments.locations.last.paragraph.remoteIndex, 0);
-    Navigator.of(tester.element(find.byType(ReaderPage))).pop();
-    await settle(tester);
-    await tester.pumpWidget(const SizedBox.shrink());
-  });
+  for (final placement in ParagraphCommentPlacement.values) {
+    testWidgets('已追加章节相同段号的段评仍请求对应书源章节（${placement.name}）', (tester) async {
+      final comments = PreviewComments();
+      final library = ScrollLibrary(comments: comments)
+        ..paragraphCommentPlacement = placement;
+      await open(tester, library);
+      await end(tester);
+      await Scrollable.ensureVisible(
+        tester.element(find.text('　　第2章段落0')),
+        alignment: 0,
+      );
+      await settle(tester);
+      final paragraph = find.ancestor(
+        of: find.text('　　第2章段落0'),
+        matching: find.byType(ReadingParagraph),
+      );
+      final button = find.descendant(
+        of: paragraph,
+        matching: find.widgetWithText(TextButton, '22'),
+      );
+      expect(button, findsOneWidget);
+      await tester.tap(button);
+      await settle(tester);
+      expect(comments.locations.last.chapter.id, '2');
+      expect(comments.locations.last.paragraph.remoteIndex, 0);
+      Navigator.of(tester.element(find.byType(ReaderPage))).pop();
+      await settle(tester);
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  }
 
   testWidgets('短章节自动补足视窗，最后一章不再请求下一章', (tester) async {
     final library = ScrollLibrary();

@@ -8,6 +8,7 @@ import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
 import 'package:pinyin/pinyin.dart';
 import '../domain/models.dart';
+import '../domain/reading_preferences.dart';
 import '../domain/bookshelf.dart';
 import '../sources/bookshelf_source.dart';
 import '../sources/sfacg/sfacg_source.dart';
@@ -17,6 +18,8 @@ import 'reader_fonts.dart';
 import 'app_log.dart';
 
 enum ReadingMode { scroll, paged }
+
+enum AppThemeMode { system, light, dark }
 
 enum ShelfSort { updated, name, lastActive }
 
@@ -145,10 +148,12 @@ class Library extends ChangeNotifier {
 
   final Map<String, List<int>> progress = {};
   double fontSize = 20;
-  bool night = false;
+  AppThemeMode themeMode = AppThemeMode.system;
   ReadingMode readingMode = ReadingMode.scroll;
   bool volumeKeyPaging = true;
   bool showParagraphComments = true;
+  ParagraphCommentPlacement paragraphCommentPlacement =
+      ParagraphCommentPlacement.right;
   final Map<String, int> pageOffsets = {};
   // Entry alignment and preceding spread origin, indexed by book and chapter.
   final Map<String, List<int>> pagedChapterEntries = {};
@@ -209,9 +214,22 @@ class Library extends ChangeNotifier {
         14,
         32,
       );
-      library.night = data['night'] == true;
+      library.themeMode =
+          AppThemeMode.values
+              .where((mode) => mode.name == data['themeMode'])
+              .firstOrNull ??
+          switch (data['night']) {
+            true => AppThemeMode.dark,
+            false => AppThemeMode.light,
+            _ => AppThemeMode.system,
+          };
       library.volumeKeyPaging = data['volumeKeyPaging'] != false;
       library.showParagraphComments = data['showParagraphComments'] != false;
+      library.paragraphCommentPlacement = ParagraphCommentPlacement.values
+          .firstWhere(
+            (placement) => placement.name == data['paragraphCommentPlacement'],
+            orElse: () => ParagraphCommentPlacement.right,
+          );
       library._disabledSearchSources.addAll(
         (data['disabledSearchSources'] as List? ?? []).whereType<String>(),
       );
@@ -337,10 +355,13 @@ class Library extends ChangeNotifier {
       'shelves': shelves.map((s) => s.toJson()).toList(),
       'progress': progress,
       'fontSize': fontSize,
-      'night': night,
+      'themeMode': themeMode.name,
+      // Keep the explicit dark preference readable by older app versions.
+      'night': themeMode == AppThemeMode.dark,
       'readingMode': readingMode.name,
       'volumeKeyPaging': volumeKeyPaging,
       'showParagraphComments': showParagraphComments,
+      'paragraphCommentPlacement': paragraphCommentPlacement.name,
       'disabledSearchSources': _disabledSearchSources.toList(),
       'pageOffsets': pageOffsets,
       'pagedChapterEntries': pagedChapterEntries,
@@ -366,6 +387,19 @@ class Library extends ChangeNotifier {
 
   File _chapterFile(Book book, Chapter chapter) =>
       File('${root.path}/${safeKey(book.key)}/${safeKey(chapter.id)}.json');
+
+  Future<void> setThemeMode(AppThemeMode mode) async {
+    if (themeMode == mode) return;
+    final previous = themeMode;
+    themeMode = mode;
+    try {
+      await save();
+    } catch (_) {
+      themeMode = previous;
+      notifyListeners();
+      rethrow;
+    }
+  }
 
   Future<void> selectFont(String id) async {
     String? family;
@@ -410,7 +444,7 @@ class Library extends ChangeNotifier {
     readingMode = ReadingMode.scroll;
     volumeKeyPaging = true;
     showParagraphComments = true;
-    night = false;
+    paragraphCommentPlacement = ParagraphCommentPlacement.right;
     await save();
   }
 

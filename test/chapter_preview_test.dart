@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:unr/data/library.dart';
 import 'package:unr/domain/models.dart';
+import 'package:unr/domain/reading_preferences.dart';
 import 'package:unr/sources/comment_source.dart';
 import 'package:unr/sources/sfacg/sfacg_api.dart';
 import 'package:unr/sources/sfacg/sfacg_source.dart';
@@ -165,31 +166,34 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
-  testWidgets('跨章双页两侧相同段号的计数及点击段评各归属正确章节', (tester) async {
-    final comments = PreviewComments();
-    final library = PreviewLibrary(comments: comments)
-      ..readingMode = ReadingMode.paged;
-    library.contents['1'] = const ChapterContent([
-      Paragraph('甲章首页', remoteIndex: 7),
-    ]);
-    await open(tester, library);
-    expect(find.text('11').hitTestable(), findsOneWidget);
-    expect(find.text('22').hitTestable(), findsOneWidget);
-    expect(comments.locations.map((location) => location.chapter.id).toSet(), {
-      '1',
-      '2',
+  for (final placement in ParagraphCommentPlacement.values) {
+    testWidgets('跨章双页两侧相同段号的计数及点击段评各归属正确章节（${placement.name}）', (tester) async {
+      final comments = PreviewComments();
+      final library = PreviewLibrary(comments: comments)
+        ..readingMode = ReadingMode.paged
+        ..paragraphCommentPlacement = placement;
+      library.contents['1'] = const ChapterContent([
+        Paragraph('甲章首页', remoteIndex: 7),
+      ]);
+      await open(tester, library);
+      expect(find.text('11').hitTestable(), findsOneWidget);
+      expect(find.text('22').hitTestable(), findsOneWidget);
+      expect(
+        comments.locations.map((location) => location.chapter.id).toSet(),
+        {'1', '2'},
+      );
+      await tester.tap(find.widgetWithText(TextButton, '22').hitTestable());
+      await settle(tester);
+      expect(comments.locations.last.chapter.id, '2');
+      expect(comments.locations.last.paragraph.remoteIndex, 7);
+      expect(library.progress[previewBook.key]!.first, 0);
+      Navigator.of(tester.element(find.byType(ReaderPage))).pop();
+      await settle(tester);
+      expect(find.text('11').hitTestable(), findsOneWidget);
+      expect(find.text('22').hitTestable(), findsOneWidget);
+      await tester.pumpWidget(const SizedBox.shrink());
     });
-    await tester.tap(find.widgetWithText(TextButton, '22').hitTestable());
-    await settle(tester);
-    expect(comments.locations.last.chapter.id, '2');
-    expect(comments.locations.last.paragraph.remoteIndex, 7);
-    expect(library.progress[previewBook.key]!.first, 0);
-    Navigator.of(tester.element(find.byType(ReaderPage))).pop();
-    await settle(tester);
-    expect(find.text('11').hitTestable(), findsOneWidget);
-    expect(find.text('22').hitTestable(), findsOneWidget);
-    await tester.pumpWidget(const SizedBox.shrink());
-  });
+  }
 
   testWidgets('预读失败保留当前正文及位置，右页可重试', (tester) async {
     final library = PreviewLibrary()

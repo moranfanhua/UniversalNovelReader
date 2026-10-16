@@ -2,11 +2,12 @@ import 'dart:ui' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../domain/models.dart';
+import '../domain/reading_preferences.dart';
 import 'text_pagination.dart';
-import 'reading_layout.dart';
 import 'boundary_scroll.dart';
 import 'reading_tap_zones.dart';
 import 'chapter_page_layout.dart';
+import 'reading_paragraph.dart';
 
 class ChapterPreview {
   const ChapterPreview({
@@ -54,6 +55,7 @@ class PagedChapter extends StatefulWidget {
     this.onTapTurn,
     this.onCenterTap,
     this.showPageIndicator = true,
+    this.commentPlacement = ParagraphCommentPlacement.right,
   });
   final ChapterContent content;
   final String title;
@@ -62,6 +64,7 @@ class PagedChapter extends StatefulWidget {
   final double horizontalMargin, verticalMargin, lineHeight;
   final int initialParagraph, initialOffset;
   final bool comments;
+  final ParagraphCommentPlacement commentPlacement;
   final bool startAtEnd;
   final VoidCallback? onPreviousChapter, onNextChapter;
   final Future<ChapterPreview> Function()? loadNextChapter;
@@ -201,11 +204,11 @@ class PagedChapterState extends State<PagedChapter> {
         verticalMargin: widget.verticalMargin,
         lineHeight: widget.lineHeight,
         comments: widget.comments,
+        commentPlacement: widget.commentPlacement,
         footerHeight: widget.showPageIndicator ? 48 : 0,
       );
       columns = layout.columns;
       final canvasWidth = layout.canvasWidth;
-      final gutter = columns == 2 ? ReadingLayout.gutter : 0.0;
       final width = layout.width, height = layout.height;
       final style = layout.style, headingStyle = layout.headingStyle;
       final scaler = layout.scaler, direction = layout.direction;
@@ -222,6 +225,10 @@ class PagedChapterState extends State<PagedChapter> {
         direction,
         locale,
         headingSpace,
+        widget.comments,
+        widget.commentPlacement,
+        widget.horizontalMargin,
+        layout.textLayout.signature,
       );
       if (signature != nextSignature) {
         final enterAtEnd = signature == null && widget.startAtEnd;
@@ -235,9 +242,12 @@ class PagedChapterState extends State<PagedChapter> {
           direction: direction,
           locale: locale,
           comments: widget.comments,
+          commentPlacement: widget.commentPlacement,
+          commentRightInset: widget.horizontalMargin,
           headingSpace: headingSpace,
           anchorParagraph: enterAtEnd ? null : anchorParagraph,
           anchorOffset: anchorOffset,
+          textLayout: layout.textLayout,
         );
         page = 0;
         for (var i = 0; i < pages.length; i++) {
@@ -294,7 +304,10 @@ class PagedChapterState extends State<PagedChapter> {
           direction: direction,
           locale: locale,
           comments: widget.comments,
+          commentPlacement: widget.commentPlacement,
+          commentRightInset: widget.horizontalMargin,
           headingSpace: nextHeadingSpace,
+          textLayout: layout.textLayout,
         );
         // Preview rows belong to another chapter; refresh their counts without
         // moving the saved reading position away from the left-hand page.
@@ -368,56 +381,58 @@ class PagedChapterState extends State<PagedChapter> {
                           child: SizedBox(
                             width: canvasWidth,
                             child: Padding(
-                              padding: EdgeInsets.fromLTRB(
-                                widget.horizontalMargin,
-                                verticalMargin,
-                                widget.horizontalMargin,
-                                verticalMargin,
+                              padding: EdgeInsets.symmetric(
+                                vertical: verticalMargin,
                               ),
-                              child: Row(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                              child: Stack(
                                 children: [
-                                  for (
-                                    var column = 0;
-                                    column < columns;
-                                    column++
-                                  ) ...[
-                                    if (column > 0)
-                                      SizedBox(
-                                        width: gutter,
-                                        child: Center(
-                                          child: VerticalDivider(
-                                            width: 1,
-                                            color: Theme.of(context)
-                                                .dividerColor
-                                                .withValues(alpha: 0.25),
-                                          ),
+                                  if (columns == 2)
+                                    Positioned.fill(
+                                      child: Center(
+                                        child: VerticalDivider(
+                                          width: 1,
+                                          color: Theme.of(context).dividerColor
+                                              .withValues(alpha: 0.25),
                                         ),
                                       ),
-                                    Expanded(
-                                      child:
-                                          firstPage +
-                                                  spread * columns +
-                                                  column <
-                                              pages.length
-                                          ? _page(
-                                              context,
-                                              firstPage +
-                                                  spread * columns +
-                                                  column,
-                                              style,
-                                              headingStyle,
-                                              scaler,
-                                              headingSpace,
-                                            )
-                                          : _previewPage(
-                                              context,
-                                              style,
-                                              headingStyle,
-                                              scaler,
-                                            ),
                                     ),
-                                  ],
+                                  Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.stretch,
+                                    children: [
+                                      for (
+                                        var column = 0;
+                                        column < columns;
+                                        column++
+                                      ) ...[
+                                        if (column > 0)
+                                          SizedBox(width: layout.gutter),
+                                        Expanded(
+                                          child:
+                                              firstPage +
+                                                      spread * columns +
+                                                      column <
+                                                  pages.length
+                                              ? _page(
+                                                  context,
+                                                  firstPage +
+                                                      spread * columns +
+                                                      column,
+                                                  style,
+                                                  headingStyle,
+                                                  scaler,
+                                                  headingSpace,
+                                                )
+                                              : _previewPage(
+                                                  context,
+                                                  style,
+                                                  headingStyle,
+                                                  scaler,
+                                                ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
                                 ],
                               ),
                             ),
@@ -457,17 +472,21 @@ class PagedChapterState extends State<PagedChapter> {
     List<PageFragment>? fragments,
   }) => SingleChildScrollView(
     key: ValueKey('${next == null ? 'reading' : 'preview'}-page-$index'),
+    padding: EdgeInsets.only(left: widget.horizontalMargin),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         if (index == 0)
           SizedBox(
             height: headingSpace,
-            child: Text(
-              next?.title ?? widget.title,
-              style: headingStyle,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
+            child: Padding(
+              padding: EdgeInsets.only(right: widget.horizontalMargin),
+              child: Text(
+                next?.title ?? widget.title,
+                style: headingStyle,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
           ),
         for (final fragment in fragments ?? pages[index])
@@ -475,37 +494,36 @@ class PagedChapterState extends State<PagedChapter> {
             padding: const EdgeInsets.only(bottom: 18),
             child: SizedBox(
               height: fragment.height,
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: fragment.image
-                        ? widget.imageBuilder(
-                            (next?.content ?? widget.content)
-                                .paragraphs[fragment.paragraph]
-                                .image!,
-                          )
-                        : SelectableText(
-                            fragment.text,
-                            style: style,
-                            textScaler: scaler,
-                          ),
-                  ),
-                  if (widget.comments &&
-                      (next?.content ?? widget.content)
+              child: ReadingParagraph(
+                text: fragment.text,
+                style: style,
+                textScaler: scaler,
+                rightInset: widget.horizontalMargin,
+                placement: widget.commentPlacement,
+                image: fragment.image
+                    ? SizedBox(
+                        height: fragment.height,
+                        child: widget.imageBuilder(
+                          (next?.content ?? widget.content)
                               .paragraphs[fragment.paragraph]
-                              .remoteIndex !=
-                          null)
-                    SizedBox(
-                      width: 56,
-                      child: ExcludeReadingTap(
-                        child: (next?.commentBuilder ?? widget.commentBuilder)(
-                          (next?.content ?? widget.content).paragraphs[fragment
-                              .paragraph],
+                              .image!,
                         ),
-                      ),
-                    ),
-                ],
+                      )
+                    : null,
+                comment:
+                    widget.comments &&
+                        (widget.commentPlacement ==
+                                ParagraphCommentPlacement.right ||
+                            fragment.endsParagraph) &&
+                        (next?.content ?? widget.content)
+                                .paragraphs[fragment.paragraph]
+                                .remoteIndex !=
+                            null
+                    ? (next?.commentBuilder ?? widget.commentBuilder)(
+                        (next?.content ?? widget.content).paragraphs[fragment
+                            .paragraph],
+                      )
+                    : null,
               ),
             ),
           ),

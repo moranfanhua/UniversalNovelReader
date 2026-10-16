@@ -3,6 +3,7 @@ import '../data/library.dart';
 import 'reading_settings.dart';
 import 'platform_order.dart';
 import 'logs.dart';
+import 'theme_settings.dart';
 
 class SoftwareSettingsPage extends StatefulWidget {
   const SoftwareSettingsPage({
@@ -54,6 +55,17 @@ class SettingsPage extends StatelessWidget {
       child: ListView(
         padding: const EdgeInsets.all(24),
         children: [
+          _entry(
+            context,
+            'appearance',
+            '外观',
+            Icons.palette_outlined,
+            (_) => _SettingsSection(
+              title: '外观设置',
+              children: [ThemeSettings(library: library)],
+            ),
+          ),
+          const SizedBox(height: 16),
           _entry(
             context,
             'shelf',
