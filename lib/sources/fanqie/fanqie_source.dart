@@ -3,11 +3,12 @@ import 'package:html/dom.dart';
 import 'package:html/parser.dart' as html;
 import '../../domain/models.dart';
 import '../novel_source.dart';
+import '../chapter_batch_source.dart';
 import '../bookshelf_source.dart';
 import 'fanqie_comments.dart';
 
 class FanqieSource extends FanqieComments
-    implements PlatformRankedSearchSource, BookshelfSource {
+    implements PlatformRankedSearchSource, BookshelfSource, ChapterBatchSource {
   FanqieSource(super.api, {Map<String, String>? cipher})
     : cipher = cipher ?? {};
   final Map<String, String> cipher;
@@ -432,6 +433,43 @@ class FanqieSource extends FanqieComments
       throw const SourceException('番茄作品或章节 ID 无效');
     }
     final data = await api.app.chapter(book.id, chapter.id);
+    return _parseAppChapter(data);
+  }
+
+  @override
+  int get chapterBatchSize => 30;
+  @override
+  int get chapterBatchConcurrency => 1;
+
+  @override
+  Future<List<ChapterBatchResult>> readChapterBatch(
+    Book book,
+    List<Chapter> chapters,
+  ) async {
+    if (book.source != id ||
+        chapters.any(
+          (chapter) => !book.chapters.any((c) => c.id == chapter.id),
+        )) {
+      throw const SourceException('番茄作品与章节不匹配');
+    }
+    final data = await api.app.chapters(
+      book.id,
+      chapters.map((c) => c.id).toList(),
+    );
+    return data.map((result) {
+      try {
+        if (result.error != null) throw result.error!;
+        return ChapterBatchResult.success(
+          result.id,
+          _parseAppChapter(result.data!),
+        );
+      } catch (error) {
+        return ChapterBatchResult.failure(result.id, error);
+      }
+    }).toList();
+  }
+
+  ChapterContent _parseAppChapter(Map<String, dynamic> data) {
     final info = data['novel_data'] as Map;
     final version = '${info['version'] ?? ''}';
     if (version.isEmpty) throw const SourceException('番茄 App 未返回章节版本');

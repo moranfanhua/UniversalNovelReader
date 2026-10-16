@@ -10,6 +10,12 @@ import '../../data/app_log.dart';
 import '../logged_request.dart';
 import 'fanqie_crypto.dart';
 
+typedef FanqieChapterResult = ({
+  String id,
+  Map<String, dynamic>? data,
+  Object? error,
+});
+
 class FanqieAppApi {
   FanqieAppApi({required this.client, required this.cookie, this.onChanged});
   final http.Client client;
@@ -18,6 +24,7 @@ class FanqieAppApi {
   String deviceId = '', installId = '';
   Uint8List? _key;
   String _keyOwner = '';
+  int _keyRegisterTs = 0;
   Future<void>? _initializing, _registeringKey;
   static const host = 'api5-normal-sinfonlineb.fqnovel.com';
   static const _agent =
@@ -29,6 +36,7 @@ class FanqieAppApi {
     'installId': installId,
     if (_key != null) 'key': base64Encode(_key!),
     'keyOwner': _keyOwner,
+    'keyRegisterTs': _keyRegisterTs,
   };
   void restore(Map<String, dynamic> data) {
     final did = '${data['deviceId'] ?? ''}', iid = '${data['installId'] ?? ''}';
@@ -45,6 +53,7 @@ class FanqieAppApi {
     installId = iid;
     _key = key;
     _keyOwner = '${data['keyOwner'] ?? ''}';
+    _keyRegisterTs = int.tryParse('${data['keyRegisterTs']}') ?? 0;
   }
 
   Map<String, String> get _params => {
@@ -329,8 +338,12 @@ class FanqieAppApi {
         FanqieCrypto.hex('ac25c67ddd8f38c1b37a2348828e222e'),
       );
       if (key.length != 16) throw const SourceException('番茄返回的阅读密钥无效');
+      if (owner != sha256.convert(utf8.encode(cookie())).toString()) {
+        throw const SourceException('番茄账号已切换，请重新下载章节');
+      }
       _key = key;
       _keyOwner = owner;
+      _keyRegisterTs = int.tryParse('${data['key_register_ts']}') ?? 0;
       await onChanged?.call();
     } finally {
       _registeringKey = null;
@@ -365,6 +378,96 @@ class FanqieAppApi {
         },
       );
     }
+    return _decodeChapter(bookId, chapterId, data, _key!);
+  }
+
+  /// APK ReaderDownload divides chapters into groups of 30, req_type=Download.
+  Future<List<FanqieChapterResult>> chapters(
+    String bookId,
+    List<String> chapterIds,
+  ) async {
+    if (chapterIds.isEmpty) return [];
+    final validId = RegExp(r'^[1-9]\d{14,19}$');
+    if (!validId.hasMatch(bookId) ||
+        chapterIds.length > 30 ||
+        chapterIds.toSet().length != chapterIds.length ||
+        chapterIds.any((id) => !validId.hasMatch(id))) {
+      throw const SourceException('番茄批量下载作品或章节 ID 无效');
+    }
+    final session = cookie();
+    void checkSession() {
+      if (cookie() != session) {
+        throw const SourceException('番茄账号已切换，请重新下载章节');
+      }
+    }
+
+    await ensureDevice();
+    await _ensureKey();
+    checkSession();
+    Future<Map<String, dynamic>> fetch(List<String> ids) => request(
+      '/reading/reader/batch_full/v/',
+      hostname: 'reading.snssdk.com',
+      query: {
+        'book_id': bookId,
+        'item_ids': ids.join(','),
+        'req_type': '0',
+        'novel_text_type': '1',
+        'key_register_ts': '$_keyRegisterTs',
+      },
+    );
+    final key = _key!;
+    final data = await fetch(chapterIds);
+    checkSession();
+    final results = <String, FanqieChapterResult>{};
+    final expired = <String>[];
+    FanqieChapterResult decode(String id, Object? raw, Uint8List key) {
+      try {
+        if (raw is! Map) throw const SourceException('番茄未返回该章节正文');
+        return (
+          id: id,
+          data: _decodeChapter(bookId, id, Map<String, dynamic>.from(raw), key),
+          error: null,
+        );
+      } catch (error) {
+        return (id: id, data: null, error: error);
+      }
+    }
+
+    for (final id in chapterIds) {
+      final raw = data[id];
+      if (raw is Map && '${raw['crypt_status']}' == '2') {
+        expired.add(id);
+      } else {
+        results[id] = decode(id, raw, key);
+      }
+    }
+    if (expired.isNotEmpty) {
+      try {
+        if (identical(_key, key)) _key = null;
+        await _ensureKey();
+        checkSession();
+        final refreshedKey = _key!;
+        final retry = await fetch(expired);
+        checkSession();
+        for (final id in expired) {
+          results[id] = decode(id, retry[id], refreshedKey);
+        }
+      } catch (error) {
+        for (final id in expired) {
+          results[id] = (id: id, data: null, error: error);
+        }
+      }
+    }
+    checkSession();
+    return chapterIds.map((id) => results[id]!).toList();
+  }
+
+  Map<String, dynamic> _decodeChapter(
+    String bookId,
+    String chapterId,
+    Map<String, dynamic> data,
+    Uint8List key,
+  ) {
     final metadata = data['novel_data'];
     if (metadata is! Map ||
         '${metadata['book_id']}' != bookId ||
@@ -384,7 +487,7 @@ class FanqieAppApi {
     if (crypt != 0 && crypt != 1) throw const SourceException('番茄正文加密格式已变化');
     List<int> bytes = crypt == 1
         ? utf8.encode(encrypted)
-        : FanqieCrypto.decryptBlob(encrypted, _key!);
+        : FanqieCrypto.decryptBlob(encrypted, key);
     if (bytes.length >= 2 && bytes[0] == 31 && bytes[1] == 139) {
       try {
         bytes = gzip.decode(bytes);
