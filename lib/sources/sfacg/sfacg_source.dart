@@ -21,6 +21,7 @@ class SfacgSource extends CommentSource
   SfacgSource(this.api, {Map<String, String>? cipher}) : cipher = cipher ?? {};
   final SfacgApi api;
   final Map<String, String> cipher;
+  final Map<String, Book> _shelfPreviews = {};
   final Map<String, ({DateTime at, int count})> _commentCounts = {};
   final Map<String, Future<int>> _countRequests = {};
   final Map<String, int> _countEpochs = {};
@@ -34,6 +35,7 @@ class SfacgSource extends CommentSource
   String get name => '菠萝包轻小说';
   @override
   Future<List<RemoteBookshelf>> getShelves() async {
+    _shelfPreviews.clear();
     if (!hasSession) throw const SourceException('请先在“我的 → 账号设置”登录菠萝包轻小说');
     if (api.websiteSession) {
       throw const SourceException('菠萝包书架导入需要 App 会话，请在账号设置使用账号密码登录或导入 App 会话');
@@ -57,6 +59,12 @@ class SfacgSource extends CommentSource
           throw const SourceException('菠萝包书架包含无效作品编号');
         }
         ids.add(nid);
+        if (novel is Map &&
+            '${novel['novelName'] ?? ''}'.trim().isNotEmpty &&
+            novel['authorName'] is String &&
+            novel['novelCover'] is String) {
+          _shelfPreviews[nid] = _bookPreview(nid, novel);
+        }
       }
       result.add(
         RemoteBookshelf(
@@ -72,6 +80,51 @@ class SfacgSource extends CommentSource
   @override
   Future<List<String>> getShelfBookIds(RemoteBookshelf shelf) async =>
       shelf.bookIds ?? (throw const SourceException('请重新选择菠萝包书架'));
+
+  @override
+  int get shelfBookBatchSize => 4;
+
+  @override
+  Future<List<ShelfBookResult>> getShelfBooks(List<String> ids) async {
+    if (ids.length > shelfBookBatchSize) {
+      throw const SourceException('菠萝包单次获取的作品过多');
+    }
+    return Future.wait(
+      ids.map((input) async {
+        try {
+          final id = bookId(input);
+          final preview = _shelfPreviews[id];
+          if (preview != null) return ShelfBookResult.success(input, preview);
+          final info = await api.get(
+            'novels/$id',
+            query: {'expand': 'bigNovelCover,intro'},
+          );
+          if (info is! Map ||
+              '${info['novelName'] ?? ''}'.trim().isEmpty ||
+              (info['novelId'] != null && '${info['novelId']}' != id)) {
+            throw const SourceException('菠萝包未返回对应作品详情，作品可能已下架');
+          }
+          return ShelfBookResult.success(input, _bookPreview(id, info));
+        } catch (error) {
+          return ShelfBookResult.failure(input, error);
+        }
+      }),
+    );
+  }
+
+  static Book _bookPreview(String id, Map info) => Book(
+    id: id,
+    title: '${info['novelName']}',
+    author: '${info['authorName'] ?? ''}',
+    cover: '${info['novelCover'] ?? ''}',
+    description: info['expand'] is Map
+        ? '${info['expand']['intro'] ?? ''}'
+        : '',
+    favoriteCount: Book.parseFavoriteCount(info['markCount']),
+    wordCount: Book.parseWordCount(info['charCount']),
+    updatedAt: _updateTime(info['lastUpdateTime']),
+    chapters: const [],
+  );
   @override
   bool get hasSession => api.hasSession;
   @override

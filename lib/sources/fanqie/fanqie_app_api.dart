@@ -248,11 +248,7 @@ class FanqieAppApi {
         ids.any((id) => !RegExp(r'^[1-9]\d{14,19}$').hasMatch(id))) {
       throw const SourceException('番茄收藏数查询作品 ID 无效');
     }
-    final data = await _requestData(
-      '/reading/bookapi/multi-detail/v/',
-      query: {'book_id': ids.join(',')},
-    );
-    if (data is! List) throw const SourceException('番茄收藏数数据格式已变化');
+    final data = await bookDetails(ids);
     final counts = <String, int>{};
     for (final info in data.whereType<Map>()) {
       final id = '${info['book_id']}';
@@ -261,6 +257,22 @@ class FanqieAppApi {
       if (ids.contains(id) && count != null) counts[id] = count;
     }
     return counts;
+  }
+
+  Future<List<dynamic>> bookDetails(Iterable<String> bookIds) async {
+    final ids = bookIds.toSet();
+    if (ids.isEmpty) return [];
+    // Official BookshelfSyncSystem batches at most 100 IDs (MBookDetailRequest).
+    if (ids.length > 100 ||
+        ids.any((id) => !RegExp(r'^[1-9]\d{14,19}$').hasMatch(id))) {
+      throw const SourceException('番茄作品详情查询 ID 无效');
+    }
+    final data = await _requestData(
+      '/reading/bookapi/multi-detail/v/',
+      query: {'book_id': ids.join(',')},
+    );
+    if (data is! List) throw const SourceException('番茄作品详情数据格式已变化');
+    return data;
   }
 
   Future<dynamic> _requestData(
