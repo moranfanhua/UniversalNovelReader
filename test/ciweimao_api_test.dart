@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:unr/data/app_log.dart';
 import 'package:unr/domain/models.dart';
 import 'package:unr/sources/ciweimao/ciweimao_api.dart';
 import 'package:unr/sources/ciweimao/ciweimao_crypto.dart';
@@ -21,6 +22,46 @@ http.Response ok(Object? data, {String code = '100000'}) => http.Response(
 );
 
 void main() {
+  test('认证业务拒绝与解析失败写入脱敏日志，HTTP 200 保留业务错误码', () async {
+    for (final malformed in [false, true]) {
+      final api = CiweimaoApi(
+        client: MockClient(
+          (_) async => http.Response(
+            malformed
+                ? 'synthetic-invalid-response'
+                : CiweimaoCrypto.encrypt(
+                    jsonEncode({
+                      'code': '210000',
+                      'tip': 'synthetic-private-tip',
+                      'data': {'account': 'synthetic-private-account'},
+                    }),
+                  ),
+            200,
+          ),
+        ),
+      )..restoreSession(session());
+      addTearDown(api.close);
+      await expectLater(
+        api.request('signup/login', {
+          'passwd': 'synthetic-private-password',
+        }, write: true),
+        throwsA(isA<SourceException>()),
+      );
+      final snapshot = await AppLog.instance.snapshot();
+      final event = malformed
+          ? 'ciweimao.auth_response_invalid'
+          : 'ciweimao.auth_rejected';
+      final entry = const LineSplitter()
+          .convert(snapshot.text)
+          .where((line) => line.startsWith('{'))
+          .map((line) => jsonDecode(line) as Map<String, dynamic>)
+          .lastWhere((entry) => entry['event'] == event);
+      expect(entry['httpStatus'], 200);
+      if (!malformed) expect(entry['code'], 210000);
+      expect(snapshot.text, isNot(contains('synthetic-private')));
+      expect(snapshot.text, isNot(contains('synthetic-invalid-response')));
+    }
+  });
   test('游客过期后保留存储且不自动重发，用户重试可重新建立 App 会话', () async {
     var reads = 0, registrations = 0;
     final api = CiweimaoApi(

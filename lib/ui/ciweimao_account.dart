@@ -55,22 +55,35 @@ class _CiweimaoAccountPageState extends State<CiweimaoAccountPage> {
 
   Future<void> _sendCode() => _run(() async {
     try {
-      await auth.sendCode(phone.text);
+      if (widget.method == AccountLoginMethod.password) {
+        await auth.sendPasswordCode(account.text);
+      } else {
+        await auth.sendCode(phone.text);
+      }
       if (mounted) {
         code.clear();
-        setState(() => message = '验证码已发送，请查看短信');
+        setState(
+          () => message =
+              widget.method == AccountLoginMethod.password &&
+                  account.text.contains('@')
+              ? '验证码已发送，请查看邮箱'
+              : '验证码已发送，请查看短信',
+        );
       }
     } finally {
       if (mounted) {
         timer?.cancel();
-        setState(() => remaining = auth.resendSeconds);
+        int seconds() => widget.method == AccountLoginMethod.password
+            ? auth.passwordResendSeconds
+            : auth.resendSeconds;
+        setState(() => remaining = seconds());
         if (remaining > 0) {
           timer = Timer.periodic(const Duration(seconds: 1), (t) {
             if (!mounted) {
               t.cancel();
               return;
             }
-            setState(() => remaining = auth.resendSeconds);
+            setState(() => remaining = seconds());
             if (remaining == 0) t.cancel();
           });
         }
@@ -83,6 +96,7 @@ class _CiweimaoAccountPageState extends State<CiweimaoAccountPage> {
       AccountLoginMethod.password => await auth.passwordLogin(
         account.text,
         password.text,
+        code: code.text,
       ),
       AccountLoginMethod.sms => await auth.verifyCode(phone.text, code.text),
       _ => await auth.importSession(session.text),
@@ -147,6 +161,11 @@ class _CiweimaoAccountPageState extends State<CiweimaoAccountPage> {
                 enabled: !busy,
                 autocorrect: false,
                 autofillHints: const [AutofillHints.username],
+                onChanged: (_) {
+                  auth.clear();
+                  code.clear();
+                  setState(() => message = null);
+                },
                 decoration: const InputDecoration(
                   labelText: '手机号、邮箱或账号',
                   border: OutlineInputBorder(),
@@ -164,6 +183,30 @@ class _CiweimaoAccountPageState extends State<CiweimaoAccountPage> {
                 ),
               ),
               const SizedBox(height: 12),
+              if (auth.passwordCodeLength != null) ...[
+                Text('当前账号需要 ${auth.passwordCodeLength} 位登录验证码'),
+                const SizedBox(height: 12),
+                OutlinedButton(
+                  onPressed: busy || remaining > 0 ? null : _sendCode,
+                  child: Text(remaining > 0 ? '$remaining 秒后重新获取' : '获取登录验证码'),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: code,
+                  enabled: !busy,
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [
+                    FilteringTextInputFormatter.digitsOnly,
+                    LengthLimitingTextInputFormatter(auth.passwordCodeLength),
+                  ],
+                  autofillHints: const [AutofillHints.oneTimeCode],
+                  decoration: const InputDecoration(
+                    labelText: '登录验证码',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+              ],
               FilledButton(
                 onPressed: busy ? null : _login,
                 child: const Text('登录刺猬猫'),
