@@ -29,7 +29,9 @@ class CommentText extends StatelessWidget {
 
     for (final part
         in source?.commentContent(text) ?? [CommentPart.text(text)]) {
-      final url = part.image == null ? null : commentImageAddress(part.image!);
+      final url =
+          part.asset ??
+          (part.image == null ? null : commentImageAddress(part.image!));
       if (url != null && !part.inline) {
         flushText();
         children.add(
@@ -47,7 +49,12 @@ class CommentText extends StatelessWidget {
                 alignment: PlaceholderAlignment.middle,
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 2),
-                  child: CommentImage(url: url, label: part.text, inline: true),
+                  child: CommentImage(
+                    url: url,
+                    label: part.text,
+                    inline: true,
+                    asset: part.asset != null,
+                  ),
                 ),
               ),
       );

@@ -42,10 +42,18 @@ class CommentLocation {
 }
 
 class CommentPart {
-  const CommentPart.text(this.text) : image = null, inline = false;
-  const CommentPart.image(this.image, {this.text = '', this.inline = false});
+  const CommentPart.text(this.text)
+    : image = null,
+      asset = null,
+      inline = false;
+  const CommentPart.image(this.image, {this.text = '', this.inline = false})
+    : asset = null;
+  const CommentPart.asset(this.asset, {this.text = ''})
+    : image = null,
+      inline = true;
   final String text;
   final String? image;
+  final String? asset;
   final bool inline;
 }
 

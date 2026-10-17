@@ -7,9 +7,10 @@ class CommentImage extends StatelessWidget {
     required this.url,
     this.label = '',
     this.inline = false,
+    this.asset = false,
   });
   final String url, label;
-  final bool inline;
+  final bool inline, asset;
 
   @override
   Widget build(BuildContext context) => Semantics(
@@ -33,7 +34,7 @@ class CommentImage extends StatelessWidget {
               minScale: 1,
               maxScale: 5,
               child: SizedBox.expand(
-                child: _CommentImageBody(url: url, label: label),
+                child: _CommentImageBody(url: url, label: label, asset: asset),
               ),
             ),
           ),
@@ -42,7 +43,12 @@ class CommentImage extends StatelessWidget {
       child: inline
           ? SizedBox.square(
               dimension: 32,
-              child: _CommentImageBody(url: url, label: label, inline: true),
+              child: _CommentImageBody(
+                url: url,
+                label: label,
+                inline: true,
+                asset: asset,
+              ),
             )
           : ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 360),
@@ -61,9 +67,10 @@ class _CommentImageBody extends StatefulWidget {
     required this.url,
     required this.label,
     this.inline = false,
+    this.asset = false,
   });
   final String url, label;
-  final bool inline;
+  final bool inline, asset;
 
   @override
   State<_CommentImageBody> createState() => _CommentImageBodyState();
@@ -77,7 +84,7 @@ class _CommentImageBodyState extends State<_CommentImageBody> {
     if (retrying) return;
     retrying = true;
     final url = widget.url;
-    await NetworkImage(url).evict();
+    await _provider.evict();
     if (!mounted) return;
     setState(() {
       retrying = false;
@@ -85,10 +92,13 @@ class _CommentImageBodyState extends State<_CommentImageBody> {
     });
   }
 
+  ImageProvider get _provider =>
+      widget.asset ? AssetImage(widget.url) : NetworkImage(widget.url);
+
   @override
-  Widget build(BuildContext context) => Image.network(
-    widget.url,
-    key: ValueKey((widget.url, attempt)),
+  Widget build(BuildContext context) => Image(
+    image: _provider,
+    key: ValueKey((widget.url, widget.asset, attempt)),
     fit: BoxFit.contain,
     semanticLabel: widget.label.isEmpty ? '评论图片' : widget.label,
     frameBuilder: (context, child, frame, synchronous) =>
