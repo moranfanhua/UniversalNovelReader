@@ -76,6 +76,63 @@ CiweimaoApi apiWith(
   );
 
 void main() {
+  test('标题段号 0 独立统计、读取和发表，正文仍使用原始段号', () async {
+    final paths = <String>[];
+    final api = apiWith((r) async {
+      paths.add(r.url.path);
+      if (r.url.path == '/chapter/get_tsukkomi_num') {
+        return ok({
+          'tsukkomi_num_info': [
+            {'paragraph_index': '0', 'tsukkomi_num': '4'},
+            {'paragraph_index': '1', 'tsukkomi_num': '7'},
+          ],
+        });
+      }
+      expect(r.bodyFields['paragraph_index'], '0');
+      if (r.url.path == '/chapter/add_tsukkomi') {
+        expect(r.bodyFields['book_id'], '12');
+        expect(r.bodyFields['chapter_id'], '101');
+        expect(r.bodyFields['tsukkomi_content'], '标题评论');
+        return ok({});
+      }
+      expect(r.url.path, '/chapter/get_paragraph_tsukkomi_list_new');
+      return ok({
+        'tsukkomi_list': [
+          {...entry('900'), 'paragraph_index': '0'},
+        ],
+      });
+    });
+    addTearDown(api.close);
+    final source = CiweimaoSource(api);
+    final title = source.chapterTitleParagraph(chapter);
+    expect(title.text, chapter.title);
+    expect(title.remoteIndex, 0);
+    final titleLocation = CommentLocation(
+      book: location.book,
+      chapter: chapter,
+      paragraph: title,
+    );
+    expect(await source.paragraphCommentCount(titleLocation), 4);
+    expect(await source.paragraphCommentCount(location), 7);
+    expect(paths, ['/chapter/get_tsukkomi_num']);
+    expect((await source.commentPage(titleLocation)).items.single.id, '900');
+    await source.publishComment(titleLocation, '标题评论');
+    expect(paths.last, '/chapter/add_tsukkomi');
+    final before = paths.length;
+    await expectLater(
+      source.publishComment(
+        CommentLocation(
+          book: location.book,
+          chapter: chapter,
+          paragraph: const Paragraph('无效位置', remoteIndex: -1),
+        ),
+        '不应发送',
+      ),
+      throwsA(isA<SourceException>()),
+    );
+    expect(paths.length, before);
+  });
+
   test('同章计数合并请求并缓存，缺失段落为零，损坏刷新保留旧缓存', () async {
     var calls = 0, broken = false;
     final api = apiWith((r) async {

@@ -99,6 +99,9 @@ abstract class CommentSource {
   }) => Future.error(const SourceException('当前书源不支持点赞'));
 
   List<CommentPart> commentContent(String text) => [CommentPart.text(text)];
+
+  /// Providers opt in with the title's actual App paragraph identifier.
+  Paragraph? chapterTitleParagraph(Chapter chapter) => null;
   String? avatarAddress(String address) => commentImageAddress(address);
   List<ParagraphComment> orderedReplies(Iterable<ParagraphComment> comments) {
     final indexed = comments.toList().asMap().entries.toList();

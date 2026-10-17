@@ -112,7 +112,16 @@ class _BookPageProgressState extends State<BookPageProgress> {
 
   void _index(int index, ChapterContent content, ChapterPageLayout layout) {
     if (stats.containsKey(index)) return;
-    final pages = layout.paginate(content, widget.book.chapters[index].title);
+    final chapter = widget.book.chapters[index];
+    final pages = layout.paginate(
+      content,
+      chapter.title,
+      titleComments:
+          widget.library
+              .commentsFor(widget.book)
+              ?.chapterTitleParagraph(chapter) !=
+          null,
+    );
     stats[index] = (
       words: content.paragraphs.fold(0, (sum, p) => sum + p.text.runes.length),
       starts: [

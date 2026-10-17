@@ -24,6 +24,9 @@ abstract class CiweimaoComments extends CommentSource {
   @override
   bool get hasSession => api.hasSession;
   @override
+  Paragraph chapterTitleParagraph(Chapter chapter) =>
+      Paragraph(chapter.title, remoteIndex: 0);
+  @override
   CommentCapabilities get commentCapabilities => const CommentCapabilities(
     counts: true,
     post: true,
@@ -53,7 +56,7 @@ abstract class CiweimaoComments extends CommentSource {
     final row = location.paragraph.remoteIndex;
     final book = location.book;
     if (row == null ||
-        row < 1 ||
+        row < 0 ||
         bookRequired && book == null ||
         book != null &&
             (book.source != 'ciweimao' ||
