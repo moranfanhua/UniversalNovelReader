@@ -1,5 +1,27 @@
 # 更新日志
 
+## v1.0.0
+
+### 亮点
+
+* 新增起点读书与刺猬猫阅读书源，并加快多个平台的章节缓存下载。
+
+### 新增 | New
+
+* 新增起点读书书源，支持搜索、通过作品 ID 或链接打开作品、查看目录及阅读免费章节；登录后可读取账号已有权限的 VIP 章节，支持手机号验证码登录。[#10](https://github.com/moranfanhua/UniversalNovelReader/pull/10)
+* 新增刺猬猫阅读书源，支持搜索、在线阅读、章节缓存与导出；可使用账号密码、手机验证码或导入 App 会话登录，并导入平台书架中的作品。[#22](https://github.com/moranfanhua/UniversalNovelReader/pull/22)
+* 新增刺猬猫段评，支持查看热门或最新评论、发表与回复评论，以及为评论和回复点赞。[#22](https://github.com/moranfanhua/UniversalNovelReader/pull/22)
+
+### 改进 | Improved
+
+* 章节缓存改用书源批量接口和受限并发，支持番茄、起点、刺猬猫与菠萝包；下载时显示进度，可停止任务并查看失败章节。[#19](https://github.com/moranfanhua/UniversalNovelReader/pull/19)、[#22](https://github.com/moranfanhua/UniversalNovelReader/pull/22)
+* 刺猬猫作品导出为 EPUB 或 TXT 时加入作品来源链接。[#22](https://github.com/moranfanhua/UniversalNovelReader/pull/22)
+
+### 修复 | Fix
+
+* 修复手机书架宫格布局右侧留白，铺满可用宽度并保持每行三本。[#20](https://github.com/moranfanhua/UniversalNovelReader/pull/20)
+* 修复段评输入时键盘弹出导致阅读正文重新分页的问题。[#21](https://github.com/moranfanhua/UniversalNovelReader/pull/21)
+
 ## v0.3.2
 
 ### 新增 | New
