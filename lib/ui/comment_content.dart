@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../domain/models.dart';
 import '../sources/comment_source.dart';
+import 'comment_image.dart';
 
 class CommentText extends StatelessWidget {
   const CommentText(this.text, {super.key, this.source});
@@ -10,9 +11,35 @@ class CommentText extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final spans = <InlineSpan>[];
+    final children = <Widget>[];
+    void flushText() {
+      if (spans.isEmpty) return;
+      children.add(
+        SelectionArea(
+          child: Text.rich(
+            TextSpan(children: List.of(spans)),
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(height: 1.6),
+          ),
+        ),
+      );
+      spans.clear();
+    }
+
     for (final part
         in source?.commentContent(text) ?? [CommentPart.text(text)]) {
       final url = part.image == null ? null : commentImageAddress(part.image!);
+      if (url != null && !part.inline) {
+        flushText();
+        children.add(
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: CommentImage(url: url, label: part.text),
+          ),
+        );
+        continue;
+      }
       spans.add(
         url == null
             ? TextSpan(text: part.text)
@@ -20,26 +47,16 @@ class CommentText extends StatelessWidget {
                 alignment: PlaceholderAlignment.middle,
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 2),
-                  child: Image.network(
-                    url,
-                    width: 32,
-                    height: 32,
-                    fit: BoxFit.contain,
-                    semanticLabel: part.text.isEmpty ? '评论图片' : part.text,
-                    errorBuilder: (_, error, stack) => Tooltip(
-                      message: part.text,
-                      child: const Icon(Icons.broken_image_outlined, size: 24),
-                    ),
-                  ),
+                  child: CommentImage(url: url, label: part.text, inline: true),
                 ),
               ),
       );
     }
-    return SelectionArea(
-      child: Text.rich(
-        TextSpan(children: spans),
-        style: Theme.of(context).textTheme.bodyMedium?.copyWith(height: 1.6),
-      ),
+    flushText();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: children,
     );
   }
 }

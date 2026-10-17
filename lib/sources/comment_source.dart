@@ -42,10 +42,11 @@ class CommentLocation {
 }
 
 class CommentPart {
-  const CommentPart.text(this.text) : image = null;
-  const CommentPart.image(this.image, {this.text = ''});
+  const CommentPart.text(this.text) : image = null, inline = false;
+  const CommentPart.image(this.image, {this.text = '', this.inline = false});
   final String text;
   final String? image;
+  final bool inline;
 }
 
 /// Optional comment service for a book source. Providers own authentication,
