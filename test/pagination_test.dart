@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:unr/data/library.dart';
 import 'package:unr/domain/models.dart';
+import 'package:unr/domain/reading_preferences.dart';
 import 'package:unr/sources/sfacg/sfacg_api.dart';
 import 'package:unr/sources/sfacg/sfacg_source.dart';
 import 'package:unr/ui/settings.dart';
@@ -122,89 +123,95 @@ void main() {
     library.dispose();
     library.source.api.close();
   });
-  testWidgets('手机点击两侧、滑动、键盘与字号调整保持进度，重新打开恢复', (tester) async {
-    tester.view.physicalSize = const Size(360, 640);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-    final library = PagedLibrary()..readingMode = ReadingMode.paged;
-    const book = Book(
-      id: 'local',
-      title: '测试小说',
-      author: '作者',
-      source: 'local',
-      chapters: [Chapter(id: '1', title: '第一章')],
-    );
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: Builder(
-            builder: (context) => TextButton(
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute<void>(
-                  builder: (_) => ReaderPage(library: library, book: book),
+  for (final animation in PageTurnAnimation.values) {
+    testWidgets('手机点击两侧、滑动、键盘与字号调整保持进度，重新打开恢复（${animation.name}）', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(360, 640);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final library = PagedLibrary()
+        ..readingMode = ReadingMode.paged
+        ..pageTurnAnimation = animation;
+      const book = Book(
+        id: 'local',
+        title: '测试小说',
+        author: '作者',
+        source: 'local',
+        chapters: [Chapter(id: '1', title: '第一章')],
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => TextButton(
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute<void>(
+                    builder: (_) => ReaderPage(library: library, book: book),
+                  ),
                 ),
+                child: const Text('打开'),
               ),
-              child: const Text('打开'),
             ),
           ),
         ),
-      ),
-    );
-    await tester.tap(find.text('打开'));
-    await tester.pumpAndSettle();
-    expect(find.byType(PagedChapter), findsOneWidget);
-    expect(tester.takeException(), isNull);
-    await tapReadingSide(tester, 1);
-    await tester.pumpAndSettle();
-    await tester.drag(find.byType(PageView), const Offset(-300, 0));
-    await tester.pumpAndSettle();
-    int currentPage() => readingPager(tester).page + 1;
-    final beforeKeyboard = currentPage();
-    await tester.sendKeyEvent(LogicalKeyboardKey.pageDown);
-    await tester.pumpAndSettle();
-    expect(currentPage(), beforeKeyboard + 1);
-    await tester.pump(const Duration(milliseconds: 700));
-    final offset = library.pageOffsets[book.key]!;
-    expect(offset, greaterThan(0));
-    await showReadingControls(tester);
-    await tester.tap(find.byTooltip('阅读设置'));
-    await tester.pumpAndSettle();
-    final larger = tester.widget<Slider>(
-      find.byKey(const ValueKey('reading-font-size')),
-    );
-    larger.onChanged!(22);
-    larger.onChangeEnd!(22);
-    await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('关闭阅读设置'));
-    await tester.pumpAndSettle();
-    expect(tester.takeException(), isNull);
-    await tapReadingSide(tester, 1);
-    await tester.pump(const Duration(milliseconds: 50));
-    await showReadingControls(tester);
-    await tester.tap(find.byTooltip('阅读设置'));
-    await tester.pumpAndSettle();
-    final smaller = tester.widget<Slider>(
-      find.byKey(const ValueKey('reading-font-size')),
-    );
-    smaller.onChanged!(20);
-    smaller.onChangeEnd!(20);
-    await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('关闭阅读设置'));
-    await tester.pumpAndSettle();
-    expect(tester.takeException(), isNull);
-    await tester.pageBack();
-    await tester.pumpAndSettle();
-    final savedOffset = library.pageOffsets[book.key]!;
-    expect(savedOffset, greaterThan(0));
-    await tester.tap(find.text('打开'));
-    await tester.pumpAndSettle();
-    await tester.pump(const Duration(milliseconds: 700));
-    expect(library.pageOffsets[book.key], savedOffset);
-    expect(tester.takeException(), isNull);
-    await tester.pumpWidget(const SizedBox.shrink());
-    library.dispose();
-    library.source.api.close();
-  });
+      );
+      await tester.tap(find.text('打开'));
+      await tester.pumpAndSettle();
+      expect(find.byType(PagedChapter), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await tapReadingSide(tester, 1);
+      await tester.pumpAndSettle();
+      await tester.drag(find.byType(PageView), const Offset(-300, 0));
+      await tester.pumpAndSettle();
+      int currentPage() => readingPager(tester).page + 1;
+      final beforeKeyboard = currentPage();
+      await tester.sendKeyEvent(LogicalKeyboardKey.pageDown);
+      await tester.pumpAndSettle();
+      expect(currentPage(), beforeKeyboard + 1);
+      await tester.pump(const Duration(milliseconds: 700));
+      final offset = library.pageOffsets[book.key]!;
+      expect(offset, greaterThan(0));
+      await showReadingControls(tester);
+      await tester.tap(find.byTooltip('阅读设置'));
+      await tester.pumpAndSettle();
+      final larger = tester.widget<Slider>(
+        find.byKey(const ValueKey('reading-font-size')),
+      );
+      larger.onChanged!(22);
+      larger.onChangeEnd!(22);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('关闭阅读设置'));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      await tapReadingSide(tester, 1);
+      await tester.pump(const Duration(milliseconds: 50));
+      await showReadingControls(tester);
+      await tester.tap(find.byTooltip('阅读设置'));
+      await tester.pumpAndSettle();
+      final smaller = tester.widget<Slider>(
+        find.byKey(const ValueKey('reading-font-size')),
+      );
+      smaller.onChanged!(20);
+      smaller.onChangeEnd!(20);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('关闭阅读设置'));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      final savedOffset = library.pageOffsets[book.key]!;
+      expect(savedOffset, greaterThan(0));
+      await tester.tap(find.text('打开'));
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 700));
+      expect(library.pageOffsets[book.key], savedOffset);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+      library.dispose();
+      library.source.api.close();
+    });
+  }
 }

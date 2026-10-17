@@ -47,6 +47,112 @@ class PreferencesLibrary extends Library {
 }
 
 void main() {
+  test('翻页动画兼容旧书库和未知设置，三种选择可保存且恢复默认不丢进度', () async {
+    final root = await Directory.systemTemp.createTemp('unr-turn-animation-');
+    addTearDown(() => root.delete(recursive: true));
+    final source = SfacgSource(SfacgApi());
+    addTearDown(source.api.close);
+    Future<Library> open() async {
+      final library = await Library.open(source, directory: root);
+      addTearDown(library.dispose);
+      return library;
+    }
+
+    expect((await open()).pageTurnAnimation, PageTurnAnimation.slide);
+    for (final stored in [null, 'unknown', 123]) {
+      await File('${root.path}/index.json').writeAsString(
+        jsonEncode({
+          'books': [],
+          'pageTurnAnimation': ?stored,
+          'progress': {
+            'local:1': [2, 3],
+          },
+          'pageOffsets': {'local:1': 16},
+        }),
+      );
+      final library = await open();
+      expect(library.pageTurnAnimation, PageTurnAnimation.slide);
+      for (final animation in PageTurnAnimation.values) {
+        library.pageTurnAnimation = animation;
+        await library.save();
+        final restored = await open();
+        expect(restored.pageTurnAnimation, animation);
+        expect(restored.progress['local:1'], [2, 3]);
+        expect(restored.pageOffsets['local:1'], 16);
+      }
+      library.pageTurnAnimation = PageTurnAnimation.simulation;
+      await library.resetReadingPreferences();
+      final defaults = await open();
+      expect(defaults.pageTurnAnimation, PageTurnAnimation.slide);
+      expect(defaults.progress['local:1'], [2, 3]);
+      expect(defaults.pageOffsets['local:1'], 16);
+    }
+  });
+
+  for (final width in [360.0, 1000.0]) {
+    for (final scale in [1.0, 1.5]) {
+      testWidgets('翻页动画选项可切换且滚动阅读保留选择（宽$width，缩放$scale）', (tester) async {
+        tester.view.physicalSize = Size(width, 800);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        final library = PreferencesLibrary();
+        addTearDown(library.dispose);
+        addTearDown(library.source.api.close);
+        await tester.pumpWidget(
+          MaterialApp(
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(
+                context,
+              ).copyWith(textScaler: TextScaler.linear(scale)),
+              child: child!,
+            ),
+            home: Scaffold(
+              body: SingleChildScrollView(
+                padding: const EdgeInsets.all(24),
+                child: ReadingSettings(library: library),
+              ),
+            ),
+          ),
+        );
+        final selection = find.byKey(
+          const ValueKey('reading-page-turn-animation'),
+        );
+        expect(selection, findsNothing);
+        await tester.tap(find.text('翻页阅读'));
+        await tester.pumpAndSettle();
+        for (final entry in {
+          '无动画': PageTurnAnimation.none,
+          '仿真': PageTurnAnimation.simulation,
+          '滑动': PageTurnAnimation.slide,
+        }.entries) {
+          await tester.tap(find.text(entry.key));
+          await tester.pumpAndSettle();
+          expect(library.pageTurnAnimation, entry.value);
+          expect(
+            tester
+                .widget<SegmentedButton<PageTurnAnimation>>(selection)
+                .selected,
+            {entry.value},
+          );
+        }
+        await tester.tap(find.text('仿真'));
+        await tester.tap(find.text('滚动阅读'));
+        await tester.pumpAndSettle();
+        expect(selection, findsNothing);
+        await tester.tap(find.text('翻页阅读'));
+        await tester.pumpAndSettle();
+        expect(library.pageTurnAnimation, PageTurnAnimation.simulation);
+        await tester.ensureVisible(find.text('恢复默认阅读设置'));
+        await tester.tap(find.text('恢复默认阅读设置'));
+        await tester.pumpAndSettle();
+        expect(library.pageTurnAnimation, PageTurnAnimation.slide);
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox.shrink());
+      });
+    }
+  }
+
   test('显示段评默认开启，旧书库兼容，关闭后持久化并可恢复默认', () async {
     final root = await Directory.systemTemp.createTemp(
       'unr-comment-preference-',
@@ -212,9 +318,12 @@ void main() {
     }
     await tester.tap(find.text('翻页阅读'));
     await tester.pumpAndSettle();
+    await tester.tap(find.text('仿真'));
+    await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('关闭阅读设置'));
     await tester.pumpAndSettle();
     final paged = tester.widget<PagedChapter>(find.byType(PagedChapter));
+    expect(paged.pageTurnAnimation, PageTurnAnimation.simulation);
     expect(
       [
         paged.fontSize,

@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:unr/data/library.dart';
 import 'package:unr/domain/models.dart';
+import 'package:unr/domain/reading_preferences.dart';
 import 'package:unr/sources/sfacg/sfacg_api.dart';
 import 'package:unr/sources/sfacg/sfacg_source.dart';
 import 'package:unr/ui/reader.dart';
@@ -107,32 +108,38 @@ void main() {
   });
 
   for (final width in [360.0, 1920.0]) {
-    testWidgets('单页和双页横向滑动到边界衔接相邻章（$width）', (tester) async {
-      final library = TransitionLibrary()..readingMode = ReadingMode.paged;
-      await open(tester, library, chapter: 1, width: width);
-      if (width > 1000) {
-        // Both remaining one-page chapters now share the final spread.
-        expect(find.text('　　第三章正文').hitTestable(), findsOneWidget);
-        await tapReadingSide(tester, 1);
+    for (final animation in PageTurnAnimation.values) {
+      testWidgets('单页和双页横向滑动到边界衔接相邻章（$width，${animation.name}）', (
+        tester,
+      ) async {
+        final library = TransitionLibrary()
+          ..readingMode = ReadingMode.paged
+          ..pageTurnAnimation = animation;
+        await open(tester, library, chapter: 1, width: width);
+        if (width > 1000) {
+          // Both remaining one-page chapters now share the final spread.
+          expect(find.text('　　第三章正文').hitTestable(), findsOneWidget);
+          await tapReadingSide(tester, 1);
+          await settle(tester);
+          expect(readingChapter(tester), 1);
+          await tester.drag(find.byType(PageView), const Offset(320, 0));
+          await settle(tester);
+          expect(readingChapter(tester), 0);
+          expect(find.textContaining('上一章结尾标记').hitTestable(), findsOneWidget);
+          await tester.pumpWidget(const SizedBox.shrink());
+          return;
+        }
+        await tester.drag(find.byType(PageView), const Offset(-320, 0));
         await settle(tester);
-        expect(readingChapter(tester), 1);
+        expect(readingChapter(tester), 2);
         await tester.drag(find.byType(PageView), const Offset(320, 0));
         await settle(tester);
-        expect(readingChapter(tester), 0);
-        expect(find.textContaining('上一章结尾标记').hitTestable(), findsOneWidget);
+        expect(readingChapter(tester), 1);
+        expect(find.text('　　第二章正文').hitTestable(), findsOneWidget);
+        expect(tester.takeException(), isNull);
         await tester.pumpWidget(const SizedBox.shrink());
-        return;
-      }
-      await tester.drag(find.byType(PageView), const Offset(-320, 0));
-      await settle(tester);
-      expect(readingChapter(tester), 2);
-      await tester.drag(find.byType(PageView), const Offset(320, 0));
-      await settle(tester);
-      expect(readingChapter(tester), 1);
-      expect(find.text('　　第二章正文').hitTestable(), findsOneWidget);
-      expect(tester.takeException(), isNull);
-      await tester.pumpWidget(const SizedBox.shrink());
-    });
+      });
+    }
   }
 
   testWidgets('滚动到底自动追加下一章，原章节仍可回读', (tester) async {
