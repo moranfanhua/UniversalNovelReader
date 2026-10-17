@@ -327,7 +327,7 @@ class _DownloadDialogState extends State<DownloadDialog> {
   late final end = TextEditingController(
     text: '${widget.book.chapters.length}',
   );
-  bool running = false, cancelled = false;
+  bool running = false, cancelled = false, refreshCached = false;
   int done = 0, total = 0, success = 0;
   String status = '选择需要保存到本机的章节范围';
   final failures = <String>[];
@@ -363,6 +363,7 @@ class _DownloadDialogState extends State<DownloadDialog> {
         widget.book,
         widget.book.chapters.sublist(from - 1, to),
         isCancelled: () => cancelled || !mounted,
+        refreshCached: refreshCached,
         onProgress: (chapter, error) {
           if (!mounted) return;
           setState(() {
@@ -434,8 +435,19 @@ class _DownloadDialogState extends State<DownloadDialog> {
                   child: LinearProgressIndicator(value: done / total),
                 ),
               const SizedBox(height: 12),
+              CheckboxListTile(
+                key: const ValueKey('refresh-cached-chapters'),
+                contentPadding: EdgeInsets.zero,
+                controlAffinity: ListTileControlAffinity.leading,
+                title: const Text('重新获取已缓存章节'),
+                value: refreshCached,
+                onChanged: running
+                    ? null
+                    : (value) => setState(() => refreshCached = value ?? false),
+              ),
               const Text(
-                '已缓存正文会继续使用。付费章节需要已有权限，失败章节可再次下载。',
+                '默认复用已缓存正文。旧版起点缓存需要重新获取才能使用段评；'
+                '获取失败会保留原正文和阅读进度。付费章节需要已有权限。',
                 style: TextStyle(fontSize: 12),
               ),
               for (final f in failures)

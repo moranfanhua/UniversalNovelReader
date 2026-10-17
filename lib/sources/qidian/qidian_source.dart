@@ -8,12 +8,13 @@ import '../../domain/models.dart';
 import '../novel_source.dart';
 import '../chapter_batch_source.dart';
 import 'qidian_api.dart';
+import 'qidian_comments.dart';
 import 'qidian_crypto.dart';
 import 'qidian_fock.dart';
 
-class QidianSource implements SearchableNovelSource, ChapterBatchSource {
-  QidianSource(this.api);
-  final QidianApi api;
+class QidianSource extends QidianComments
+    implements SearchableNovelSource, ChapterBatchSource {
+  QidianSource(super.api);
   @override
   String get id => 'qidian';
   @override
@@ -461,7 +462,7 @@ class QidianSource implements SearchableNovelSource, ChapterBatchSource {
     final paragraphs = <Paragraph>[];
     for (var i = 0; i <= lines.length; i++) {
       if (i > 0 && lines[i - 1].trim().isNotEmpty) {
-        paragraphs.add(Paragraph(lines[i - 1].trim()));
+        paragraphs.add(Paragraph(lines[i - 1].trim(), remoteIndex: i));
       }
       final images = attachments[i] ?? [];
       images.sort(
