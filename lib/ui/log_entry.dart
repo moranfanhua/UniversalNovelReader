@@ -38,7 +38,6 @@ class LogEntry {
 
   bool get authentication =>
       event.startsWith('session.') ||
-      event.startsWith('session_helper.') ||
       event.startsWith('ciweimao.auth_') ||
       event.startsWith('fanqie.auth_') ||
       event == 'http.fanqie.auth';
@@ -72,16 +71,6 @@ class LogEntry {
         'session.fanqie.save_failed': '番茄会话保存失败',
         'session.ciweimao.restore_failed': '刺猬猫会话恢复失败',
         'session.ciweimao.save_failed': '刺猬猫会话保存失败',
-        'session_helper.idle': '会话辅助已就绪',
-        'session_helper.starting': '正在启动会话辅助',
-        'session_helper.capturing': '会话辅助正在运行',
-        'session_helper.stopping': '正在停止会话辅助',
-        'session_helper.stopped': '会话辅助已停止',
-        'session_helper.error': '会话辅助发生错误',
-        'session_helper.events_failed': '会话辅助状态读取失败',
-        'session_helper.prepare_failed': '会话辅助准备失败',
-        'session_helper.unavailable': '会话辅助不可用',
-        'session_helper.action_failed': '会话辅助操作失败',
         'storage.write_failed': '本地文件写入失败',
         'reader.chapter_failed': '章节读取失败',
         'reader.image_failed': '图片读取失败',
@@ -127,7 +116,6 @@ String logModuleName(String module) =>
       'session.sfacg': '菠萝包会话',
       'session.fanqie': '番茄会话',
       'session.ciweimao': '刺猬猫会话',
-      'session_helper': '会话辅助',
       'storage': '本地存储',
       'reader': '阅读器',
       'search': '搜索',

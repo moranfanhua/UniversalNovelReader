@@ -6,9 +6,7 @@ import '../sources/qidian/qidian_source.dart';
 import '../sources/ciweimao/ciweimao_source.dart';
 import 'ciweimao_account.dart';
 import 'qidian_account.dart';
-import '../sources/session_helper.dart';
 import 'fanqie_account.dart';
-import 'session_helper_page.dart';
 import 'account_login_method.dart';
 import 'platform_order.dart';
 import 'source_icon.dart';
@@ -129,19 +127,6 @@ class _AccountPageState extends State<AccountPage> {
     }
   }
 
-  Future<void> _appLogin() async {
-    if (busy) return;
-    final value = await Navigator.push<String>(
-      context,
-      MaterialPageRoute(
-        builder: (_) => const SessionHelperPage(source: 'sfacg', name: '菠萝包'),
-      ),
-    );
-    if (!mounted || value == null) return;
-    cookie.text = value;
-    await authenticate(useCookie: true);
-  }
-
   @override
   Widget build(BuildContext context) => Center(
     child: ConstrainedBox(
@@ -165,7 +150,6 @@ class _AccountPageState extends State<AccountPage> {
               onPassword: busy
                   ? null
                   : () => _openMethod(AccountLoginMethod.password),
-              onVpn: !SessionHelper.supported || busy ? null : _appLogin,
               onImport: busy
                   ? null
                   : () => _openMethod(AccountLoginMethod.manual),
@@ -195,7 +179,7 @@ class _AccountPageState extends State<AccountPage> {
               child: const Text('登录菠萝包'),
             ),
             const SizedBox(height: 8),
-            Text('如需验证码或安全验证，请在官方 App 完成后使用 VPN 辅助或导入 App 会话。'),
+            Text('如需验证码或安全验证，请在官方 App 完成后导入 App 会话。'),
           ],
           if (widget.method == AccountLoginMethod.manual) ...[
             const Text('导入官方 App 会话，验证成功后保存在本机安全存储中。'),
