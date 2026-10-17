@@ -7,6 +7,7 @@ import '../data/app_log.dart';
 import '../domain/models.dart';
 import '../formats/ebook.dart';
 import '../sources/novel_search.dart';
+import '../sources/ciweimao/ciweimao_source.dart';
 import 'book_page.dart';
 import 'reader.dart';
 import 'image_bytes.dart';
@@ -89,12 +90,15 @@ class _HomePageState extends State<HomePage> {
           : Uri.tryParse(link[0]!)?.host.toLowerCase();
       final sourceHint =
           sourceId ??
-          ({
-                'qidian.com',
-                'www.qidian.com',
-                'm.qidian.com',
-                'book.qidian.com',
-              }.contains(host)
+          (CiweimaoSource.acceptsLink(input) ||
+                  input.trim().startsWith('ciweimao:')
+              ? 'ciweimao'
+              : {
+                  'qidian.com',
+                  'www.qidian.com',
+                  'm.qidian.com',
+                  'book.qidian.com',
+                }.contains(host)
               ? 'qidian'
               : [
                       'fanqienovel.com',
@@ -137,6 +141,7 @@ class _HomePageState extends State<HomePage> {
     final text = query.text.trim();
     if (text.isEmpty) return;
     if (RegExp(r'^\d+$').hasMatch(text) ||
+        text.startsWith('ciweimao:') ||
         text.contains(RegExp(r'https?://'))) {
       await _open(text);
       return;
@@ -777,6 +782,13 @@ class _HomePageState extends State<HomePage> {
                           onSubmitted: busy ? null : (_) => _search(),
                           decoration: InputDecoration(
                             hintText: '搜索书名或作者，也可粘贴作品 ID、链接',
+                            helperText:
+                                library.searchSources.any(
+                                  (s) => s.id == 'ciweimao',
+                                )
+                                ? '刺猬猫支持作品链接，也可输入 ciweimao:作品ID'
+                                : null,
+                            helperMaxLines: 3,
                             prefixIcon: const Icon(Icons.search),
                             suffixIcon: IconButton(
                               tooltip: '搜索或添加作品',

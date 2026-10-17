@@ -5,6 +5,7 @@ import '../domain/bookshelf.dart';
 import '../sources/bookshelf_source.dart';
 import 'account.dart';
 import 'platform_order.dart';
+import 'source_icon.dart';
 
 class ImportShelfPage extends StatefulWidget {
   const ImportShelfPage({super.key, required this.library});
@@ -255,13 +256,7 @@ class _ImportShelfPageState extends State<ImportShelfPage> {
                 ))
                   Card(
                     child: ListTile(
-                      leading: Image.asset(
-                        service.id == 'sfacg'
-                            ? 'assets/sfacg_icon.jpg'
-                            : 'assets/fanqie_icon.webp',
-                        width: 40,
-                        height: 40,
-                      ),
+                      leading: SourceIcon(service.id, size: 40),
                       title: Text(service.name),
                       subtitle: Text(
                         service.hasSession ? '读取已登录账号的书架' : '需要先登录',
