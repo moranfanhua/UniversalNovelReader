@@ -89,6 +89,7 @@ class LogEntry {
         'search.failed': '搜索失败',
         'book.open_failed': '作品打开失败',
         'book.refresh_failed': '作品刷新失败',
+        'bookshelf.update_failed': '书架作品自动更新失败',
         'import.failed': '小说导入失败',
         'export.failed': '小说导出失败',
         'log.operation_failed': '日志操作失败',

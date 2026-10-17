@@ -73,6 +73,12 @@ class MemoryShelfLibrary extends Library {
     Iterable<NovelSource> sources = const [],
   }) : super(Directory.systemTemp, source, novelSources: sources);
   bool failSave = false;
+  // Keep import request counts independent of automatic shelf visit updates.
+  @override
+  Future<ShelfUpdateResult> refreshShelfBooks({
+    String? shelfId,
+    required bool Function() isCancelled,
+  }) async => const ShelfUpdateResult();
   @override
   Future<void> save() async {
     if (failSave) throw const FileSystemException('保存失败');
@@ -392,6 +398,9 @@ void main() {
         remote: remote,
         imported: [first],
       ),
+    );
+    await tester.runAsync(
+      () => library.refreshShelfBooks(isCancelled: () => false),
     );
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('bookshelf-selector')));
