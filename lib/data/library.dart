@@ -735,7 +735,14 @@ class Library extends ChangeNotifier {
     return ChapterContent.fromJson(jsonDecode(await file.readAsString()));
   }
 
-  Future<ChapterContent> read(Book book, Chapter chapter) {
+  Future<ChapterContent> read(Book book, Chapter chapter) async {
+    // An explicit cache refresh must not block reading the existing chapter,
+    // or make a failed refresh prevent offline reading.
+    final saved = await AppLog.instance.capture(
+      'reader.chapter_failed',
+      () => cached(book, chapter),
+    );
+    if (saved != null) return saved;
     final key = '${book.key}/${chapter.id}';
     return _reads.putIfAbsent(key, () {
       return _readChapter(book, chapter).whenComplete(() {
@@ -766,6 +773,7 @@ class Library extends ChangeNotifier {
     List<Chapter> chapters, {
     required void Function(Chapter chapter, Object? error) onProgress,
     bool Function()? isCancelled,
+    bool refreshCached = false,
   }) async {
     if (!_downloads.add(book.key)) {
       throw const SourceException('本书已有下载任务，请等待完成或停止后重试');
@@ -794,10 +802,15 @@ class Library extends ChangeNotifier {
             (offset + size).clamp(0, queue.length),
           );
           offset += batch.length;
-          final results = await _downloadBatch(book, batch, service);
+          final results = await _downloadBatch(
+            book,
+            batch,
+            service,
+            refreshCached: refreshCached,
+          );
           for (var i = 0; i < batch.length; i++) {
             var error = results[i].error;
-            if (error == null) {
+            if (error == null && !refreshCached) {
               try {
                 await cacheImages(book, results[i].content!);
               } catch (reason) {
@@ -819,13 +832,23 @@ class Library extends ChangeNotifier {
   Future<List<ChapterBatchResult>> _downloadBatch(
     Book book,
     List<Chapter> chapters,
-    NovelSource? service,
-  ) async {
+    NovelSource? service, {
+    bool refreshCached = false,
+  }) async {
     final owned = <Chapter, Completer<ChapterContent>>{};
     final waiting = <Future<ChapterBatchResult>>[];
     for (final chapter in chapters) {
       final key = '${book.key}/${chapter.id}';
       var reading = _reads[key];
+      if (refreshCached) {
+        // Finish any earlier read before refetching so it cannot overwrite
+        // the refreshed cache later. A cached read is never a refresh result.
+        while (reading != null) {
+          await reading.then<void>((_) {}, onError: (Object _) {});
+          if (identical(_reads[key], reading)) _reads.remove(key);
+          reading = _reads[key];
+        }
+      }
       if (reading == null) {
         final completer = Completer<ChapterContent>();
         owned[chapter] = completer;
@@ -852,7 +875,7 @@ class Library extends ChangeNotifier {
       for (final entry in owned.entries) {
         try {
           final saved = await cached(book, entry.key);
-          if (saved == null) {
+          if (saved == null || refreshCached) {
             missing.add(entry.key);
           } else {
             entry.value.complete(saved);
@@ -886,6 +909,9 @@ class Library extends ChangeNotifier {
             if (result?.content == null) {
               throw result?.error ?? const SourceException('书源未返回该章节正文，请重试');
             }
+            // Refreshes retain the old body until both the new chapter and
+            // its resources are ready. Failure must leave offline reading intact.
+            if (refreshCached) await cacheImages(book, result!.content!);
             await store(book, chapter, result!.content!);
             completer.complete(result.content);
           } catch (error, stack) {

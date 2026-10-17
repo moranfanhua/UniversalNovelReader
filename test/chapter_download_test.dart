@@ -40,10 +40,16 @@ class BatchSource implements ChapterBatchSource {
   int chapterBatchConcurrency = 2;
   final calls = <List<Chapter>>[];
   Future<List<ChapterBatchResult>> Function(List<Chapter>)? fetch;
+  Future<ChapterContent>? singleRead;
+  bool singleReadStarted = false;
   @override
   Future<Book> getBook(String input) async => book;
   @override
   Future<ChapterContent> readChapter(Book book, Chapter chapter) async {
+    if (singleRead != null) {
+      singleReadStarted = true;
+      return singleRead!;
+    }
     fail('批量下载不应退回逐章接口');
   }
 
@@ -173,6 +179,131 @@ void main() {
       book,
       chapters.take(2).toList(),
       onProgress: (_, _) {},
+    );
+    expect(source.calls.length, 1);
+  });
+
+  test('主动重取指定缓存章节，下载期间旧正文仍可阅读，正文与进度按成功结果保留', () async {
+    source.chapterBatchConcurrency = 1;
+    for (final chapter in chapters.take(3)) {
+      await library.store(book, chapter, content(chapter).content!);
+    }
+    await library.add(book);
+    library.pageOffsets[book.key] = 7;
+    await library.remember(book, 0, 1);
+    final gate = Completer<void>();
+    source.fetch = (batch) async {
+      await gate.future;
+      return [
+        for (final chapter in batch)
+          ChapterBatchResult.success(
+            chapter.id,
+            ChapterContent([Paragraph('重取正文 ${chapter.id}', remoteIndex: 3)]),
+          ),
+      ];
+    };
+    final download = library.downloadChapters(
+      book,
+      chapters.take(2).toList(),
+      refreshCached: true,
+      onProgress: (_, error) => expect(error, isNull),
+    );
+    await until(() => source.calls.isNotEmpty);
+    expect(
+      (await library
+              .read(book, chapters.first)
+              .timeout(const Duration(seconds: 2)))
+          .paragraphs
+          .single
+          .text,
+      '正文 1',
+    );
+    gate.complete();
+    await download;
+    expect(source.calls.single.map((c) => c.id), ['1', '2']);
+    expect(
+      (await library.read(book, chapters.first)).paragraphs.single.remoteIndex,
+      3,
+    );
+    expect(
+      (await library.read(book, chapters[2])).paragraphs.single.text,
+      '正文 3',
+    );
+    expect(library.progress[book.key], [0, 1]);
+    expect(library.pageOffsets[book.key], 7);
+    final restored = await Library.open(
+      library.source,
+      directory: root,
+      novelSources: [source],
+    );
+    addTearDown(restored.dispose);
+    expect(restored.progress[book.key], [0, 1]);
+    expect(restored.pageOffsets[book.key], 7);
+  });
+
+  test('主动重取网络或插图失败均保留旧正文和进度，之后可再次重取', () async {
+    final old = content(chapters.first).content!;
+    await library.store(book, chapters.first, old);
+    await library.remember(book, 0, 4);
+    for (final withImage in [false, true]) {
+      source.fetch = (batch) async {
+        if (!withImage) throw const SocketException('离线');
+        return [
+          ChapterBatchResult.success(
+            batch.single.id,
+            const ChapterContent([
+              Paragraph('不完整的新正文', remoteIndex: 1),
+              Paragraph('', image: 'https://example.test/image.png'),
+            ]),
+          ),
+        ];
+      };
+      Object? failure;
+      await library.downloadChapters(
+        book,
+        [chapters.first],
+        refreshCached: true,
+        onProgress: (_, error) => failure = error,
+      );
+      expect(failure, isA<SocketException>());
+      expect((await library.read(book, chapters.first)).toJson(), old.toJson());
+      expect(library.progress[book.key], [0, 4]);
+    }
+    source.fetch = null;
+    await library.downloadChapters(
+      book,
+      [chapters.first],
+      refreshCached: true,
+      onProgress: (_, error) => expect(error, isNull),
+    );
+    expect(library.progress[book.key], [0, 4]);
+  });
+
+  test('重取等待正在读取的旧请求写入完成，再请求新正文避免迟到覆盖', () async {
+    final gate = Completer<ChapterContent>();
+    source.singleRead = gate.future;
+    final reading = library.read(book, chapters.first);
+    await until(() => source.singleReadStarted);
+    source.fetch = (batch) async => [
+      ChapterBatchResult.success(
+        batch.single.id,
+        const ChapterContent([Paragraph('重取后的正文', remoteIndex: 3)]),
+      ),
+    ];
+    final refreshing = library.downloadChapters(
+      book,
+      [chapters.first],
+      refreshCached: true,
+      onProgress: (_, error) => expect(error, isNull),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+    expect(source.calls, isEmpty);
+    gate.complete(const ChapterContent([Paragraph('旧请求正文')]));
+    expect((await reading).paragraphs.single.text, '旧请求正文');
+    await refreshing;
+    expect(
+      (await library.read(book, chapters.first)).paragraphs.single.text,
+      '重取后的正文',
     );
     expect(source.calls.length, 1);
   });
