@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:unr/data/library.dart';
+import 'package:unr/data/download_mirror.dart';
 import 'package:unr/data/reader_fonts.dart';
 import 'package:unr/domain/models.dart';
 import 'package:unr/sources/sfacg/sfacg_api.dart';
@@ -54,10 +55,10 @@ void main() {
           requests.add(request.url);
           expect(request.headers.containsKey('Cookie'), isFalse);
           expect(request.headers.containsKey('Authorization'), isFalse);
-          if (request.url == option.download) {
+          if (request.url == DownloadMirror.defaults.resolve(option.download)) {
             return http.Response.bytes(fontDownload(option, bytes), 200);
           }
-          expect(request.url, option.license);
+          expect(request.url, DownloadMirror.defaults.resolve(option.license));
           return http.Response(license, 200);
         }),
       );
@@ -70,7 +71,10 @@ void main() {
         id,
         onProgress: (received, total) => progress.add(received),
       );
-      expect(requests, [option.download, option.license]);
+      expect(requests, [
+        DownloadMirror.defaults.resolve(option.download),
+        DownloadMirror.defaults.resolve(option.license),
+      ]);
       expect(progress.last, fontDownload(option, bytes).length);
       expect(library.readingFontFamily, startsWith('UNR_${id}_'));
       expect(library.downloadedFonts, contains(id));
@@ -99,6 +103,39 @@ void main() {
       reopened.dispose();
       library.dispose();
       api.close();
+    });
+  }
+  for (final mirror in [
+    DownloadMirror(enabled: false),
+    DownloadMirror(baseUrl: 'https://mirror.example/proxy/'),
+  ]) {
+    test('字体和许可证使用同一下载配置（${mirror.enabled ? '自定义镜像' : '直连'}）', () async {
+      final option = ReaderFonts.font('chill-round-m');
+      final bytes = engineTestFont();
+      final requests = <Uri>[];
+      final fonts = ReaderFonts(
+        Directory('${root.path}/fonts'),
+        clientFactory: () => MockClient((request) async {
+          requests.add(request.url);
+          if (request.url == mirror.resolve(option.download)) {
+            return http.Response.bytes(fontDownload(option, bytes), 200);
+          }
+          expect(request.url, mirror.resolve(option.license));
+          return http.Response(license, 200);
+        }),
+      );
+      final api = SfacgApi();
+      addTearDown(api.close);
+      final library = Library(root, SfacgSource(api), fonts: fonts);
+      addTearDown(library.dispose);
+      await library.setDownloadMirror(mirror);
+      await library.downloadFont(option.id);
+      expect(requests, [
+        mirror.resolve(option.download),
+        mirror.resolve(option.license),
+      ]);
+      expect(await fonts.licenseText(option.id), license);
+      expect(library.readingFontId, option.id);
     });
   }
   test('损坏、缺少指定字体或解压后过大的 ZIP 不落盘、不改变所选字体', () async {

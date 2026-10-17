@@ -18,6 +18,7 @@ import '../sources/sfacg/sfacg_source.dart';
 import '../sources/comment_source.dart';
 import '../sources/novel_source.dart';
 import 'reader_fonts.dart';
+import 'download_mirror.dart';
 import 'app_log.dart';
 
 enum ReadingMode { scroll, paged }
@@ -79,6 +80,8 @@ class Library extends ChangeNotifier {
   CommentSource? commentsFor(Book book) => _commentSources[book.source];
   final DateTime Function() clock;
   final ReaderFonts fonts;
+  DownloadMirror _downloadMirror = DownloadMirror.defaults;
+  DownloadMirror get downloadMirror => _downloadMirror;
   final Directory root;
   final SfacgSource source;
   final List<Book> books = [];
@@ -248,6 +251,7 @@ class Library extends ChangeNotifier {
       library._disabledSearchSources.addAll(
         (data['disabledSearchSources'] as List? ?? []).whereType<String>(),
       );
+      library._downloadMirror = DownloadMirror.fromJson(data['downloadMirror']);
       library.shelfSort = ShelfSort.values.firstWhere(
         (sort) => sort.name == data['shelfSort'],
         orElse: () => ShelfSort.lastActive,
@@ -388,6 +392,7 @@ class Library extends ChangeNotifier {
       'showParagraphComments': showParagraphComments,
       'paragraphCommentPlacement': paragraphCommentPlacement.name,
       'disabledSearchSources': _disabledSearchSources.toList(),
+      'downloadMirror': _downloadMirror.toJson(),
       'pageOffsets': pageOffsets,
       'pagedChapterEntries': pagedChapterEntries,
       'readingFontId': readingFontId,
@@ -454,9 +459,25 @@ class Library extends ChangeNotifier {
     String id, {
     void Function(int, int?)? onProgress,
   }) async {
-    await fonts.download(id, onProgress: onProgress);
+    await fonts.download(id, mirror: downloadMirror, onProgress: onProgress);
     downloadedFonts.add(id);
     await selectFont(id);
+  }
+
+  Future<void> setDownloadMirror(DownloadMirror value) async {
+    if (downloadMirror.enabled == value.enabled &&
+        downloadMirror.baseUrl == value.baseUrl) {
+      return;
+    }
+    final previous = _downloadMirror;
+    _downloadMirror = value;
+    try {
+      await save();
+    } catch (_) {
+      if (identical(_downloadMirror, value)) _downloadMirror = previous;
+      notifyListeners();
+      rethrow;
+    }
   }
 
   Future<void> resetReadingPreferences() async {
