@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
 
+import '../../data/app_log.dart';
 import '../../domain/models.dart';
 import '../logged_request.dart';
 import 'ciweimao_crypto.dart';
@@ -201,19 +202,38 @@ class CiweimaoApi {
           code: response.statusCode,
         );
       }
-      final Object? doc;
+      final Map<String, dynamic> doc;
       try {
-        doc = jsonDecode(
+        final decoded = jsonDecode(
           CiweimaoCrypto.decrypt(utf8.decode(response.bodyBytes)),
         );
-      } catch (_) {
+        if (decoded is! Map<String, dynamic>) throw const FormatException();
+        doc = decoded;
+      } catch (error, stack) {
+        AppLog.instance.record(
+          LogLevel.error,
+          path.startsWith('signup/')
+              ? 'ciweimao.auth_response_invalid'
+              : 'ciweimao.response_invalid',
+          error: error,
+          stackTrace: stack,
+          httpStatus: response.statusCode,
+        );
         throw const SourceException('刺猬猫返回无法识别的数据，请重试');
       }
-      if (doc is! Map) throw const SourceException('刺猬猫返回的数据格式已变化');
       final code = int.tryParse('${doc['code']}');
       if (code != 100000) {
+        AppLog.instance.record(
+          LogLevel.warning,
+          path.startsWith('signup/')
+              ? 'ciweimao.auth_rejected'
+              : 'ciweimao.request_rejected',
+          error: SourceException('', code: code ?? -1),
+          httpStatus: response.statusCode,
+        );
         final message = switch (code) {
           200100 || 200001 => '刺猬猫会话已失效，请重新登录',
+          210000 => '请输入登录验证码；账号密码登录请先获取验证码后重试',
           310002 => '需要安全验证，请在刺猬猫官方 App 完成后重新登录或导入 App 会话',
           320002 => '刺猬猫请求校验失败，请重试或重新登录',
           _ => '刺猬猫请求失败（${code ?? -1}），请检查账号或稍后重试',

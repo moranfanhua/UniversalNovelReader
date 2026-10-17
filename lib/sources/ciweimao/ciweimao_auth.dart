@@ -11,7 +11,15 @@ class CiweimaoAuth {
   final CiweimaoApi api;
   DateTime? _resendAt, _expiresAt;
   String? _phone;
+  _PasswordVerification? _passwordVerification;
+  DateTime? _passwordResendAt;
   int _generation = 0;
+  int? get passwordCodeLength => _passwordVerification?.codeLength;
+  int get passwordResendSeconds {
+    final ms = _passwordResendAt?.difference(api.clock()).inMilliseconds ?? 0;
+    return ms <= 0 ? 0 : (ms + 999) ~/ 1000;
+  }
+
   int get resendSeconds {
     final ms = _resendAt?.difference(api.clock()).inMilliseconds ?? 0;
     return ms <= 0 ? 0 : (ms + 999) ~/ 1000;
@@ -21,6 +29,7 @@ class CiweimaoAuth {
     _generation++;
     _phone = null;
     _expiresAt = null;
+    _passwordVerification = null;
   }
 
   void _check(int generation, int sessionGeneration) {
@@ -49,20 +58,7 @@ class CiweimaoAuth {
     }
     final sessionGeneration = api.sessionGeneration;
     _check(generation, sessionGeneration);
-    final timestamp = '${api.clock().millisecondsSinceEpoch}';
-    final encrypted = CiweimaoCrypto.encrypt('${session.account}$timestamp');
-    await api.request(
-      'signup/send_verify_code',
-      {
-        'phone_num': '',
-        'verify_type': '6',
-        'login_name': phone,
-        'timestamp': timestamp,
-        'hashvalue': md5.convert(utf8.encode(encrypted)).toString(),
-      },
-      session: session,
-      write: true,
-    );
+    await _sendCode(session, phone, '6');
     _check(generation, sessionGeneration);
     _phone = phone;
     _expiresAt = api.clock().add(const Duration(minutes: 5));
@@ -86,15 +82,116 @@ class CiweimaoAuth {
     });
   }
 
-  Future<CiweimaoCredentials> passwordLogin(String account, String password) {
+  Future<Map<String, dynamic>> _sendCode(
+    CiweimaoCredentials session,
+    String account,
+    String type,
+  ) {
+    final timestamp = '${api.clock().millisecondsSinceEpoch}';
+    final encrypted = CiweimaoCrypto.encrypt('${session.account}$timestamp');
+    return api.request(
+      'signup/send_verify_code',
+      {
+        'phone_num': '',
+        'verify_type': type,
+        'login_name': account,
+        'timestamp': timestamp,
+        'hashvalue': md5.convert(utf8.encode(encrypted)).toString(),
+      },
+      session: session,
+      write: true,
+    );
+  }
+
+  Future<void> sendPasswordCode(String account) async {
+    final verification = _passwordVerification;
+    if (verification == null || verification.account != account.trim()) {
+      throw const SourceException('请先输入账号和密码并点击登录');
+    }
+    final generation = _generation;
+    final session = await api.ensureSession();
+    _check(generation, verification.sessionGeneration);
+    if (passwordResendSeconds > 0) throw const SourceException('请稍后再获取验证码');
+    verification.toCode = null;
+    verification.expiresAt = null;
+    _passwordResendAt = api.clock().add(const Duration(seconds: 60));
+    // APK SwitchAccountActivity.sendCode uses type 5 for password login,
+    // and passes the returned to_code alongside the user's verification code.
+    final data = await _sendCode(session, verification.account, '5');
+    _check(generation, verification.sessionGeneration);
+    final toCode = data['to_code'];
+    if (toCode is! String || toCode.isEmpty || toCode.length > 1024) {
+      throw const SourceException('刺猬猫未返回登录验证凭据，请稍后重新获取验证码');
+    }
+    verification.toCode = toCode;
+    verification.expiresAt = api.clock().add(const Duration(minutes: 5));
+  }
+
+  Future<CiweimaoCredentials> passwordLogin(
+    String account,
+    String password, {
+    String code = '',
+  }) async {
     final name = account.trim();
-    if (name.isEmpty || password.isEmpty) {
+    final secret = password.trim();
+    if (name.isEmpty || secret.isEmpty) {
       throw const SourceException('请输入刺猬猫账号和密码');
+    }
+    final generation = _generation;
+    final session = await api.ensureSession();
+    if (!identical(session, api.credentials)) {
+      throw const SourceException('刺猬猫账号已切换，请重试');
+    }
+    final sessionGeneration = api.sessionGeneration;
+    _check(generation, sessionGeneration);
+    var verification = _passwordVerification;
+    if (verification == null ||
+        verification.account != name ||
+        verification.sessionGeneration != sessionGeneration) {
+      verification = null;
+      _passwordVerification = null;
+      // APK GetIsuseGeetTask must run before SwitchAccountTask.
+      final data = await api.request('signup/use_geetest', {
+        'login_name': name,
+      }, session: session);
+      _check(generation, sessionGeneration);
+      switch ('${data['need_use_geetest'] ?? ''}') {
+        case '0':
+          break;
+        case '2':
+          final length = int.tryParse('${data['code_len']}');
+          if (length == null || length < 4 || length > 8) {
+            throw const SourceException('刺猬猫返回的验证码格式已变化，请稍后重试');
+          }
+          verification = _PasswordVerification(name, length, sessionGeneration);
+          _passwordVerification = verification;
+        case '1':
+          throw const SourceException(
+            '需要安全验证，请在刺猬猫官方 App 完成后重新登录或导入 App 会话',
+            code: 310002,
+          );
+        default:
+          throw const SourceException('刺猬猫返回的登录验证方式已变化，请稍后重试');
+      }
+    }
+    final extra = <String, String>{};
+    if (verification != null) {
+      if (verification.toCode == null ||
+          verification.expiresAt == null ||
+          !api.clock().isBefore(verification.expiresAt!)) {
+        throw const SourceException('当前账号需要登录验证码，请获取后再登录', code: 210000);
+      }
+      if (!RegExp('^\\d{${verification.codeLength}}\$').hasMatch(code.trim())) {
+        throw SourceException('请输入 ${verification.codeLength} 位登录验证码');
+      }
+      extra['ver_code'] = code.trim();
+      extra['to_code'] = verification.toCode!;
     }
     return _login('signup/login', {
       'login_name': name,
-      'passwd': CiweimaoCrypto.encryptPassword(password),
-      'sign': CiweimaoCrypto.encryptPassword('${name}_$password'),
+      'passwd': CiweimaoCrypto.encryptPassword(secret),
+      'sign': CiweimaoCrypto.encryptPassword('${name}_$secret'),
+      ...extra,
     });
   }
 
@@ -160,4 +257,12 @@ class CiweimaoAuth {
       throw const SourceException('当前是刺猬猫游客会话，请使用已注册账号登录');
     }
   }
+}
+
+class _PasswordVerification {
+  _PasswordVerification(this.account, this.codeLength, this.sessionGeneration);
+  final String account;
+  final int codeLength, sessionGeneration;
+  String? toCode;
+  DateTime? expiresAt;
 }

@@ -49,6 +49,21 @@ void configure(WidgetTester tester, {Size size = const Size(1200, 1000)}) {
 }
 
 void main() {
+  test('刺猬猫认证错误使用中文名称，进入认证筛选并显示业务错误码', () {
+    final result = parseLogEntries(
+      jsonEncode({
+        'event': 'ciweimao.auth_rejected',
+        'level': 'warning',
+        'httpStatus': 200,
+        'code': 210000,
+      }),
+    );
+    final entry = result.entries.single;
+    expect(entry.authentication, isTrue);
+    expect(entry.displayMessage, '刺猬猫认证未通过');
+    expect(entry.code, 210000);
+    expect(logModuleName(entry.module), '刺猬猫');
+  });
   for (final width in [390.0, 1200.0]) {
     testWidgets('日志在宽度 $width 和双倍文字下逐条显示、自动更新、导出和清空', (tester) async {
       configure(tester, size: Size(width, 1000));
