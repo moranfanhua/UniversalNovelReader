@@ -333,6 +333,7 @@ class _DownloadDialogState extends State<DownloadDialog> {
   final failures = <String>[];
   @override
   void dispose() {
+    cancelled = true;
     start.dispose();
     end.dispose();
     super.dispose();
@@ -355,21 +356,33 @@ class _DownloadDialogState extends State<DownloadDialog> {
       success = 0;
       total = to - from + 1;
       failures.clear();
+      status = '正在准备下载…';
     });
-    for (var i = from - 1; i < to; i++) {
-      if (cancelled) break;
-      final c = widget.book.chapters[i];
-      setState(() => status = c.title);
-      try {
-        final content = await widget.library.read(widget.book, c);
-        await widget.library.cacheImages(widget.book, content);
-        success++;
-      } catch (e) {
-        failures.add('${c.title}：$e');
-      }
+    try {
+      await widget.library.downloadChapters(
+        widget.book,
+        widget.book.chapters.sublist(from - 1, to),
+        isCancelled: () => cancelled || !mounted,
+        onProgress: (chapter, error) {
+          if (!mounted) return;
+          setState(() {
+            done++;
+            status = '${chapter.title} · $done / $total';
+            if (error == null) {
+              success++;
+            } else {
+              failures.add('${chapter.title}：$error');
+            }
+          });
+        },
+      );
+    } catch (error) {
       if (!mounted) return;
-      setState(() => done++);
-      await Future<void>.delayed(const Duration(milliseconds: 120));
+      setState(() {
+        running = false;
+        status = '下载失败：$error';
+      });
+      return;
     }
     if (mounted) {
       setState(() {

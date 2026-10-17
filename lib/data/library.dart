@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -11,6 +12,7 @@ import '../domain/models.dart';
 import '../domain/reading_preferences.dart';
 import '../domain/bookshelf.dart';
 import '../sources/bookshelf_source.dart';
+import '../sources/chapter_batch_source.dart';
 import '../sources/sfacg/sfacg_source.dart';
 import '../sources/comment_source.dart';
 import '../sources/novel_source.dart';
@@ -756,6 +758,154 @@ class Library extends ChangeNotifier {
         await store(book, chapter, content);
         return content;
       });
+
+  final _downloads = <String>{};
+
+  Future<void> downloadChapters(
+    Book book,
+    List<Chapter> chapters, {
+    required void Function(Chapter chapter, Object? error) onProgress,
+    bool Function()? isCancelled,
+  }) async {
+    if (!_downloads.add(book.key)) {
+      throw const SourceException('本书已有下载任务，请等待完成或停止后重试');
+    }
+    try {
+      final service = sourceFor(book);
+      final batchSource = service is ChapterBatchSource ? service : null;
+      final size = batchSource?.chapterBatchSize ?? 1;
+      final concurrency = batchSource?.chapterBatchConcurrency ?? 1;
+      if (size < 1) throw StateError('书源下载批量大小无效');
+      if (concurrency < 1) throw StateError('书源下载并发数量无效');
+      final selected = <String, Chapter>{};
+      final directory = {for (final chapter in book.chapters) chapter.id};
+      for (final chapter in chapters) {
+        if (!directory.contains(chapter.id)) {
+          throw const SourceException('下载章节不属于当前作品');
+        }
+        selected[chapter.id] = chapter;
+      }
+      final queue = selected.values.toList();
+      var offset = 0;
+      Future<void> worker() async {
+        while (offset < queue.length && isCancelled?.call() != true) {
+          final batch = queue.sublist(
+            offset,
+            (offset + size).clamp(0, queue.length),
+          );
+          offset += batch.length;
+          final results = await _downloadBatch(book, batch, service);
+          for (var i = 0; i < batch.length; i++) {
+            var error = results[i].error;
+            if (error == null) {
+              try {
+                await cacheImages(book, results[i].content!);
+              } catch (reason) {
+                error = reason;
+              }
+            }
+            onProgress(batch[i], error);
+          }
+        }
+      }
+
+      // Active batches finish caching; cancellation prevents scheduling more.
+      await Future.wait(List.generate(concurrency, (_) => worker()));
+    } finally {
+      _downloads.remove(book.key);
+    }
+  }
+
+  Future<List<ChapterBatchResult>> _downloadBatch(
+    Book book,
+    List<Chapter> chapters,
+    NovelSource? service,
+  ) async {
+    final owned = <Chapter, Completer<ChapterContent>>{};
+    final waiting = <Future<ChapterBatchResult>>[];
+    for (final chapter in chapters) {
+      final key = '${book.key}/${chapter.id}';
+      var reading = _reads[key];
+      if (reading == null) {
+        final completer = Completer<ChapterContent>();
+        owned[chapter] = completer;
+        reading = completer.future;
+        _reads[key] = reading;
+        void release() {
+          if (identical(_reads[key], reading)) _reads.remove(key);
+        }
+
+        unawaited(
+          reading.then((_) => release(), onError: (Object _) => release()),
+        );
+      }
+      waiting.add(
+        reading.then(
+          (content) => ChapterBatchResult.success(chapter.id, content),
+          onError: (Object error) =>
+              ChapterBatchResult.failure(chapter.id, error),
+        ),
+      );
+    }
+    try {
+      final missing = <Chapter>[];
+      for (final entry in owned.entries) {
+        try {
+          final saved = await cached(book, entry.key);
+          if (saved == null) {
+            missing.add(entry.key);
+          } else {
+            entry.value.complete(saved);
+          }
+        } catch (error, stack) {
+          entry.value.completeError(error, stack);
+        }
+      }
+      if (missing.isNotEmpty) {
+        if (service == null) throw const SourceException('当前书源不可用，已缓存章节仍可阅读');
+        final results = service is ChapterBatchSource
+            ? await service.readChapterBatch(book, missing)
+            : [
+                ChapterBatchResult.success(
+                  missing.single.id,
+                  await service.readChapter(book, missing.single),
+                ),
+              ];
+        final byId = <String, ChapterBatchResult>{};
+        final requested = missing.map((chapter) => chapter.id).toSet();
+        for (final result in results) {
+          if (!requested.contains(result.id) || byId.containsKey(result.id)) {
+            throw const SourceException('书源批量下载返回了不匹配或重复的章节');
+          }
+          byId[result.id] = result;
+        }
+        for (final chapter in missing) {
+          final completer = owned[chapter]!;
+          final result = byId[chapter.id];
+          try {
+            if (result?.content == null) {
+              throw result?.error ?? const SourceException('书源未返回该章节正文，请重试');
+            }
+            await store(book, chapter, result!.content!);
+            completer.complete(result.content);
+          } catch (error, stack) {
+            completer.completeError(error, stack);
+          }
+        }
+      }
+    } catch (error, stack) {
+      AppLog.instance.record(
+        LogLevel.error,
+        'download.batch_failed',
+        error: error,
+        stackTrace: stack,
+      );
+      for (final completer in owned.values) {
+        if (!completer.isCompleted) completer.completeError(error, stack);
+      }
+    }
+    return Future.wait(waiting);
+  }
 
   Future<Map<String, ChapterContent>> cachedContents(Book book) async {
     final result = <String, ChapterContent>{};
