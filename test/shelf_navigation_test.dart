@@ -29,6 +29,13 @@ class ShelfNavigationLibrary extends Library {
   ShelfNavigationLibrary({SfacgSource? source})
     : super(Directory.systemTemp, source ?? SfacgSource(SfacgApi()));
   final reads = <String>[];
+  // These tests isolate opening cached books and loading missing directories.
+  // Automatic visit updates are covered by shelf_updates_test.dart.
+  @override
+  Future<ShelfUpdateResult> refreshShelfBooks({
+    String? shelfId,
+    required bool Function() isCancelled,
+  }) async => const ShelfUpdateResult();
   @override
   Future<void> save() async => notifyListeners();
   @override

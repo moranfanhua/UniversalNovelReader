@@ -28,6 +28,11 @@ enum ShelfSort { updated, name, lastActive }
 
 enum ShelfLayout { grid, list }
 
+class ShelfUpdateResult {
+  const ShelfUpdateResult({this.checked = 0, this.failed = 0});
+  final int checked, failed;
+}
+
 extension ShelfSortLabel on ShelfSort {
   String get label => switch (this) {
     ShelfSort.updated => '按更新时间',
@@ -92,6 +97,10 @@ class Library extends ChangeNotifier {
   ShelfSort shelfSort = ShelfSort.lastActive;
   ShelfLayout shelfLayout = ShelfLayout.grid;
   final Map<String, int> updatedTimes = {}, lastActiveTimes = {};
+  static const shelfUpdateInterval = Duration(minutes: 10);
+  final Map<String, int> _shelfUpdateTimes = {};
+  Future<void>? _shelfUpdates;
+  bool _disposed = false;
   final Map<String, String> _nameSortKeys = {};
   static String _nameSortKey(String title) {
     final text = title.trim().toLowerCase();
@@ -160,6 +169,7 @@ class Library extends ChangeNotifier {
       ParagraphCommentPlacement.right;
   final Map<String, int> pageOffsets = {};
   // Entry alignment and preceding spread origin, indexed by book and chapter.
+  // Values: [skipFirstPage, precedingChapterIndex, precedingSkipFirstPage].
   final Map<String, List<int>> pagedChapterEntries = {};
   String readingFontId = '';
   String? readingFontFamily, fontNotice;
@@ -254,6 +264,11 @@ class Library extends ChangeNotifier {
         if (entry.value is num) {
           library.lastActiveTimes['${entry.key}'] = (entry.value as num)
               .toInt();
+        }
+      }
+      for (final entry in (data['shelfUpdateTimes'] as Map? ?? {}).entries) {
+        if (entry.value is int) {
+          library._shelfUpdateTimes['${entry.key}'] = entry.value;
         }
       }
       library.horizontalMargin = (data['horizontalMargin'] as num? ?? 22)
@@ -377,6 +392,7 @@ class Library extends ChangeNotifier {
       'shelfLayout': shelfLayout.name,
       'updatedTimes': updatedTimes,
       'lastActiveTimes': lastActiveTimes,
+      'shelfUpdateTimes': _shelfUpdateTimes,
     });
     // Serialize preferences writes so navigation and font changes cannot race.
     final next = _writes
@@ -497,12 +513,78 @@ class Library extends ChangeNotifier {
     }
   }
 
-  Future<void> updateBook(Book book) async {
+  Future<void> updateBook(
+    Book book, {
+    bool preserveChapterPosition = false,
+  }) async {
     final shelfIndex = books.indexWhere((item) => item.key == book.key);
     final recentIndex = recentBooks.indexWhere((item) => item.key == book.key);
     final oldShelf = shelfIndex < 0 ? null : books[shelfIndex];
     final oldRecent = recentIndex < 0 ? null : recentBooks[recentIndex];
     final oldUpdated = updatedTimes[book.key];
+    final previous = oldShelf ?? oldRecent;
+    final oldProgress = progress[book.key];
+    List<int>? nextProgress;
+    final oldEntries = <String, List<int>>{};
+    final nextEntries = <String, List<int>>{};
+    if (preserveChapterPosition && previous != null) {
+      final indices = {
+        for (var i = 0; i < book.chapters.length; i++) book.chapters[i].id: i,
+      };
+      if (oldProgress != null &&
+          oldProgress.isNotEmpty &&
+          oldProgress.first >= 0 &&
+          oldProgress.first < previous.chapters.length) {
+        final index = indices[previous.chapters[oldProgress.first].id];
+        if (index == null) {
+          throw const SourceException('当前阅读章节不在新目录中，已保留原目录，请手动检查');
+        }
+        if (index != oldProgress.first) {
+          nextProgress = [index, ...oldProgress.skip(1)];
+        }
+      }
+      for (final entry in pagedChapterEntries.entries) {
+        if (!entry.key.startsWith('${book.key}:')) continue;
+        oldEntries[entry.key] = entry.value;
+        final index = int.tryParse(entry.key.substring(book.key.length + 1));
+        if (index == null || index < 0 || index >= previous.chapters.length) {
+          continue;
+        }
+        final next = indices[previous.chapters[index].id];
+        if (next == null) continue;
+        var migrated = List<int>.of(entry.value);
+        if (migrated.length >= 3) {
+          final origin = migrated[1];
+          final nextOrigin = origin >= 0 && origin < index
+              ? indices[previous.chapters[origin].id]
+              : null;
+          var sameSpan = false;
+          if (nextOrigin != null && next - nextOrigin == index - origin) {
+            sameSpan = true;
+            for (var offset = 0; offset <= index - origin; offset++) {
+              if (previous.chapters[origin + offset].id !=
+                  book.chapters[nextOrigin + offset].id) {
+                sameSpan = false;
+                break;
+              }
+            }
+          }
+          if (sameSpan) {
+            migrated[1] = nextOrigin!;
+          } else {
+            // The old spread may have shown a page from a removed or moved
+            // chapter. Reset its alignment and use the new directory order.
+            migrated = [0];
+          }
+        }
+        nextEntries['${book.key}:$next'] = migrated;
+      }
+    }
+    if (nextProgress != null) progress[book.key] = nextProgress;
+    for (final key in oldEntries.keys) {
+      pagedChapterEntries.remove(key);
+    }
+    pagedChapterEntries.addAll(nextEntries);
     if (shelfIndex >= 0) books[shelfIndex] = book;
     if (recentIndex >= 0) recentBooks[recentIndex] = book;
     if (book.updatedAt != null) {
@@ -511,6 +593,18 @@ class Library extends ChangeNotifier {
     try {
       await save();
     } catch (_) {
+      if (nextProgress != null && identical(progress[book.key], nextProgress)) {
+        progress[book.key] = oldProgress!;
+      }
+      for (final key in {...oldEntries.keys, ...nextEntries.keys}) {
+        if (!identical(pagedChapterEntries[key], nextEntries[key])) continue;
+        final old = oldEntries[key];
+        if (old == null) {
+          pagedChapterEntries.remove(key);
+        } else {
+          pagedChapterEntries[key] = old;
+        }
+      }
       final shelf = books.indexWhere((item) => item.key == book.key);
       final recent = recentBooks.indexWhere((item) => item.key == book.key);
       if (shelf >= 0 && oldShelf != null && identical(books[shelf], book)) {
@@ -529,6 +623,91 @@ class Library extends ChangeNotifier {
       notifyListeners();
       rethrow;
     }
+  }
+
+  /// Visits share a per-book cooldown, including failed attempts and restarts.
+  /// Queued visits and workers stop when their shelf is no longer visible.
+  Future<ShelfUpdateResult> refreshShelfBooks({
+    String? shelfId,
+    required bool Function() isCancelled,
+  }) {
+    Future<ShelfUpdateResult> run() async {
+      bool cancelled() => _disposed || isCancelled();
+      if (cancelled()) return const ShelfUpdateResult();
+      final keys = shelfId == null || shelfId == recentShelfId
+          ? null
+          : shelves.where((shelf) => shelf.id == shelfId).firstOrNull?.bookKeys;
+      if (shelfId != null && shelfId != recentShelfId && keys == null) {
+        return const ShelfUpdateResult();
+      }
+      final candidates = (shelfId == recentShelfId ? recentBooks : books)
+          .where((book) => keys == null || keys.contains(book.key))
+          .where((book) => book.source != 'local' && sourceFor(book) != null)
+          .toList();
+      var cursor = 0, checked = 0, failed = 0;
+      Book? current(String key) =>
+          (shelfId == recentShelfId ? recentBooks : books)
+              .where((book) => book.key == key)
+              .firstOrNull;
+      Future<void> worker() async {
+        while (!cancelled() && cursor < candidates.length) {
+          final book = candidates[cursor++];
+          if (!identical(current(book.key), book)) continue;
+          final now = clock().millisecondsSinceEpoch;
+          final last = _shelfUpdateTimes[book.key];
+          if (last != null && now - last < shelfUpdateInterval.inMilliseconds) {
+            continue;
+          }
+          _shelfUpdateTimes[book.key] = now;
+          checked++;
+          try {
+            // Persist before sending, so reopening cannot bypass the cooldown.
+            await save();
+            if (cancelled()) return;
+            final next = await sourceFor(book)!.getBook(book.id);
+            if (cancelled() || !identical(current(book.key), book)) continue;
+            if (next.key != book.key || next.chapters.isEmpty) {
+              throw const SourceException('书源未返回对应作品的完整目录，已保留本地内容');
+            }
+            await updateBook(next, preserveChapterPosition: true);
+          } catch (error, stack) {
+            if (cancelled()) return;
+            failed++;
+            AppLog.instance.record(
+              LogLevel.warning,
+              'bookshelf.update_failed',
+              error: error,
+              stackTrace: stack,
+            );
+          }
+        }
+      }
+
+      await Future.wait(List.generate(3, (_) => worker()));
+      return ShelfUpdateResult(checked: checked, failed: failed);
+    }
+
+    final previous = _shelfUpdates;
+    final next = previous == null
+        ? Future<ShelfUpdateResult>.sync(run)
+        : previous.then((_) => run());
+    late final Future<void> tail;
+    void finished() {
+      if (identical(_shelfUpdates, tail)) _shelfUpdates = null;
+    }
+
+    tail = next.then<void>(
+      (_) => finished(),
+      onError: (Object _, StackTrace _) => finished(),
+    );
+    _shelfUpdates = tail;
+    return next;
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
   }
 
   Future<Bookshelf> importShelf({

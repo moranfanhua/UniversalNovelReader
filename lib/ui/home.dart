@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
@@ -24,7 +25,7 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage> {
+class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   int tab = 0;
   bool busy = false, gbk = false, searchFailed = false;
   String? error;
@@ -35,10 +36,14 @@ class _HomePageState extends State<HomePage> {
   Library get library => widget.library;
   late List<String> searchSourceIds;
   int searchGeneration = 0;
+  bool shelfVisible = false, updatingShelf = false;
+  String? visitedShelf, shelfUpdateError;
+  int shelfVisit = 0;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     searchSourceIds = library.enabledSearchSources
         .map((source) => source.id)
         .toList();
@@ -52,6 +57,7 @@ class _HomePageState extends State<HomePage> {
       oldWidget.library.removeListener(_searchSourcesChanged);
       library.addListener(_searchSourcesChanged);
       _searchSourcesChanged();
+      shelfVisible = false;
     }
   }
 
@@ -72,9 +78,73 @@ class _HomePageState extends State<HomePage> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    shelfVisit++;
     library.removeListener(_searchSourcesChanged);
     query.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) {
+      shelfVisible = false;
+      shelfVisit++;
+    }
+    if (mounted) setState(() {});
+  }
+
+  void _visitShelf(BuildContext context) {
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    final visible =
+        tab == 0 &&
+        (ModalRoute.of(context)?.isCurrent ?? false) &&
+        (lifecycle == null || lifecycle == AppLifecycleState.resumed);
+    if (visible == shelfVisible &&
+        (!visible || visitedShelf == selectedShelf)) {
+      return;
+    }
+    shelfVisible = visible;
+    visitedShelf = selectedShelf;
+    final visit = ++shelfVisit;
+    updatingShelf = false;
+    shelfUpdateError = null;
+    if (visible) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && visit == shelfVisit) unawaited(_updateShelf(visit));
+      });
+    }
+  }
+
+  Future<void> _updateShelf(int visit) async {
+    final value = library;
+    bool cancelled() =>
+        !mounted ||
+        visit != shelfVisit ||
+        !shelfVisible ||
+        busy ||
+        library != value ||
+        !(ModalRoute.of(context)?.isCurrent ?? false);
+    if (cancelled()) return;
+    setState(() => updatingShelf = true);
+    try {
+      final result = await value.refreshShelfBooks(
+        shelfId: selectedShelf,
+        isCancelled: cancelled,
+      );
+      if (!cancelled() && result.failed > 0) {
+        setState(
+          () => shelfUpdateError =
+              '${result.failed} 本作品更新失败，已保留本地内容。10 分钟后再次进入书架可重试，也可在作品详情手动刷新。',
+        );
+      }
+    } catch (_) {
+      if (!cancelled()) {
+        setState(() => shelfUpdateError = '书架更新失败，已保留本地内容，请稍后重新进入书架重试。');
+      }
+    } finally {
+      if (mounted && visit == shelfVisit) setState(() => updatingShelf = false);
+    }
   }
 
   Future<void> _open(String input, {String? sourceId}) async {
@@ -278,6 +348,12 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _openShelfBook(Book book, {bool details = false}) async {
     if (busy) return;
+    book =
+        [
+          ...library.books,
+          ...library.recentBooks,
+        ].where((item) => item.key == book.key).firstOrNull ??
+        book;
     final service = library.sourceFor(book);
     if (!details && book.chapters.isEmpty && service == null) {
       setState(() => error = '当前作品暂无可阅读章节，可长按作品查看详情。');
@@ -620,6 +696,7 @@ class _HomePageState extends State<HomePage> {
   );
 
   Widget _buildLibrary(BuildContext context) {
+    _visitShelf(context);
     if (selectedShelf == Library.recentShelfId) {
       return _buildPage(context, library.sortedRecentBooks);
     }
@@ -709,7 +786,18 @@ class _HomePageState extends State<HomePage> {
               ],
             ),
           ),
-        if (busy) const LinearProgressIndicator(),
+        if (busy || (tab == 0 && updatingShelf))
+          const LinearProgressIndicator(),
+        if (tab == 0 && shelfUpdateError != null)
+          MaterialBanner(
+            content: Text(shelfUpdateError!),
+            actions: [
+              TextButton(
+                onPressed: () => setState(() => shelfUpdateError = null),
+                child: const Text('关闭'),
+              ),
+            ],
+          ),
         if (error != null)
           MaterialBanner(
             content: Text(error!),
