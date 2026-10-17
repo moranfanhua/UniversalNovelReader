@@ -38,7 +38,13 @@ UniversalNovelReader是一个非官方第三方阅读工具，与任何小说平
 
 `sky_engine` 随 Flutter SDK 分发，包含多种第三方组件的版权与许可声明，完整文本见该包内的 `LICENSE`；其许可不统一标记为 Flutter 框架的 BSD-3-Clause。
 
-云端可选字体 [Noto Sans SC](https://github.com/google/fonts/tree/main/ofl/notosanssc)、[Noto Serif SC](https://github.com/google/fonts/tree/main/ofl/notoserifsc) 使用 SIL Open Font License 1.1；由用户下载，原许可随字体保存在本机。
+云端可选字体均使用 SIL Open Font License 1.1，保留各自的原作者版权；由用户按需下载，原许可随字体保存在本机：
+
+- Google Fonts：[Noto Sans SC](https://github.com/google/fonts/tree/main/ofl/notosanssc)、[Noto Serif SC](https://github.com/google/fonts/tree/main/ofl/notoserifsc)。
+- 落霞孤鹜：[霞鹜文楷 GB 屏幕版](https://github.com/lxgw/LxgwWenKai-Screen)、[悠哉字体](https://github.com/lxgw/yozai-font)、[霞鹜臻楷 GB](https://github.com/lxgw/LxgwZhenKai)、[小赖字体](https://github.com/lxgw/kose-font)。
+- 寒蝉字型：[寒蝉半圆体](https://github.com/Warren2060/ChillRound)。
+- 璇玑造字：[朱雀仿宋](https://github.com/TrionesType/zhuque)。
+- IBM：[IBM Plex Sans SC](https://github.com/IBM/plex/tree/master/packages/plex-sans-sc)。
 
 ### 9. 更新
 

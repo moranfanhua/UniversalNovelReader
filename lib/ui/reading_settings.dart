@@ -254,6 +254,8 @@ class _ReadingSettingsState extends State<ReadingSettings> {
                   value: font.id,
                   child: Text(
                     '${font.name}${library.downloadedFonts.contains(font.id) ? ' · 已下载' : ''}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
             ],
@@ -289,7 +291,13 @@ class _ReadingSettingsState extends State<ReadingSettings> {
               ],
             ),
             const SizedBox(height: 8),
-            const Text('来源：Google Fonts · SIL OFL 1.1\n下载后保存在本机，可离线使用。'),
+            Text(
+              '来源：${ReaderFonts.font(selected).source} · SIL OFL 1.1\n下载后保存在本机，可离线使用。',
+            ),
+            if (ReaderFonts.font(selected).notice case final notice?) ...[
+              const SizedBox(height: 8),
+              Text(notice),
+            ],
           ],
           if (fontBusy) ...[
             const SizedBox(height: 10),
