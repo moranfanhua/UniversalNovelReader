@@ -274,6 +274,55 @@ void main() {
     library.dispose();
     library.source.api.close();
   });
+  for (final width in [360.0, 1280.0]) {
+    testWidgets('新增字体在宽度 $width 和放大文字下显示来源并可下载切换', (tester) async {
+      tester.view.physicalSize = Size(width, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final library = PreferencesLibrary();
+      addTearDown(library.dispose);
+      addTearDown(library.source.api.close);
+      await tester.pumpWidget(
+        MaterialApp(
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: TextScaler.linear(1.5)),
+            child: child!,
+          ),
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: ReadingSettings(library: library),
+            ),
+          ),
+        ),
+      );
+      final dropdown = find.byKey(const ValueKey('reading-font'));
+      for (final font in ReaderFonts.catalog.skip(2)) {
+        tester.widget<DropdownButton<String>>(dropdown).onChanged!(font.id);
+        await tester.pumpAndSettle();
+        expect(
+          find.textContaining('来源：${font.source} · SIL OFL 1.1'),
+          findsOneWidget,
+        );
+        if (font.notice != null) {
+          expect(find.text(font.notice!), findsOneWidget);
+        } else {
+          expect(find.textContaining('上游预览测试版'), findsNothing);
+        }
+        final download = find.text('下载并使用字体');
+        await tester.ensureVisible(download);
+        await tester.tap(download);
+        await tester.pumpAndSettle();
+        expect(library.readingFontId, font.id);
+        expect(library.downloadedFonts, contains(font.id));
+        expect(find.text('${font.name} · 已下载'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      }
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  }
   testWidgets('阅读设置同时改变滚动页与翻页布局，关闭面板保留阅读段落', (tester) async {
     tester.view.physicalSize = const Size(360, 640);
     tester.view.devicePixelRatio = 1;
