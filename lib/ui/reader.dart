@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart' show ScrollDirection;
+import 'package:flutter/rendering.dart' show RenderEditable, ScrollDirection;
 import 'package:flutter/services.dart';
 import '../data/library.dart';
 import '../domain/models.dart';
@@ -72,7 +72,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       scrollNextScheduled = false,
       scrollFrameScheduled = false;
   Object? scrollNextError;
-  GlobalKey? pendingScrollRestore;
+  ({GlobalKey key, int offset})? pendingScrollRestore;
   String _entryKey(int chapter) => '${widget.book.key}:$chapter';
   Library get library => widget.library;
   CommentSource? get comments =>
@@ -108,6 +108,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   void _load() {
     final generation = ++loadGeneration;
+    pagePosition.value = null;
     restoring = true;
     pagedKey = GlobalKey<PagedChapterState>();
     restoreScheduled = false;
@@ -160,23 +161,14 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       } else if (keys.isNotEmpty) {
         final index = restoreParagraph.clamp(0, keys.length - 1);
         final ctx = keys[index].currentContext;
-        final box = ctx?.findRenderObject();
-        final view = viewport.currentContext?.findRenderObject();
-        if (restoreParagraph > 0 &&
-            library.readingMode == ReadingMode.scroll &&
-            chapter + 1 < widget.book.chapters.length &&
-            scroll.hasClients &&
-            box is RenderBox &&
-            view is RenderBox &&
-            box.hasSize &&
-            view.hasSize &&
-            scroll.offset +
-                    box.localToGlobal(Offset.zero).dy -
-                    view.localToGlobal(Offset.zero).dy >
-                scroll.position.maxScrollExtent + .5) {
-          pendingScrollRestore = keys[index];
+        final anchor = (key: keys[index], offset: characterOffset);
+        if (ctx != null) {
+          await Scrollable.ensureVisible(ctx, alignment: 0);
+          if (!mounted || !ctx.mounted || generation != loadGeneration) return;
+          if (library.readingMode == ReadingMode.scroll) {
+            _restoreScrollAnchor(anchor);
+          }
         }
-        if (ctx != null) await Scrollable.ensureVisible(ctx, alignment: 0);
       }
       if (!mounted || generation != loadGeneration) return;
       restoring = false;
@@ -242,6 +234,24 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     WidgetsBinding.instance.ensureVisualUpdate();
   }
 
+  RenderEditable? _paragraphText(BuildContext context) {
+    RenderEditable? result;
+    void visit(Element element) {
+      if (result != null) return;
+      final render = element is RenderObjectElement
+          ? element.renderObject
+          : null;
+      if (render is RenderEditable) {
+        result = render;
+      } else {
+        element.visitChildren(visit);
+      }
+    }
+
+    (context as Element).visitChildren(visit);
+    return result;
+  }
+
   void _updateScrollAnchor() {
     if (pendingScrollRestore != null) return;
     final view = viewport.currentContext?.findRenderObject();
@@ -255,6 +265,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
             box.localToGlobal(Offset(0, box.size.height)).dy > top) {
           chapter = block.index;
           paragraph = 0;
+          characterOffset = 0;
           keys = block.keys;
           loadedParagraphs = block.content.paragraphs;
           return;
@@ -267,6 +278,19 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
             box.localToGlobal(Offset(0, box.size.height)).dy > top) {
           chapter = block.index;
           paragraph = i;
+          final editable = _paragraphText(block.keys[i].currentContext!);
+          characterOffset = editable == null
+              ? 0
+              : (editable
+                            .getPositionForPoint(
+                              Offset(
+                                editable.localToGlobal(Offset.zero).dx,
+                                top,
+                              ),
+                            )
+                            .offset -
+                        2)
+                    .clamp(0, block.content.paragraphs[i].text.length);
           keys = block.keys;
           loadedParagraphs = block.content.paragraphs;
           return;
@@ -354,7 +378,13 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   }
 
   void _restoreAppendedScrollAnchor() {
-    final box = pendingScrollRestore?.currentContext?.findRenderObject();
+    final anchor = pendingScrollRestore;
+    if (anchor != null) _restoreScrollAnchor(anchor);
+  }
+
+  void _restoreScrollAnchor(({GlobalKey key, int offset}) anchor) {
+    final ctx = anchor.key.currentContext;
+    final box = ctx?.findRenderObject();
     final view = viewport.currentContext?.findRenderObject();
     if (box is! RenderBox ||
         view is! RenderBox ||
@@ -363,14 +393,29 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
         !scroll.hasClients) {
       return;
     }
-    final target =
+    var target =
         scroll.offset +
         box.localToGlobal(Offset.zero).dy -
         view.localToGlobal(Offset.zero).dy;
-    if (target <= scroll.position.maxScrollExtent + .5 ||
-        scrollChapters.last.index + 1 == widget.book.chapters.length) {
-      pendingScrollRestore = null;
+    if (anchor.offset > 0 && ctx != null) {
+      final editable = _paragraphText(ctx);
+      if (editable != null) {
+        final caret = editable.getLocalRectForCaret(
+          TextPosition(offset: anchor.offset + 2),
+        );
+        target =
+            scroll.offset +
+            editable.localToGlobal(caret.topLeft).dy -
+            view.localToGlobal(Offset.zero).dy;
+      }
     }
+    // Keep the character anchor while the current chapter's scroll extent
+    // cannot align it. Appending the next chapter will retry this same target.
+    pendingScrollRestore =
+        target > scroll.position.maxScrollExtent + .5 &&
+            scrollChapters.last.index + 1 < widget.book.chapters.length
+        ? anchor
+        : null;
     scroll.jumpTo(
       target.clamp(
         scroll.position.minScrollExtent,
@@ -1207,42 +1252,62 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   Widget _bottomBar(BuildContext context) => SafeArea(
     top: false,
-    child: Align(
-      heightFactor: 1,
-      child: ConstrainedBox(
-        constraints: BoxConstraints(
-          maxWidth: ReadingLayout.canvasWidth(
-            MediaQuery.sizeOf(context).width,
-            paged: library.readingMode == ReadingMode.paged,
-          ),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: Row(
-            children: [
-              TextButton.icon(
-                onPressed: chapter > 0 ? () => _go(chapter - 1) : null,
-                icon: const Icon(Icons.chevron_left),
-                label: const Text('上一章'),
-              ),
-              Expanded(
-                child: BookPageProgress(
-                  library: library,
-                  book: widget.book,
-                  position: pagePosition,
-                  contents: knownContents,
+    child: SizedBox(
+      key: const ValueKey('reader-bottom-toolbar'),
+      height: kToolbarHeight,
+      width: double.infinity,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final compact =
+              constraints.maxWidth < 360 ||
+              MediaQuery.textScalerOf(context).scale(14) > 20;
+          Widget chapterButton({required bool previous}) {
+            final enabled = previous
+                ? chapter > 0
+                : chapter + 1 < widget.book.chapters.length;
+            final action = enabled
+                ? () => _go(chapter + (previous ? -1 : 1))
+                : null;
+            final icon = Icon(
+              previous ? Icons.chevron_left : Icons.chevron_right,
+            );
+            final label = previous ? '上一章' : '下一章';
+            return compact
+                ? IconButton(tooltip: label, onPressed: action, icon: icon)
+                : TextButton.icon(
+                    onPressed: action,
+                    icon: icon,
+                    label: Text(label),
+                  );
+          }
+
+          return Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            child: Row(
+              children: [
+                chapterButton(previous: true),
+                Expanded(
+                  child: Overlay.wrap(
+                    alwaysSizeToContent: true,
+                    clipBehavior: Clip.none,
+                    child: BookPageProgress(
+                      library: library,
+                      book: widget.book,
+                      position: pagePosition,
+                      contents: knownContents,
+                      onSeek: (chapter, paragraph, offset) => _go(
+                        chapter,
+                        initialParagraph: paragraph,
+                        initialOffset: offset,
+                      ),
+                    ),
+                  ),
                 ),
-              ),
-              TextButton.icon(
-                onPressed: chapter + 1 < widget.book.chapters.length
-                    ? () => _go(chapter + 1)
-                    : null,
-                icon: const Icon(Icons.chevron_right),
-                label: const Text('下一章'),
-              ),
-            ],
-          ),
-        ),
+                chapterButton(previous: false),
+              ],
+            ),
+          );
+        },
       ),
     ),
   );

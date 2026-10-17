@@ -186,7 +186,7 @@ class _FanqieAccountPageState extends State<FanqieAccountPage> {
               AccountLoginMethodList(
                 onSms: busy ? null : () => _openMethod(AccountLoginMethod.sms),
                 onVpn: !SessionHelper.supported || busy ? null : _appLogin,
-                onImport: SessionHelper.supported || busy
+                onImport: busy
                     ? null
                     : () => _openMethod(AccountLoginMethod.manual),
               ),
@@ -248,30 +248,24 @@ class _FanqieAccountPageState extends State<FanqieAccountPage> {
               ),
               const SizedBox(height: 12),
             ],
-            if (widget.method != null) ...[
+            if (widget.method == AccountLoginMethod.manual) ...[
               const Text('会话验证成功后保存在本机安全存储中。'),
               const SizedBox(height: 20),
-              ExpansionTile(
-                title: const Text('手动导入会话'),
-                initiallyExpanded: widget.method == AccountLoginMethod.manual,
-                children: [
-                  TextField(
-                    controller: cookie,
-                    enabled: !busy,
-                    obscureText: true,
-                    autocorrect: false,
-                    enableSuggestions: false,
-                    decoration: const InputDecoration(
-                      labelText: '番茄 App Cookie（包含 sessionid）',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  FilledButton(
-                    onPressed: busy ? null : _import,
-                    child: const Text('验证并保存会话'),
-                  ),
-                ],
+              TextField(
+                controller: cookie,
+                enabled: !busy,
+                obscureText: true,
+                autocorrect: false,
+                enableSuggestions: false,
+                decoration: const InputDecoration(
+                  labelText: '番茄 App Cookie（包含 sessionid）',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              FilledButton(
+                onPressed: busy ? null : _import,
+                child: const Text('验证并保存会话'),
               ),
             ],
             if (busy) const LinearProgressIndicator(),

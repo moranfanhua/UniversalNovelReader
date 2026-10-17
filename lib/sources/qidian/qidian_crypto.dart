@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
@@ -18,6 +19,37 @@ class QidianCrypto {
   static const _sdkKey = 'sewxf03hhz3ew9qcCXMHiDMk';
   // MD5 of the official package signing certificate's DER hex representation.
   static const _packageSignature = 'f189adc92b816b3e9da29ea304d4a7e4';
+
+  /// YWLogin SDK k.a: RSA/ECB/PKCS1Padding with the App's public key.
+  static String encryptPassword(String password) {
+    final bytes = Uint8List.fromList(utf8.encode(password));
+    if (bytes.isEmpty || bytes.length > 117) {
+      throw const SourceException('请输入有效的起点密码（最多 117 字节）');
+    }
+    final key = RSAPublicKey(
+      BigInt.parse(
+        'be71afad596e36ad0ca30b8af889e7c68febcda5959ee1faf197fbb50816318c2'
+        'c0c4f513ebfa3f110f7f408ac9aee8ed27c070db0a86237a6084583179c4bef4'
+        '6c65196bbc0d1489c5993022c100c23a4e70b3daf94a7e3a253919a9d75da3e2'
+        '23821fa4bebff528986b8cbf25b52ae38cd2db69103916fcd88a3647b4ac941',
+        radix: 16,
+      ),
+      BigInt.from(65537),
+    );
+    final rng = Random.secure();
+    final random = FortunaRandom()
+      ..seed(
+        KeyParameter(
+          Uint8List.fromList(List.generate(32, (_) => rng.nextInt(256))),
+        ),
+      );
+    final cipher = PKCS1Encoding(RSAEngine())
+      ..init(
+        true,
+        ParametersWithRandom(PublicKeyParameter<RSAPublicKey>(key), random),
+      );
+    return base64Encode(cipher.process(bytes));
+  }
 
   static Uint8List des(
     List<int> input,

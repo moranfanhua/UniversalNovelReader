@@ -12,6 +12,7 @@ import 'package:unr/sources/qidian/qidian_auth.dart';
 import 'package:unr/sources/qidian/qidian_captcha.dart';
 import 'package:unr/sources/qidian/qidian_session.dart';
 import 'package:unr/ui/qidian_account.dart';
+import 'package:unr/ui/account_login_method.dart';
 
 http.Response sdk(Map<String, Object> data) =>
     http.Response(jsonEncode({'code': 0, 'data': data}), 200);
@@ -35,6 +36,84 @@ QidianCredentials saved() => QidianCredentials(
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(() => FlutterSecureStorage.setMockInitialValues({}));
+
+  test('账密登录使用官方 SDK RSA 请求，验证阅读器账号后才返回新会话', () async {
+    var calls = 0;
+    final api = QidianApi(
+      client: MockClient((request) async {
+        calls++;
+        expect(request.body, isNot(contains('synthetic-password')));
+        if (request.url.path == '/sdk/staticlogin') {
+          expect(request.url.host, 'ptlogin.yuewen.com');
+          expect(request.bodyFields['username'], '测试账号');
+          expect(base64Decode(request.bodyFields['password']!), hasLength(128));
+          return sdk({'ywGuid': '30', 'ywKey': 'new-key', 'nextAction': 0});
+        }
+        expect(request.url.path, '/argus/api/v2/user/login');
+        expect(request.bodyFields['ywguid'], '30');
+        expect(request.headers['Cookie'], isNull);
+        return login(id: 40);
+      }),
+    )..credentials = saved();
+    addTearDown(api.close);
+    final auth = QidianAuth(api);
+    final session = await auth.loginPassword(' 测试账号 ', 'synthetic-password');
+    expect(session.userId, '40');
+    expect(api.credentials!.userId, '10');
+    expect(calls, 2);
+  });
+
+  test('会话导入校验官方 App 账号，失败、取消或无效输入保留原会话', () async {
+    final pending = Completer<http.Response>();
+    var calls = 0;
+    final api = QidianApi(
+      client: MockClient((request) async {
+        calls++;
+        expect(request.url.path, '/argus/api/v2/user/login');
+        expect(request.bodyFields['ywguid'], '30');
+        return pending.future;
+      }),
+    )..credentials = saved();
+    addTearDown(api.close);
+    final auth = QidianAuth(api);
+    for (final input in [
+      'invalid',
+      '{}',
+      '{"ywGuid":"30","ywKey":"bad;key"}',
+    ]) {
+      await expectLater(
+        auth.importSession(input),
+        throwsA(isA<SourceException>()),
+      );
+    }
+    expect(calls, 0);
+    final result = auth.importSession(
+      '{"data":{"ywGuid":"30","ywKey":"new-key"}}',
+    );
+    await Future<void>.delayed(Duration.zero);
+    auth.clear();
+    pending.complete(login(id: 40));
+    await expectLater(result, throwsA(isA<SourceException>()));
+    expect(api.credentials!.userId, '10');
+    expect(calls, 1);
+  });
+
+  test('账密请求遇到额外安全验证时保留原会话且不重复请求', () async {
+    var calls = 0;
+    final api = QidianApi(
+      client: MockClient((_) async {
+        calls++;
+        return sdk({'nextAction': 11, 'sessionKey': 'synthetic'});
+      }),
+    )..credentials = saved();
+    addTearDown(api.close);
+    await expectLater(
+      QidianAuth(api).loginPassword('account', 'synthetic'),
+      throwsA(isA<SourceException>()),
+    );
+    expect(calls, 1);
+    expect(api.credentials!.userId, '10');
+  });
 
   test('短信发送、验证码登录、App 会话交换依次执行且不提前替换旧会话', () async {
     var calls = 0;
@@ -444,7 +523,7 @@ void main() {
             ).copyWith(textScaler: const TextScaler.linear(2)),
             child: child!,
           ),
-          home: QidianAccountPage(api: api),
+          home: QidianAccountPage(api: api, method: AccountLoginMethod.sms),
         ),
       );
       expect(find.text('获取验证码'), findsOneWidget);
@@ -473,7 +552,11 @@ void main() {
     addTearDown(api.close);
     await tester.pumpWidget(
       MaterialApp(
-        home: QidianAccountPage(api: api, captchaSolver: (_) => pending.future),
+        home: QidianAccountPage(
+          api: api,
+          method: AccountLoginMethod.sms,
+          captchaSolver: (_) => pending.future,
+        ),
       ),
     );
     await tester.enterText(find.byType(TextField).first, '13800000000');
@@ -506,7 +589,11 @@ void main() {
     addTearDown(api.close);
     await tester.pumpWidget(
       MaterialApp(
-        home: QidianAccountPage(api: api, captchaSolver: (_) => pending.future),
+        home: QidianAccountPage(
+          api: api,
+          method: AccountLoginMethod.sms,
+          captchaSolver: (_) => pending.future,
+        ),
       ),
     );
     await tester.enterText(find.byType(TextField).first, '13800000000');
@@ -540,7 +627,11 @@ void main() {
     api.onSessionChanged = () async {
       saves++;
     };
-    await tester.pumpWidget(MaterialApp(home: QidianAccountPage(api: api)));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: QidianAccountPage(api: api, method: AccountLoginMethod.sms),
+      ),
+    );
     await tester.enterText(find.byType(TextField).first, '13800000000');
     await tester.tap(find.text('获取验证码'));
     await tester.pump();

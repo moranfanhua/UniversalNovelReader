@@ -640,7 +640,7 @@ class _HomePageState extends State<HomePage> {
     appBar: AppBar(
       toolbarHeight: 48,
       titleTextStyle: Theme.of(context).textTheme.titleMedium,
-      title: Text(['我的书库', '搜索', '我的'][tab]),
+      title: tab == 1 ? null : Text(tab == 0 ? '我的书库' : '我的'),
       actions: [
         IconButton(
           tooltip: '开源许可',
@@ -781,14 +781,7 @@ class _HomePageState extends State<HomePage> {
                           enabled: !busy,
                           onSubmitted: busy ? null : (_) => _search(),
                           decoration: InputDecoration(
-                            hintText: '搜索书名或作者，也可粘贴作品 ID、链接',
-                            helperText:
-                                library.searchSources.any(
-                                  (s) => s.id == 'ciweimao',
-                                )
-                                ? '刺猬猫支持作品链接，也可输入 ciweimao:作品ID'
-                                : null,
-                            helperMaxLines: 3,
+                            hintText: '搜索书名或作者',
                             prefixIcon: const Icon(Icons.search),
                             suffixIcon: IconButton(
                               tooltip: '搜索或添加作品',
