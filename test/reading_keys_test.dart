@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:unr/data/library.dart';
 import 'package:unr/domain/models.dart';
+import 'package:unr/domain/reading_preferences.dart';
 import 'package:unr/sources/sfacg/sfacg_api.dart';
 import 'package:unr/sources/sfacg/sfacg_source.dart';
 import 'package:unr/ui/reader.dart';
@@ -69,31 +70,35 @@ void main() {
     await settle(tester);
   }
 
-  testWidgets('音量键逐页前后移动，并从下一章返回上一章末页', (tester) async {
-    final library = TransitionLibrary()..readingMode = ReadingMode.paged;
-    await open(tester, library);
-    expect(enabledCalls.last, isTrue);
-    expect(readingPager(tester).page, 0);
-    await volume(tester, 1);
-    expect(readingPager(tester).page, 1);
-    await volume(tester, -1);
-    expect(readingPager(tester).page, 0);
-    await showReadingControls(tester);
-    await tester.tap(find.text('下一章'));
-    await settle(tester);
-    await volume(tester, -1);
-    expect(readingChapter(tester), 0);
-    expect(find.textContaining('上一章结尾标记').hitTestable(), findsOneWidget);
-    await volume(tester, 1);
-    expect(readingChapter(tester), 1);
-    await volume(tester, 1);
-    expect(readingChapter(tester), 2);
-    await volume(tester, 1);
-    expect(readingChapter(tester), 2);
-    await tester.pumpWidget(const SizedBox.shrink());
-    expect(enabledCalls.last, isFalse);
-    expect(tester.takeException(), isNull);
-  });
+  for (final animation in PageTurnAnimation.values) {
+    testWidgets('音量键逐页前后移动，并从下一章返回上一章末页（${animation.name}）', (tester) async {
+      final library = TransitionLibrary()
+        ..readingMode = ReadingMode.paged
+        ..pageTurnAnimation = animation;
+      await open(tester, library);
+      expect(enabledCalls.last, isTrue);
+      expect(readingPager(tester).page, 0);
+      await volume(tester, 1);
+      expect(readingPager(tester).page, 1);
+      await volume(tester, -1);
+      expect(readingPager(tester).page, 0);
+      await showReadingControls(tester);
+      await tester.tap(find.text('下一章'));
+      await settle(tester);
+      await volume(tester, -1);
+      expect(readingChapter(tester), 0);
+      expect(find.textContaining('上一章结尾标记').hitTestable(), findsOneWidget);
+      await volume(tester, 1);
+      expect(readingChapter(tester), 1);
+      await volume(tester, 1);
+      expect(readingChapter(tester), 2);
+      await volume(tester, 1);
+      expect(readingChapter(tester), 2);
+      await tester.pumpWidget(const SizedBox.shrink());
+      expect(enabledCalls.last, isFalse);
+      expect(tester.takeException(), isNull);
+    });
+  }
 
   testWidgets('滚动阅读音量键按一屏移动，到边界才切章', (tester) async {
     final library = TransitionLibrary();
@@ -123,56 +128,52 @@ void main() {
   });
 
   for (final mode in ReadingMode.values) {
-    testWidgets(
-      '四个方向键操控阅读，跨章保持正确位置（${mode.name}）',
-      (tester) async {
-        final library = TransitionLibrary()..readingMode = mode;
-        if (mode == ReadingMode.scroll) {
-          for (final id in ['2', '3']) {
-            library.contents[id] = ChapterContent([
-              Paragraph(id == '2' ? '第二章正文' : '第三章正文'),
-              for (var i = 0; i < 40; i++) Paragraph('章节$id段落$i'),
-            ]);
-          }
+    testWidgets('四个方向键操控阅读，跨章保持正确位置（${mode.name}）', (tester) async {
+      final library = TransitionLibrary()..readingMode = mode;
+      if (mode == ReadingMode.scroll) {
+        for (final id in ['2', '3']) {
+          library.contents[id] = ChapterContent([
+            Paragraph(id == '2' ? '第二章正文' : '第三章正文'),
+            for (var i = 0; i < 40; i++) Paragraph('章节$id段落$i'),
+          ]);
         }
-        await open(tester, library, chapter: 1);
-        if (mode == ReadingMode.scroll) {
-          final view = tester.widget<SingleChildScrollView>(
-            find.byType(SingleChildScrollView),
-          );
-          view.controller!.jumpTo(0);
-          await settle(tester);
-        }
-        expect(enabledCalls.where((enabled) => enabled), isEmpty);
-        for (final key in [
-          LogicalKeyboardKey.arrowLeft,
-          LogicalKeyboardKey.arrowUp,
-        ]) {
-          await tester.sendKeyEvent(key);
-          await settle(tester);
-          expect(readingChapter(tester), 0);
-          expect(find.textContaining('上一章结尾标记').hitTestable(), findsOneWidget);
-          await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
-          await settle(tester);
-          expect(readingChapter(tester), 1);
-        }
-        if (mode == ReadingMode.scroll) {
-          final view = tester.widget<SingleChildScrollView>(
-            find.byType(SingleChildScrollView),
-          );
-          view.controller!.jumpTo(view.controller!.position.maxScrollExtent);
-        } else {
-          await tester.tap(find.text('　　第二章正文'));
-        }
+      }
+      await open(tester, library, chapter: 1);
+      if (mode == ReadingMode.scroll) {
+        final view = tester.widget<SingleChildScrollView>(
+          find.byType(SingleChildScrollView),
+        );
+        view.controller!.jumpTo(0);
         await settle(tester);
-        await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      }
+      expect(enabledCalls.where((enabled) => enabled), isEmpty);
+      for (final key in [
+        LogicalKeyboardKey.arrowLeft,
+        LogicalKeyboardKey.arrowUp,
+      ]) {
+        await tester.sendKeyEvent(key);
         await settle(tester);
-        expect(readingChapter(tester), 2);
-        await tester.pumpWidget(const SizedBox.shrink());
-        expect(tester.takeException(), isNull);
-      },
-      variant: TargetPlatformVariant.only(TargetPlatform.windows),
-    );
+        expect(readingChapter(tester), 0);
+        expect(find.textContaining('上一章结尾标记').hitTestable(), findsOneWidget);
+        await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+        await settle(tester);
+        expect(readingChapter(tester), 1);
+      }
+      if (mode == ReadingMode.scroll) {
+        final view = tester.widget<SingleChildScrollView>(
+          find.byType(SingleChildScrollView),
+        );
+        view.controller!.jumpTo(view.controller!.position.maxScrollExtent);
+      } else {
+        await tester.tap(find.text('　　第二章正文'));
+      }
+      await settle(tester);
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+      await settle(tester);
+      expect(readingChapter(tester), 2);
+      await tester.pumpWidget(const SizedBox.shrink());
+      expect(tester.takeException(), isNull);
+    }, variant: TargetPlatformVariant.only(TargetPlatform.windows));
   }
 
   testWidgets('目录、设置和后台暂停音量键，返回阅读后恢复', (tester) async {

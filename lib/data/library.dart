@@ -152,6 +152,7 @@ class Library extends ChangeNotifier {
   double fontSize = 20;
   AppThemeMode themeMode = AppThemeMode.system;
   ReadingMode readingMode = ReadingMode.scroll;
+  PageTurnAnimation pageTurnAnimation = PageTurnAnimation.slide;
   bool volumeKeyPaging = true;
   bool showParagraphComments = true;
   ParagraphCommentPlacement paragraphCommentPlacement =
@@ -268,6 +269,10 @@ class Library extends ChangeNotifier {
       library.readingMode = data['readingMode'] == 'paged'
           ? ReadingMode.paged
           : ReadingMode.scroll;
+      library.pageTurnAnimation = PageTurnAnimation.values.firstWhere(
+        (animation) => animation.name == data['pageTurnAnimation'],
+        orElse: () => PageTurnAnimation.slide,
+      );
       library.pageOffsets.addAll(
         (data['pageOffsets'] as Map? ?? {}).map(
           (key, value) => MapEntry('$key', (value as num).toInt()),
@@ -361,6 +366,7 @@ class Library extends ChangeNotifier {
       // Keep the explicit dark preference readable by older app versions.
       'night': themeMode == AppThemeMode.dark,
       'readingMode': readingMode.name,
+      'pageTurnAnimation': pageTurnAnimation.name,
       'volumeKeyPaging': volumeKeyPaging,
       'showParagraphComments': showParagraphComments,
       'paragraphCommentPlacement': paragraphCommentPlacement.name,
@@ -444,6 +450,7 @@ class Library extends ChangeNotifier {
     verticalMargin = 24;
     lineHeight = 1.9;
     readingMode = ReadingMode.scroll;
+    pageTurnAnimation = PageTurnAnimation.slide;
     volumeKeyPaging = true;
     showParagraphComments = true;
     paragraphCommentPlacement = ParagraphCommentPlacement.right;

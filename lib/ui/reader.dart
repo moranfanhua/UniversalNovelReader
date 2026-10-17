@@ -1161,6 +1161,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
           lineHeight: library.lineHeight,
           initialParagraph: paragraph,
           initialOffset: characterOffset,
+          pageTurnAnimation: library.pageTurnAnimation,
           comments: comments != null,
           commentPlacement: library.paragraphCommentPlacement,
           startAtEnd: pagedStartAtEnd,
