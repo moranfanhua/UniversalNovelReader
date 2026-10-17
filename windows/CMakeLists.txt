@@ -57,6 +57,11 @@ add_subdirectory("runner")
 # them to the application.
 include(flutter/generated_plugins.cmake)
 
+# The plugin's pinned WIL headers include experimental coroutines on MSVC.
+# Allow those legacy headers on current toolchains without relaxing our code.
+target_compile_definitions(flutter_inappwebview_windows_plugin PRIVATE
+  _SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS)
+
 
 # === Installation ===
 # Support files are copied into place next to the executable, so that it can
