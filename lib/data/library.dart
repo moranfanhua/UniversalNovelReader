@@ -167,6 +167,7 @@ class Library extends ChangeNotifier {
       ParagraphCommentPlacement.right;
   final Map<String, int> pageOffsets = {};
   // Entry alignment and preceding spread origin, indexed by book and chapter.
+  // Values: [skipFirstPage, precedingChapterIndex, precedingSkipFirstPage].
   final Map<String, List<int>> pagedChapterEntries = {};
   String readingFontId = '';
   String? readingFontFamily, fontNotice;
@@ -548,7 +549,33 @@ class Library extends ChangeNotifier {
           continue;
         }
         final next = indices[previous.chapters[index].id];
-        if (next != null) nextEntries['${book.key}:$next'] = entry.value;
+        if (next == null) continue;
+        var migrated = List<int>.of(entry.value);
+        if (migrated.length >= 3) {
+          final origin = migrated[1];
+          final nextOrigin = origin >= 0 && origin < index
+              ? indices[previous.chapters[origin].id]
+              : null;
+          var sameSpan = false;
+          if (nextOrigin != null && next - nextOrigin == index - origin) {
+            sameSpan = true;
+            for (var offset = 0; offset <= index - origin; offset++) {
+              if (previous.chapters[origin + offset].id !=
+                  book.chapters[nextOrigin + offset].id) {
+                sameSpan = false;
+                break;
+              }
+            }
+          }
+          if (sameSpan) {
+            migrated[1] = nextOrigin!;
+          } else {
+            // The old spread may have shown a page from a removed or moved
+            // chapter. Reset its alignment and use the new directory order.
+            migrated = [0];
+          }
+        }
+        nextEntries['${book.key}:$next'] = migrated;
       }
     }
     if (nextProgress != null) progress[book.key] = nextProgress;

@@ -113,7 +113,7 @@ void main() {
     );
     library.progress[original.key] = [0, 7];
     library.pageOffsets[original.key] = 12;
-    library.pagedChapterEntries['${original.key}:0'] = [1, 3, 9];
+    library.pagedChapterEntries['${original.key}:0'] = [0];
     await library.setBookPinned(original, true);
     const content = ChapterContent([Paragraph('原正文')]);
     await library.store(original, original.chapters.first, content);
@@ -136,7 +136,7 @@ void main() {
     expect(library.recentBooks.single.title, '更新后的书名');
     expect(library.progress[original.key], [1, 7]);
     expect(library.pageOffsets[original.key], 12);
-    expect(library.pagedChapterEntries['${original.key}:1'], [1, 3, 9]);
+    expect(library.pagedChapterEntries['${original.key}:1'], [0]);
     expect(
       library.pagedChapterEntries.containsKey('${original.key}:0'),
       isFalse,
