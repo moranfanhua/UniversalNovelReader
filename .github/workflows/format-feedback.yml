@@ -1,0 +1,57 @@
+name: Formatting Feedback
+
+on:
+  workflow_run:
+    workflows: [Formatting]
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: write
+
+concurrency:
+  group: format-feedback-${{ github.event.workflow_run.head_repository.id }}-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+
+jobs:
+  comment:
+    if: github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion != 'cancelled'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      # 仅执行默认分支中的评论脚本；报告来自 PR，始终只作为数据读取。
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Find formatting report
+        id: report
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts, {
+              ...context.repo,
+              run_id: context.payload.workflow_run.id,
+              per_page: 100,
+            });
+            const report = artifacts.find(item => item.name === 'formatting-report' && !item.expired);
+            if (report && report.size_in_bytes > 1024 * 1024) throw new Error('格式报告过大');
+            core.setOutput('available', Boolean(report));
+            if (!report) core.notice('没有格式检查报告，跳过 PR 评论；请查看上游任务日志。');
+      - name: Download formatting report
+        if: steps.report.outputs.available == 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: formatting-report
+          path: ${{ runner.temp }}/formatting-report
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+      - name: Create or update formatting feedback
+        if: steps.report.outputs.available == 'true'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          FORMAT_REPORT_PATH: ${{ runner.temp }}/formatting-report/format-report.json
+        with:
+          script: |
+            const {publishFormatComment} = require('./.github/scripts/format_comment.cjs');
+            await publishFormatComment({github, context, core, reportPath: process.env.FORMAT_REPORT_PATH});

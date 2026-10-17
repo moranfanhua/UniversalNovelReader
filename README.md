@@ -88,7 +88,7 @@ UniversalNovelReader是一个非官方第三方阅读工具，与任何小说平
 - [dbus](https://pub.dev/packages/dbus) — MPL-2.0
 - [sky_engine](https://github.com/flutter/flutter) — 第三方组件分别授权，见声明
 - [actions/checkout](https://github.com/actions/checkout)、[actions/setup-java](https://github.com/actions/setup-java)、[actions/upload-artifact](https://github.com/actions/upload-artifact)、[actions/download-artifact](https://github.com/actions/download-artifact)、[subosito/flutter-action](https://github.com/subosito/flutter-action) — MIT；构建与发布 CI 使用的工具。
-- [actions/github-script](https://github.com/actions/github-script) — MIT；分支来源校验使用的工具。
+- [actions/github-script](https://github.com/actions/github-script) — MIT；分支校验与 PR 检查反馈使用的工具。
 - [peter-evans/create-pull-request](https://github.com/peter-evans/create-pull-request) — MIT；自动格式化变更的 PR 创建与更新工具。
 - [SFacgExporter](https://github.com/moranfanhua/SFacgExporter) — AGPL-3.0；菠萝包签名、正文字符表与导出逻辑参考来源，原作者 moranfanhua。
 - [fanqienovel-downloader](https://github.com/ying-ck/fanqienovel-downloader) — AGPL-3.0；番茄官网正文字体字符表参考来源，原作者 ying-ck（qxqycb）。

@@ -25,14 +25,28 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
           fetch-depth: 0
       - uses: ./.github/actions/setup-flutter
       - name: Check changed files or all tracked files for manual runs
+        id: format
         env:
           PYTHONUTF8: '1'
           FORMAT_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: python .github/scripts/check_format.py
+          FORMAT_PR_NUMBER: ${{ github.event.pull_request.number || 0 }}
+          FORMAT_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: python .github/scripts/check_format.py --report .local/ci/format-report.json
+      - name: Upload formatting diagnostics for PR feedback
+        if: ${{ !cancelled() && github.event_name == 'pull_request' && steps.format.outcome != 'skipped' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: formatting-report
+          path: .local/ci/format-report.json
+          include-hidden-files: true
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 3
 
   autoformat:
     name: Format and open a pull request to dev
