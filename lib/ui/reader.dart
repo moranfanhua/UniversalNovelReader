@@ -72,7 +72,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       scrollNextScheduled = false,
       scrollFrameScheduled = false;
   Object? scrollNextError;
-  GlobalKey? pendingScrollRestore;
+  ({GlobalKey key, int offset})? pendingScrollRestore;
   String _entryKey(int chapter) => '${widget.book.key}:$chapter';
   Library get library => widget.library;
   CommentSource? get comments =>
@@ -161,42 +161,12 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       } else if (keys.isNotEmpty) {
         final index = restoreParagraph.clamp(0, keys.length - 1);
         final ctx = keys[index].currentContext;
-        final box = ctx?.findRenderObject();
-        final view = viewport.currentContext?.findRenderObject();
-        if (restoreParagraph > 0 &&
-            library.readingMode == ReadingMode.scroll &&
-            chapter + 1 < widget.book.chapters.length &&
-            scroll.hasClients &&
-            box is RenderBox &&
-            view is RenderBox &&
-            box.hasSize &&
-            view.hasSize &&
-            scroll.offset +
-                    box.localToGlobal(Offset.zero).dy -
-                    view.localToGlobal(Offset.zero).dy >
-                scroll.position.maxScrollExtent + .5) {
-          pendingScrollRestore = keys[index];
-        }
+        final anchor = (key: keys[index], offset: characterOffset);
         if (ctx != null) {
           await Scrollable.ensureVisible(ctx, alignment: 0);
           if (!mounted || !ctx.mounted || generation != loadGeneration) return;
-          final editable = _paragraphText(ctx);
-          if (characterOffset > 0 &&
-              editable != null &&
-              view is RenderBox &&
-              scroll.hasClients) {
-            final caret = editable.getLocalRectForCaret(
-              TextPosition(offset: characterOffset + 2),
-            );
-            final delta =
-                editable.localToGlobal(caret.topLeft).dy -
-                view.localToGlobal(Offset.zero).dy;
-            scroll.jumpTo(
-              (scroll.offset + delta).clamp(
-                0.0,
-                scroll.position.maxScrollExtent,
-              ),
-            );
+          if (library.readingMode == ReadingMode.scroll) {
+            _restoreScrollAnchor(anchor);
           }
         }
       }
@@ -408,7 +378,13 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   }
 
   void _restoreAppendedScrollAnchor() {
-    final box = pendingScrollRestore?.currentContext?.findRenderObject();
+    final anchor = pendingScrollRestore;
+    if (anchor != null) _restoreScrollAnchor(anchor);
+  }
+
+  void _restoreScrollAnchor(({GlobalKey key, int offset}) anchor) {
+    final ctx = anchor.key.currentContext;
+    final box = ctx?.findRenderObject();
     final view = viewport.currentContext?.findRenderObject();
     if (box is! RenderBox ||
         view is! RenderBox ||
@@ -417,14 +393,29 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
         !scroll.hasClients) {
       return;
     }
-    final target =
+    var target =
         scroll.offset +
         box.localToGlobal(Offset.zero).dy -
         view.localToGlobal(Offset.zero).dy;
-    if (target <= scroll.position.maxScrollExtent + .5 ||
-        scrollChapters.last.index + 1 == widget.book.chapters.length) {
-      pendingScrollRestore = null;
+    if (anchor.offset > 0 && ctx != null) {
+      final editable = _paragraphText(ctx);
+      if (editable != null) {
+        final caret = editable.getLocalRectForCaret(
+          TextPosition(offset: anchor.offset + 2),
+        );
+        target =
+            scroll.offset +
+            editable.localToGlobal(caret.topLeft).dy -
+            view.localToGlobal(Offset.zero).dy;
+      }
     }
+    // Keep the character anchor while the current chapter's scroll extent
+    // cannot align it. Appending the next chapter will retry this same target.
+    pendingScrollRestore =
+        target > scroll.position.maxScrollExtent + .5 &&
+            scrollChapters.last.index + 1 < widget.book.chapters.length
+        ? anchor
+        : null;
     scroll.jumpTo(
       target.clamp(
         scroll.position.minScrollExtent,

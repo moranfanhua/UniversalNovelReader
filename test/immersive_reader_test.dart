@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -8,6 +9,7 @@ import 'package:unr/domain/models.dart';
 import 'package:unr/sources/sfacg/sfacg_api.dart';
 import 'package:unr/sources/sfacg/sfacg_source.dart';
 import 'package:unr/ui/reader.dart';
+import 'package:unr/ui/chapter_page_layout.dart';
 import 'package:unr/ui/reading_tap_zones.dart';
 import 'helpers/reading_taps.dart';
 
@@ -34,6 +36,19 @@ class ImmersiveLibrary extends Library {
   @override
   Future<void> remember(Book book, int chapter, int paragraph) async {
     progress[book.key] = [chapter, paragraph];
+  }
+}
+
+class DelayedScrollLibrary extends ImmersiveLibrary {
+  final nextChapter = Completer<ChapterContent>();
+
+  @override
+  Future<ChapterContent> read(Book book, Chapter chapter) async {
+    if (chapter.id == '2') {
+      reads.add(chapter.id);
+      return nextChapter.future;
+    }
+    return super.read(book, chapter);
   }
 }
 
@@ -85,54 +100,64 @@ void main() {
   }
 
   for (final mode in ReadingMode.values) {
-    testWidgets('默认隐藏菜单，手机点击中央切换且正文不移动（${mode.name}）', (tester) async {
-      final library = ImmersiveLibrary()..readingMode = mode;
-      await open(tester, library);
-      expect(find.byType(AppBar), findsNothing);
-      expect(find.text('下一章'), findsNothing);
-      final area = tester.getRect(find.byType(ReadingTapZones));
-      final page = mode == ReadingMode.paged ? readingPager(tester).page : null;
-      final reader = tester.state(find.byType(ReaderPage)) as dynamic;
-      final position = (
-        reader.chapter,
-        reader.paragraph,
-        reader.characterOffset,
-      );
-      await center(tester);
-      expect(find.byType(AppBar), findsOneWidget);
-      expect(find.text('下一章'), findsOneWidget);
-      expect(tester.getRect(find.byType(ReadingTapZones)), area);
-      if (page != null) expect(readingPager(tester).page, page);
-      expect((
-        reader.chapter,
-        reader.paragraph,
-        reader.characterOffset,
-      ), position);
-      expect(find.textContaining(RegExp(r'^第 .* 页')), findsNothing);
-      expect(find.text('1 / 3'), findsNothing);
-      await center(tester);
-      expect(find.byType(AppBar), findsNothing);
-      expect(find.text('下一章'), findsNothing);
-      await tester.pumpWidget(const SizedBox.shrink());
-      expect(tester.takeException(), isNull);
-    }, variant: TargetPlatformVariant.only(TargetPlatform.android));
+    testWidgets(
+      '默认隐藏菜单，手机点击中央切换且正文不移动（${mode.name}）',
+      (tester) async {
+        final library = ImmersiveLibrary()..readingMode = mode;
+        await open(tester, library);
+        expect(find.byType(AppBar), findsNothing);
+        expect(find.text('下一章'), findsNothing);
+        final area = tester.getRect(find.byType(ReadingTapZones));
+        final page = mode == ReadingMode.paged
+            ? readingPager(tester).page
+            : null;
+        final reader = tester.state(find.byType(ReaderPage)) as dynamic;
+        final position = (
+          reader.chapter,
+          reader.paragraph,
+          reader.characterOffset,
+        );
+        await center(tester);
+        expect(find.byType(AppBar), findsOneWidget);
+        expect(find.text('下一章'), findsOneWidget);
+        expect(tester.getRect(find.byType(ReadingTapZones)), area);
+        if (page != null) expect(readingPager(tester).page, page);
+        expect((
+          reader.chapter,
+          reader.paragraph,
+          reader.characterOffset,
+        ), position);
+        expect(find.textContaining(RegExp(r'^第 .* 页')), findsNothing);
+        expect(find.text('1 / 3'), findsNothing);
+        await center(tester);
+        expect(find.byType(AppBar), findsNothing);
+        expect(find.text('下一章'), findsNothing);
+        await tester.pumpWidget(const SizedBox.shrink());
+        expect(tester.takeException(), isNull);
+      },
+      variant: TargetPlatformVariant.only(TargetPlatform.android),
+    );
   }
 
-  testWidgets('桌面 Esc 切换菜单，隐藏时仍可用方向键翻页', (tester) async {
-    final library = ImmersiveLibrary()..readingMode = ReadingMode.paged;
-    await open(tester, library);
-    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
-    await tester.pumpAndSettle();
-    expect(readingPager(tester).page, 1);
-    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
-    await tester.pumpAndSettle();
-    expect(find.byType(AppBar), findsOneWidget);
-    expect(readingPager(tester).page, 1);
-    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
-    await tester.pumpAndSettle();
-    expect(find.byType(AppBar), findsNothing);
-    await tester.pumpWidget(const SizedBox.shrink());
-  }, variant: TargetPlatformVariant.only(TargetPlatform.windows));
+  testWidgets(
+    '桌面 Esc 切换菜单，隐藏时仍可用方向键翻页',
+    (tester) async {
+      final library = ImmersiveLibrary()..readingMode = ReadingMode.paged;
+      await open(tester, library);
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      await tester.pumpAndSettle();
+      expect(readingPager(tester).page, 1);
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(find.byType(AppBar), findsOneWidget);
+      expect(readingPager(tester).page, 1);
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(find.byType(AppBar), findsNothing);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.windows),
+  );
 
   testWidgets('完整缓存按全书累计页码，跨章不重置为一', (tester) async {
     final library = ImmersiveLibrary()..readingMode = ReadingMode.paged;
@@ -212,6 +237,107 @@ void main() {
         await tester.pumpWidget(const SizedBox.shrink());
       });
     }
+  }
+
+  for (final prefix in [false, true]) {
+    for (final shortNext in [false, true]) {
+      testWidgets('滚动滑条跳到非末章长段落的末页（前置段落 $prefix，紧邻短章 $shortNext）', (
+        tester,
+      ) async {
+        final library = ImmersiveLibrary()..readingMode = ReadingMode.scroll;
+        library.contents[shortNext ? '3' : '2'] = library.contents['1']!;
+        if (prefix) {
+          library.contents['1'] = ChapterContent([
+            const Paragraph('前置段落'),
+            ...library.contents['1']!.paragraphs,
+          ]);
+        }
+        await open(tester, library);
+        await showReadingControls(tester);
+        await tester.pumpAndSettle();
+        final sliderFinder = find.byKey(const ValueKey('book-progress-slider'));
+        final slider = tester.widget<Slider>(sliderFinder);
+        final layout =
+            (tester.state(find.byType(ReaderPage)) as dynamic).pageLayout
+                as ChapterPageLayout;
+        final target = layout
+            .paginate(library.contents['1']!, book.chapters.first.title)
+            .length
+            .toDouble();
+        expect(target, greaterThan(1));
+        slider.onChangeStart!(slider.value);
+        slider.onChanged!(target);
+        await tester.pump();
+        tester.widget<Slider>(sliderFinder).onChangeEnd!(target);
+        await tester.pumpAndSettle();
+        expect(library.reads, ['1', '1', '2', if (shortNext) '3']);
+        expect(readingChapter(tester), 0);
+        expect(tester.widget<Slider>(sliderFinder).value, target);
+        await tester.pumpWidget(const SizedBox.shrink());
+        expect(library.pageOffsets[book.key], greaterThan(0));
+        await tester.pumpWidget(
+          MaterialApp(
+            home: ReaderPage(library: library, book: book),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await showReadingControls(tester);
+        await tester.pumpAndSettle();
+        expect(tester.widget<Slider>(sliderFinder).value, target);
+        await tester.pumpWidget(const SizedBox.shrink());
+        expect(tester.takeException(), isNull);
+      });
+    }
+  }
+
+  for (final cancel in [false, true]) {
+    testWidgets('章末字符定位等待下一章，用户滚动可取消（取消 $cancel）', (tester) async {
+      final library = DelayedScrollLibrary()..readingMode = ReadingMode.scroll;
+      library.contents['2'] = library.contents['1']!;
+      await open(tester, library);
+      await showReadingControls(tester);
+      await tester.pumpAndSettle();
+      final layout =
+          (tester.state(find.byType(ReaderPage)) as dynamic).pageLayout
+              as ChapterPageLayout;
+      final target = layout
+          .paginate(library.contents['1']!, book.chapters.first.title)
+          .length
+          .toDouble();
+      final sliderFinder = find.byKey(const ValueKey('book-progress-slider'));
+      final slider = tester.widget<Slider>(sliderFinder);
+      slider.onChangeStart!(slider.value);
+      slider.onChanged!(target);
+      await tester.pump();
+      tester.widget<Slider>(sliderFinder).onChangeEnd!(target);
+      for (var i = 0; i < 6; i++) {
+        await tester.pump(const Duration(milliseconds: 20));
+      }
+      expect(find.byKey(const ValueKey('scroll-next-loading')), findsOneWidget);
+      expect(library.reads, ['1', '1', '2']);
+      final scrollFinder = find.byType(SingleChildScrollView);
+      final scroll = tester
+          .widget<SingleChildScrollView>(scrollFinder)
+          .controller!;
+      if (cancel) {
+        await tester.drag(scrollFinder, const Offset(0, 240));
+        scroll.jumpTo(scroll.offset);
+        await tester.pump();
+      }
+      final beforeAppend = scroll.offset;
+      library.nextChapter.complete(library.contents['2']);
+      await tester.pumpAndSettle();
+      if (cancel) {
+        expect(scroll.offset, closeTo(beforeAppend, .1));
+        expect(tester.widget<Slider>(sliderFinder).value, lessThan(target));
+      } else {
+        expect(tester.widget<Slider>(sliderFinder).value, target);
+        expect(scroll.offset, greaterThan(beforeAppend));
+      }
+      expect(library.reads, ['1', '1', '2']);
+      await tester.pumpWidget(const SizedBox.shrink());
+      expect(tester.takeException(), isNull);
+    });
   }
 
   testWidgets('窄屏两倍文字的底栏保持工具栏高度并显示章节按钮', (tester) async {
