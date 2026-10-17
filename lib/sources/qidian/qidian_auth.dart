@@ -5,15 +5,18 @@ import 'package:http/http.dart' as http;
 import '../../domain/models.dart';
 import '../logged_request.dart';
 import 'qidian_api.dart';
+import 'qidian_captcha.dart';
 import 'qidian_crypto.dart';
 
 /// Official YWLogin SDK PhoneCodeActivity: sendphonecode → phonecodelogin.
 class QidianAuth {
-  QidianAuth(this.api);
+  QidianAuth(this.api, {this.solveCaptcha});
   final QidianApi api;
+  final QidianCaptchaSolver? solveCaptcha;
   String? _phone, _phoneKey;
   DateTime? _expires, _resendAt;
   bool _busy = false;
+  int _generation = 0;
 
   static String mobile(String input) {
     final phone = input.trim().replaceFirst(RegExp(r'^\+86'), '');
@@ -79,30 +82,87 @@ class QidianAuth {
     }
     final data = doc['data'];
     if (data is! Map) throw const SourceException('起点登录服务未返回完整数据');
-    if (int.tryParse('${data['nextAction'] ?? 0}') != 0) {
-      throw const SourceException('起点要求额外安全验证，请先在官方 App 完成验证后重试');
-    }
     return Map<String, dynamic>.from(data);
+  }
+
+  int _nextAction(Map<String, dynamic> data) {
+    final action = int.tryParse('${data['nextAction'] ?? 0}');
+    if (action == null) throw const SourceException('起点返回无法识别的验证步骤');
+    return action;
+  }
+
+  void _requireComplete(Map<String, dynamic> data) {
+    final action = _nextAction(data);
+    if (action != 0) {
+      throw SourceException('起点要求的安全验证暂不支持（验证步骤 $action）');
+    }
+  }
+
+  void _checkActive(int generation) {
+    if (_generation != generation) {
+      throw const SourceException('已取消本次起点登录');
+    }
+  }
+
+  String _sessionKey(Map<String, dynamic> data) {
+    final key = data['sessionKey'];
+    if (key is! String ||
+        key.isEmpty ||
+        key.contains(RegExp(r'[\x00-\x1f\x7f]'))) {
+      throw const SourceException('起点未返回验证码会话，请稍后重试');
+    }
+    return key;
   }
 
   Future<void> sendCode(String input) async {
     final phone = mobile(input);
     if (_busy || resendSeconds > 0) throw const SourceException('请稍后再获取验证码');
     _busy = true;
+    final generation = ++_generation;
     _phone = null;
     _phoneKey = null;
+    _expires = null;
     // A timeout may still have sent the SMS. Do not automatically resend it.
     _resendAt = api.clock().add(const Duration(seconds: 60));
     try {
-      final data = await _request('sendphonecode', {
-        'phone': phone,
-        'type': '1',
-        'needRegister': '1',
-      });
-      final key = '${data['sessionKey'] ?? ''}';
-      if (key.isEmpty || key.contains(RegExp(r'[\x00-\x1f]'))) {
-        throw const SourceException('起点未返回验证码会话，请稍后重试');
+      final fields = {'phone': phone, 'type': '1', 'needRegister': '1'};
+      var data = await _request('sendphonecode', fields);
+      _checkActive(generation);
+      if (_nextAction(data) == 11) {
+        final sessionKey = _sessionKey(data);
+        final solver = solveCaptcha;
+        if (solver == null) {
+          throw const SourceException('起点要求安全验证，请在登录页完成验证后获取短信');
+        }
+        final deadline = api.clock().add(const Duration(minutes: 5));
+        final result = await solver(
+          QidianCaptchaChallenge(expiresAt: deadline),
+        );
+        _checkActive(generation);
+        if (result == null) {
+          _resendAt = null;
+          throw const SourceException('已取消安全验证，尚未发送短信');
+        }
+        if (!deadline.isAfter(api.clock())) {
+          _resendAt = null;
+          throw const SourceException('起点安全验证已过期，请重新获取验证码');
+        }
+        // Continue the explicitly rejected request once, as YWLogin does.
+        // A repeated challenge or uncertain send result is never auto-retried.
+        _resendAt = api.clock().add(const Duration(seconds: 60));
+        data = await _request('sendphonecode', {
+          ...fields,
+          'sessionKey': sessionKey,
+          'sig': result.ticket,
+          'code': result.randstr,
+        });
+        _checkActive(generation);
+        if (_nextAction(data) == 11) {
+          throw const SourceException('起点仍要求安全验证，尚未确认短信发送，请稍后重新获取');
+        }
       }
+      _requireComplete(data);
+      final key = _sessionKey(data);
       _phone = phone;
       _phoneKey = key;
       _expires = api.clock().add(const Duration(minutes: 5));
@@ -123,12 +183,15 @@ class QidianAuth {
       throw const SourceException('请先为当前手机号获取验证码');
     }
     _busy = true;
+    final generation = _generation;
     try {
       final data = await _request('phonecodelogin', {
         'phone': phone,
         'phonekey': _phoneKey!,
         'phonecode': code.trim(),
       });
+      _checkActive(generation);
+      _requireComplete(data);
       final guid = '${data['ywGuid'] ?? ''}', key = '${data['ywKey'] ?? ''}';
       if (!RegExp(r'^[1-9]\d*$').hasMatch(guid) || key.isEmpty) {
         throw const SourceException('起点未返回有效的 App 登录会话');
@@ -139,13 +202,16 @@ class QidianAuth {
         device: api.device,
         clock: api.clock,
       );
-      return await candidate.validateLogin(guid, key);
+      final credentials = await candidate.validateLogin(guid, key);
+      _checkActive(generation);
+      return credentials;
     } finally {
       _busy = false;
     }
   }
 
   void clear() {
+    _generation++;
     _phone = null;
     _phoneKey = null;
     _expires = null;

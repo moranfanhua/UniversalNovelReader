@@ -5,18 +5,29 @@ import 'package:flutter/services.dart';
 
 import '../sources/qidian/qidian_api.dart';
 import '../sources/qidian/qidian_auth.dart';
+import '../sources/qidian/qidian_captcha.dart';
 import '../sources/qidian/qidian_session.dart';
+import 'qidian_captcha.dart';
 
 class QidianAccountPage extends StatefulWidget {
-  const QidianAccountPage({super.key, required this.api});
+  const QidianAccountPage({super.key, required this.api, this.captchaSolver});
   final QidianApi api;
+  final QidianCaptchaSolver? captchaSolver;
   @override
   State<QidianAccountPage> createState() => _QidianAccountPageState();
 }
 
 class _QidianAccountPageState extends State<QidianAccountPage> {
   final phone = TextEditingController(), code = TextEditingController();
-  late final auth = QidianAuth(widget.api);
+  late final auth = QidianAuth(
+    widget.api,
+    solveCaptcha: (challenge) async {
+      if (!mounted) return null;
+      return widget.captchaSolver != null
+          ? widget.captchaSolver!(challenge)
+          : QidianCaptchaPage.solve(context, challenge);
+    },
+  );
   Timer? timer;
   bool busy = false;
   int remaining = 0;

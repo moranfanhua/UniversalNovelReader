@@ -48,6 +48,9 @@ UniversalNovelReader是一个非官方第三方阅读工具，与任何小说平
 
 ## 开源库
 
+- [flutter_inappwebview](https://github.com/pichillilorenzo/flutter_inappwebview) 及其 Android、Windows、iOS、macOS、Linux、Web、平台接口和内部注解包 — Apache-2.0；起点安全验证使用 Android WebView 与 Windows WebView2。锁定 6.2.0-beta.3，以兼容项目使用的 AGP 9。
+- [Microsoft WebView2](https://www.nuget.org/packages/Microsoft.Web.WebView2) — Microsoft 软件许可条款；Windows 验证页面运行时与 SDK。[Windows Implementation Library](https://github.com/microsoft/wil) — MIT；[nlohmann/json](https://github.com/nlohmann/json) — MIT，均为 Windows WebView 插件的原生依赖。
+- [C++/WinRT](https://github.com/microsoft/cppwinrt) — MIT；Windows WebView 插件的原生依赖。
 - [Flutter](https://github.com/flutter/flutter)、[flutter_localizations](https://github.com/flutter/flutter)、[flutter_test](https://github.com/flutter/flutter)、[flutter_web_plugins](https://github.com/flutter/flutter) — BSD-3-Clause
 - [http](https://pub.dev/packages/http)、[crypto](https://pub.dev/packages/crypto) — BSD-3-Clause
 - [html](https://pub.dev/packages/html)、[xml](https://pub.dev/packages/xml) — MIT
@@ -91,7 +94,7 @@ UniversalNovelReader是一个非官方第三方阅读工具，与任何小说平
 - [NetBare-Android](https://github.com/MegatronKing/NetBare-Android/tree/df5b417ea663763932cabf1ef52f15b09ddc2e16) — 本地 VPN 与 HTTPS 拦截核心；源码头标注 GPL-3.0-or-later，上游仓库 LICENSE 为 MIT，均保留在 Android 模块中。
 - [Bouncy Castle](https://www.bouncycastle.org/licence.html) — MIT；本机抓包证书生成使用的 bcpkix、bcprov、bcutil。
 - [Guava](https://github.com/google/guava) — Apache-2.0；NetBare 的缓存与集合依赖，包含 failureaccess、listenablefuture。
-- [AndroidX Core](https://android.googlesource.com/platform/frameworks/support/)、[AndroidX Annotation](https://android.googlesource.com/platform/frameworks/support/) — Apache-2.0；VPN 前台服务与 AndroidX 适配。
+- [AndroidX Core](https://android.googlesource.com/platform/frameworks/support/)、[AndroidX Annotation](https://android.googlesource.com/platform/frameworks/support/) — Apache-2.0；VPN 前台服务与 AndroidX 适配。WebView 插件还使用 Apache-2.0 的 AndroidX WebKit、Browser、AppCompat 与 SwipeRefreshLayout。
 - [Error Prone annotations](https://github.com/google/error-prone)、[J2ObjC annotations](https://github.com/google/j2objc)、[JSpecify](https://github.com/jspecify/jspecify) — Apache-2.0；Guava 的传递依赖。
 - [JUnit 4](https://github.com/junit-team/junit4) — EPL-1.0；Android 会话过滤测试。[Hamcrest](https://github.com/hamcrest/JavaHamcrest) — BSD-3-Clause；JUnit 的测试依赖。
 

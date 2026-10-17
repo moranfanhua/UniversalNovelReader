@@ -9,6 +9,7 @@ import 'package:http/testing.dart';
 import 'package:unr/domain/models.dart';
 import 'package:unr/sources/qidian/qidian_api.dart';
 import 'package:unr/sources/qidian/qidian_auth.dart';
+import 'package:unr/sources/qidian/qidian_captcha.dart';
 import 'package:unr/sources/qidian/qidian_session.dart';
 import 'package:unr/ui/qidian_account.dart';
 
@@ -166,6 +167,217 @@ void main() {
     );
   });
 
+  test('滑块通过后携带原挑战会话继续发送短信，登录使用新的短信会话', () async {
+    var now = DateTime(2026);
+    var sends = 0, challenges = 0;
+    final api = QidianApi(
+      clock: () => now,
+      client: MockClient((request) async {
+        expect(
+          request.url.host,
+          anyOf('ptlogin.yuewen.com', 'druidv6.if.qidian.com'),
+        );
+        if (request.url.path == '/sdk/sendphonecode') {
+          sends++;
+          expect(request.bodyFields['phone'], '13800000000');
+          expect(request.bodyFields['type'], '1');
+          expect(request.bodyFields['needRegister'], '1');
+          if (sends == 1) {
+            expect(request.bodyFields.containsKey('sig'), isFalse);
+            return sdk({'nextAction': 11, 'sessionKey': 'challenge-key'});
+          }
+          expect(request.bodyFields['sessionKey'], 'challenge-key');
+          expect(request.bodyFields['sig'], 'captcha-ticket');
+          expect(request.bodyFields['code'], 'captcha-random');
+          return sdk({'nextAction': 0, 'sessionKey': 'sms-key'});
+        }
+        if (request.url.path == '/sdk/phonecodelogin') {
+          expect(request.bodyFields['phonekey'], 'sms-key');
+          expect(request.bodyFields['phonecode'], '123456');
+          expect(request.bodyFields.containsKey('sig'), isFalse);
+          return sdk({'ywGuid': 30, 'ywKey': 'candidate'});
+        }
+        return login();
+      }),
+    );
+    addTearDown(api.close);
+    final old = saved();
+    api.credentials = old;
+    final auth = QidianAuth(
+      api,
+      solveCaptcha: (challenge) async {
+        challenges++;
+        expect(challenge.expiresAt, now.add(const Duration(minutes: 5)));
+        now = now.add(const Duration(seconds: 90));
+        return QidianCaptchaResult(
+          ticket: 'captcha-ticket',
+          randstr: 'captcha-random',
+        );
+      },
+    );
+    await auth.sendCode('13800000000');
+    expect(auth.resendSeconds, 60);
+    expect(sends, 2);
+    expect(challenges, 1);
+    expect((await auth.verifyCode('13800000000', '123456')).ywGuid, '30');
+    expect(api.credentials, same(old));
+  });
+
+  for (final outcome in ['cancel', 'expired', 'cleared', 'error']) {
+    test('滑块 $outcome 不继续发送短信且保留原会话', () async {
+      var now = DateTime(2026);
+      var requests = 0;
+      final api = QidianApi(
+        clock: () => now,
+        client: MockClient((_) async {
+          requests++;
+          return sdk({'nextAction': 11, 'sessionKey': 'challenge-key'});
+        }),
+      );
+      addTearDown(api.close);
+      final old = saved();
+      api.credentials = old;
+      late QidianAuth auth;
+      auth = QidianAuth(
+        api,
+        solveCaptcha: (_) async {
+          if (outcome == 'cancel') return null;
+          if (outcome == 'error') throw const SourceException('验证服务不可用');
+          if (outcome == 'expired') now = now.add(const Duration(minutes: 5));
+          if (outcome == 'cleared') auth.clear();
+          return QidianCaptchaResult(
+            ticket: 'captcha-ticket',
+            randstr: 'captcha-random',
+          );
+        },
+      );
+      await expectLater(
+        auth.sendCode('13800000000'),
+        throwsA(isA<SourceException>()),
+      );
+      await expectLater(
+        auth.verifyCode('13800000000', '123456'),
+        throwsA(isA<SourceException>()),
+      );
+      expect(requests, 1);
+      expect(api.credentials, same(old));
+    });
+  }
+
+  for (final outcome in ['challenge', 'timeout', 'failure']) {
+    test('滑块续发返回 $outcome 不循环挑战、不自动重发、不宣称短信已发送', () async {
+      var requests = 0, solves = 0;
+      final api = QidianApi(
+        client: MockClient((_) async {
+          requests++;
+          if (requests == 1 || outcome == 'challenge') {
+            return sdk({'nextAction': 11, 'sessionKey': 'challenge-key'});
+          }
+          if (outcome == 'timeout') throw TimeoutException('synthetic');
+          return http.Response('{"code":-1}', 200);
+        }),
+      );
+      addTearDown(api.close);
+      final auth = QidianAuth(
+        api,
+        solveCaptcha: (_) async {
+          solves++;
+          return QidianCaptchaResult(
+            ticket: 'captcha-ticket',
+            randstr: 'captcha-random',
+          );
+        },
+      );
+      await expectLater(
+        auth.sendCode('13800000000'),
+        throwsA(isA<Exception>()),
+      );
+      await expectLater(
+        auth.verifyCode('13800000000', '123456'),
+        throwsA(isA<SourceException>()),
+      );
+      await expectLater(
+        auth.sendCode('13800000000'),
+        throwsA(isA<SourceException>()),
+      );
+      expect(requests, 2);
+      expect(solves, 1);
+    });
+  }
+
+  for (final action in [8, 10, 99, 'invalid']) {
+    test('未知或不支持的验证步骤 $action 不触发滑块或短信续发', () async {
+      var requests = 0, solves = 0;
+      final api = QidianApi(
+        client: MockClient((_) async {
+          requests++;
+          return sdk({'nextAction': action, 'sessionKey': 'challenge-key'});
+        }),
+      );
+      addTearDown(api.close);
+      final auth = QidianAuth(
+        api,
+        solveCaptcha: (_) async {
+          solves++;
+          return null;
+        },
+      );
+      await expectLater(
+        auth.sendCode('13800000000'),
+        throwsA(isA<SourceException>()),
+      );
+      expect(requests, 1);
+      expect(solves, 0);
+    });
+  }
+
+  test('验证进行中禁止重复请求；离开页面后收到的发送结果不会恢复认证状态', () async {
+    final pending = Completer<http.Response>();
+    var requests = 0;
+    final api = QidianApi(
+      client: MockClient((_) async {
+        requests++;
+        return pending.future;
+      }),
+    );
+    addTearDown(api.close);
+    final auth = QidianAuth(api);
+    final sending = auth.sendCode('13800000000');
+    final failure = expectLater(sending, throwsA(isA<SourceException>()));
+    await expectLater(
+      auth.sendCode('13800000000'),
+      throwsA(isA<SourceException>()),
+    );
+    auth.clear();
+    pending.complete(sdk({'sessionKey': 'late-sms-key'}));
+    await failure;
+    await expectLater(
+      auth.verifyCode('13800000000', '123456'),
+      throwsA(isA<SourceException>()),
+    );
+    expect(requests, 1);
+  });
+
+  test('缺少挑战会话不打开滑块验证', () async {
+    var solves = 0;
+    final api = QidianApi(
+      client: MockClient((_) async => sdk({'nextAction': 11})),
+    );
+    addTearDown(api.close);
+    final auth = QidianAuth(
+      api,
+      solveCaptcha: (_) async {
+        solves++;
+        return null;
+      },
+    );
+    await expectLater(
+      auth.sendCode('13800000000'),
+      throwsA(isA<SourceException>()),
+    );
+    expect(solves, 0);
+  });
+
   test('登录失败保留原会话；App 验证未完成不能返回成功', () async {
     final api = QidianApi(
       client: MockClient((r) async {
@@ -246,6 +458,69 @@ void main() {
       await tester.pumpWidget(const SizedBox());
     });
   }
+
+  testWidgets('登录页等待用户验证，完成后才显示短信已发送', (tester) async {
+    final pending = Completer<QidianCaptchaResult?>();
+    var requests = 0;
+    final api = QidianApi(
+      client: MockClient((_) async {
+        requests++;
+        return requests == 1
+            ? sdk({'nextAction': 11, 'sessionKey': 'challenge-key'})
+            : sdk({'sessionKey': 'sms-key'});
+      }),
+    );
+    addTearDown(api.close);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: QidianAccountPage(api: api, captchaSolver: (_) => pending.future),
+      ),
+    );
+    await tester.enterText(find.byType(TextField).first, '13800000000');
+    await tester.tap(find.text('获取验证码'));
+    await tester.pump();
+    expect(requests, 1);
+    expect(find.text('验证码已发送，请查看短信'), findsNothing);
+    expect(
+      tester.widget<OutlinedButton>(find.byType(OutlinedButton)).onPressed,
+      isNull,
+    );
+    pending.complete(
+      QidianCaptchaResult(ticket: 'captcha-ticket', randstr: 'captcha-random'),
+    );
+    await tester.pump();
+    expect(requests, 2);
+    expect(find.text('验证码已发送，请查看短信'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('离开登录页后到达的滑块结果不会继续发送短信', (tester) async {
+    final pending = Completer<QidianCaptchaResult?>();
+    var requests = 0;
+    final api = QidianApi(
+      client: MockClient((_) async {
+        requests++;
+        return sdk({'nextAction': 11, 'sessionKey': 'challenge-key'});
+      }),
+    );
+    addTearDown(api.close);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: QidianAccountPage(api: api, captchaSolver: (_) => pending.future),
+      ),
+    );
+    await tester.enterText(find.byType(TextField).first, '13800000000');
+    await tester.tap(find.text('获取验证码'));
+    await tester.pump();
+    await tester.pumpWidget(const SizedBox());
+    pending.complete(
+      QidianCaptchaResult(ticket: 'captcha-ticket', randstr: 'captcha-random'),
+    );
+    await tester.pump();
+    expect(requests, 1);
+    expect(api.hasSession, isFalse);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('离开登录页后到达的登录结果不会替换或保存会话', (tester) async {
     final pending = Completer<http.Response>();
