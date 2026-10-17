@@ -18,6 +18,15 @@ class CiweimaoSource extends CiweimaoComments
   @override
   String get name => '刺猬猫阅读';
   static String bookId(String input) => CiweimaoParser.bookId(input);
+  static bool acceptsLink(String input) {
+    if (RegExp(r'^\d+$').hasMatch(input.trim())) return false;
+    try {
+      bookId(input);
+      return true;
+    } on SourceException {
+      return false;
+    }
+  }
 
   @override
   Future<List<Book>> search(String keyword, {int page = 0}) async {

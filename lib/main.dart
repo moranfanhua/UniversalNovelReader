@@ -11,6 +11,8 @@ import 'sources/fanqie/fanqie_source.dart';
 import 'sources/fanqie/fanqie_session.dart';
 import 'sources/qidian/qidian_source.dart';
 import 'sources/qidian/qidian_session.dart';
+import 'sources/ciweimao/ciweimao_source.dart';
+import 'sources/ciweimao/ciweimao_session.dart';
 import 'ui/home.dart';
 import 'ui/logs.dart';
 import 'ui/app_theme.dart';
@@ -31,11 +33,13 @@ void main() async {
     );
     final fanqieApi = await FanqieSession.open();
     final qidianApi = await QidianSession.open();
+    final ciweimaoApi = await CiweimaoSession.open();
     final library = await Library.open(
       SfacgSource(api, cipher: cipher),
       novelSources: [
         FanqieSource(fanqieApi, cipher: fanqieCipher),
         QidianSource(qidianApi),
+        CiweimaoSource(ciweimaoApi),
       ],
     );
     log.record(LogLevel.info, 'app.started');

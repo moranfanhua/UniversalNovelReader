@@ -133,9 +133,21 @@ class CiweimaoApi {
       throw const SourceException('刺猬猫账号已切换，请重试');
     }
     final generation = _generation;
-    final result = await _send(path, params, session: current, write: write);
-    checkSession(generation);
-    return result;
+    try {
+      final result = await _send(path, params, session: current, write: write);
+      checkSession(generation);
+      return result;
+    } on SourceException catch (error) {
+      if (error.code == 200100 &&
+          current.guest &&
+          identical(current, _credentials)) {
+        // Keep the saved data until a new guest session succeeds. Do not retry
+        // this operation; the next explicit retry can renew the same device.
+        _credentials = null;
+        throw const SourceException('刺猬猫游客会话已过期，请重试以重新连接', code: 200100);
+      }
+      rethrow;
+    }
   }
 
   Future<Map<String, dynamic>> _send(

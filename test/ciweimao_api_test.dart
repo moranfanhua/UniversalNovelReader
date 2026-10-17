@@ -21,6 +21,40 @@ http.Response ok(Object? data, {String code = '100000'}) => http.Response(
 );
 
 void main() {
+  test('游客过期后保留存储且不自动重发，用户重试可重新建立 App 会话', () async {
+    var reads = 0, registrations = 0;
+    final api = CiweimaoApi(
+      client: MockClient((r) async {
+        if (r.url.path == '/signup/auto_reg_v2') {
+          registrations++;
+          return ok({
+            'login_token': 'synthetic-token-5678',
+            'reader_info': {'account': 'synthetic-account', 'reader_id': '106'},
+          });
+        }
+        reads++;
+        return reads == 1 ? ok({}, code: '200100') : ok({'value': 1});
+      }),
+    )..restoreSession(session(guest: true));
+    addTearDown(api.close);
+    var saved = 0;
+    api.onSessionChanged = () async {
+      saved++;
+    };
+    await expectLater(
+      api.request('book/get_info_by_id', {'book_id': '12'}),
+      throwsA(isA<SourceException>()),
+    );
+    expect(saved, 0);
+    expect(reads, 1);
+    expect(registrations, 0);
+    expect(await api.request('book/get_info_by_id', {'book_id': '12'}), {
+      'value': 1,
+    });
+    expect(saved, 1);
+    expect(registrations, 1);
+    expect(reads, 2);
+  });
   test('请求在等待会话的微任务间隙切换账号时，不使用旧凭据发送请求', () async {
     var calls = 0;
     final api = CiweimaoApi(
