@@ -38,7 +38,7 @@ void main() {
     chapters: [Chapter(id: '1', title: '第一章')],
   );
 
-  testWidgets('宽屏短页顶部对齐，滚动正文加宽，章节导航靠近阅读区域', (tester) async {
+  testWidgets('宽屏短页顶部对齐，滚动正文加宽，底栏与顶栏同宽', (tester) async {
     size(tester, const Size(1920, 1080));
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -61,8 +61,12 @@ void main() {
     text = tester.getRect(find.text('　　短页正文'));
     expect(text.width, inInclusiveRange(1000, 1080));
     await showReadingControls(tester);
-    expect(tester.getCenter(find.text('上一章')).dx, greaterThan(400));
-    expect(tester.getCenter(find.text('下一章')).dx, lessThan(1520));
+    expect(tester.getCenter(find.text('上一章')).dx, lessThan(120));
+    expect(tester.getCenter(find.text('下一章')).dx, greaterThan(1800));
+    expect(
+      tester.getSize(find.byKey(const ValueKey('reader-bottom-toolbar'))).width,
+      1920,
+    );
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
     library.dispose();

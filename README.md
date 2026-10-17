@@ -38,7 +38,13 @@ UniversalNovelReader是一个非官方第三方阅读工具，与任何小说平
 
 `sky_engine` 随 Flutter SDK 分发，包含多种第三方组件的版权与许可声明，完整文本见该包内的 `LICENSE`；其许可不统一标记为 Flutter 框架的 BSD-3-Clause。
 
-云端可选字体 [Noto Sans SC](https://github.com/google/fonts/tree/main/ofl/notosanssc)、[Noto Serif SC](https://github.com/google/fonts/tree/main/ofl/notoserifsc) 使用 SIL Open Font License 1.1；由用户下载，原许可随字体保存在本机。
+云端可选字体均使用 SIL Open Font License 1.1，保留各自的原作者版权；由用户按需下载，原许可随字体保存在本机：
+
+- Google Fonts：[Noto Sans SC](https://github.com/google/fonts/tree/main/ofl/notosanssc)、[Noto Serif SC](https://github.com/google/fonts/tree/main/ofl/notoserifsc)。
+- 落霞孤鹜：[霞鹜文楷 GB 屏幕版](https://github.com/lxgw/LxgwWenKai-Screen)、[悠哉字体](https://github.com/lxgw/yozai-font)、[霞鹜臻楷 GB](https://github.com/lxgw/LxgwZhenKai)、[小赖字体](https://github.com/lxgw/kose-font)。
+- 寒蝉字型：[寒蝉半圆体](https://github.com/Warren2060/ChillRound)。
+- 璇玑造字：[朱雀仿宋](https://github.com/TrionesType/zhuque)。
+- IBM：[IBM Plex Sans SC](https://github.com/IBM/plex/tree/master/packages/plex-sans-sc)。
 
 ### 9. 更新
 
@@ -48,6 +54,9 @@ UniversalNovelReader是一个非官方第三方阅读工具，与任何小说平
 
 ## 开源库
 
+- [flutter_inappwebview](https://github.com/pichillilorenzo/flutter_inappwebview) 及其 Android、Windows、iOS、macOS、Linux、Web、平台接口和内部注解包 — Apache-2.0；起点安全验证使用 Android WebView 与 Windows WebView2。锁定 6.2.0-beta.3，以兼容项目使用的 AGP 9。
+- [Microsoft WebView2](https://www.nuget.org/packages/Microsoft.Web.WebView2) — Microsoft 软件许可条款；Windows 验证页面运行时与 SDK。[Windows Implementation Library](https://github.com/microsoft/wil) — MIT；[nlohmann/json](https://github.com/nlohmann/json) — MIT，均为 Windows WebView 插件的原生依赖。
+- [C++/WinRT](https://github.com/microsoft/cppwinrt) — MIT；Windows WebView 插件的原生依赖。
 - [Flutter](https://github.com/flutter/flutter)、[flutter_localizations](https://github.com/flutter/flutter)、[flutter_test](https://github.com/flutter/flutter)、[flutter_web_plugins](https://github.com/flutter/flutter) — BSD-3-Clause
 - [http](https://pub.dev/packages/http)、[crypto](https://pub.dev/packages/crypto) — BSD-3-Clause
 - [html](https://pub.dev/packages/html)、[xml](https://pub.dev/packages/xml) — MIT
@@ -82,7 +91,7 @@ UniversalNovelReader是一个非官方第三方阅读工具，与任何小说平
 - [actions/github-script](https://github.com/actions/github-script) — MIT；分支来源校验使用的工具。
 - [SFacgExporter](https://github.com/moranfanhua/SFacgExporter) — AGPL-3.0；菠萝包签名、正文字符表与导出逻辑参考来源，原作者 moranfanhua。
 - [fanqienovel-downloader](https://github.com/ying-ck/fanqienovel-downloader) — AGPL-3.0；番茄官网正文字体字符表参考来源，原作者 ying-ck（qxqycb）。
-- [Pointy Castle](https://pub.dev/packages/pointycastle) — MIT；番茄接口签名与阅读密钥注册使用的 AES、SM3 实现。
+- [Pointy Castle](https://pub.dev/packages/pointycastle) — MIT；番茄接口签名与阅读密钥注册使用的 AES、SM3 实现，起点 App 协议使用的 AES、DES 与 3DES 实现，以及刺猬猫 App 协议使用的 AES 与 RSA 实现。
 - [pinyin](https://pub.dev/packages/pinyin) — BSD-2-Clause；书名排序使用的汉字转拼音实现。
 - [Bugaoshan（不高山上）](https://github.com/moranfanhua/Bugaoshan) — AGPL-3.0；运行日志页的筛选、分级列表与堆栈折叠交互参考来源。
 - [MaaAssistantArknights](https://github.com/moranfanhua/MaaAssistantArknights) — AGPL-3.0；项目 `maa-issue-log-analysis` skill 的证据时间线、版本对照与诉求评估方法为 UNR issue 分析 skill 的参考来源；GitHub Actions 的快速测试、构建、冒烟测试、依赖更新、PR 规范与格式检查流程为 UNR CI 的设计参考。
@@ -91,6 +100,10 @@ UniversalNovelReader是一个非官方第三方阅读工具，与任何小说平
 - [NetBare-Android](https://github.com/MegatronKing/NetBare-Android/tree/df5b417ea663763932cabf1ef52f15b09ddc2e16) — 本地 VPN 与 HTTPS 拦截核心；源码头标注 GPL-3.0-or-later，上游仓库 LICENSE 为 MIT，均保留在 Android 模块中。
 - [Bouncy Castle](https://www.bouncycastle.org/licence.html) — MIT；本机抓包证书生成使用的 bcpkix、bcprov、bcutil。
 - [Guava](https://github.com/google/guava) — Apache-2.0；NetBare 的缓存与集合依赖，包含 failureaccess、listenablefuture。
-- [AndroidX Core](https://android.googlesource.com/platform/frameworks/support/)、[AndroidX Annotation](https://android.googlesource.com/platform/frameworks/support/) — Apache-2.0；VPN 前台服务与 AndroidX 适配。
+- [AndroidX Core](https://android.googlesource.com/platform/frameworks/support/)、[AndroidX Annotation](https://android.googlesource.com/platform/frameworks/support/) — Apache-2.0；VPN 前台服务与 AndroidX 适配。WebView 插件还使用 Apache-2.0 的 AndroidX WebKit、Browser、AppCompat 与 SwipeRefreshLayout。
 - [Error Prone annotations](https://github.com/google/error-prone)、[J2ObjC annotations](https://github.com/google/j2objc)、[JSpecify](https://github.com/jspecify/jspecify) — Apache-2.0；Guava 的传递依赖。
 - [JUnit 4](https://github.com/junit-team/junit4) — EPL-1.0；Android 会话过滤测试。[Hamcrest](https://github.com/hamcrest/JavaHamcrest) — BSD-3-Clause；JUnit 的测试依赖。
+
+## 协议参考来源
+
+- [刺猬猫官方 Android 客户端](https://www.ciweimao.com/setting/download) 2.9.367 — 刺猬猫 App 接口、签名及数据格式的兼容性参考；客户端及平台标识的权利归原权利人所有。

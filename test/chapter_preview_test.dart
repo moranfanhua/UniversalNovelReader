@@ -112,42 +112,48 @@ void main() {
     await settle(tester);
   }
 
-  testWidgets('奇数末页右侧显示下一章，继续阅读不重复首页，返回恢复原跨章双页', (tester) async {
-    final library = PreviewLibrary()..readingMode = ReadingMode.paged;
-    await open(tester, library);
-    expect(library.requests, ['1']);
-    await next(tester);
-    expect(
-      tester.getRect(find.text('　　甲章末页').hitTestable()).left,
-      lessThan(900),
-    );
-    expect(
-      tester.getRect(find.text('　　乙章首页').hitTestable()).left,
-      greaterThan(900),
-    );
-    expect(find.text('乙章').hitTestable(), findsOneWidget);
-    expect(library.progress[previewBook.key], [0, 2]);
-    await next(tester);
-    expect(readingChapter(tester), 1);
-    expect(find.text('　　乙章首页').hitTestable(), findsNothing);
-    expect(find.text('　　乙章末页').hitTestable(), findsOneWidget);
-    expect(library.progress[previewBook.key], [1, 1]);
-    expect(library.requests, ['1', '2', '2']);
-    await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
-    await settle(tester);
-    expect(find.text('　　甲章末页').hitTestable(), findsOneWidget);
-    expect(find.text('　　乙章首页').hitTestable(), findsOneWidget);
-    await next(tester);
-    await next(tester);
-    expect(readingChapter(tester), 2);
-    await tester.drag(find.byType(PageView), const Offset(320, 0));
-    await settle(tester);
-    expect(readingChapter(tester), 1);
-    expect(find.text('　　乙章首页').hitTestable(), findsNothing);
-    expect(find.text('　　乙章末页').hitTestable(), findsOneWidget);
-    expect(tester.takeException(), isNull);
-    await tester.pumpWidget(const SizedBox.shrink());
-  });
+  for (final animation in PageTurnAnimation.values) {
+    testWidgets('奇数末页右侧显示下一章，继续阅读不重复首页，返回恢复原跨章双页（${animation.name}）', (
+      tester,
+    ) async {
+      final library = PreviewLibrary()
+        ..readingMode = ReadingMode.paged
+        ..pageTurnAnimation = animation;
+      await open(tester, library);
+      expect(library.requests, ['1']);
+      await next(tester);
+      expect(
+        tester.getRect(find.text('　　甲章末页').hitTestable()).left,
+        lessThan(900),
+      );
+      expect(
+        tester.getRect(find.text('　　乙章首页').hitTestable()).left,
+        greaterThan(900),
+      );
+      expect(find.text('乙章').hitTestable(), findsOneWidget);
+      expect(library.progress[previewBook.key], [0, 2]);
+      await next(tester);
+      expect(readingChapter(tester), 1);
+      expect(find.text('　　乙章首页').hitTestable(), findsNothing);
+      expect(find.text('　　乙章末页').hitTestable(), findsOneWidget);
+      expect(library.progress[previewBook.key], [1, 1]);
+      expect(library.requests, ['1', '2', '2']);
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
+      await settle(tester);
+      expect(find.text('　　甲章末页').hitTestable(), findsOneWidget);
+      expect(find.text('　　乙章首页').hitTestable(), findsOneWidget);
+      await next(tester);
+      await next(tester);
+      expect(readingChapter(tester), 2);
+      await tester.drag(find.byType(PageView), const Offset(320, 0));
+      await settle(tester);
+      expect(readingChapter(tester), 1);
+      expect(find.text('　　乙章首页').hitTestable(), findsNothing);
+      expect(find.text('　　乙章末页').hitTestable(), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  }
 
   testWidgets('下一章仅一页时整章已在右页展示，下一次翻页及返回都不重复该章', (tester) async {
     final library = PreviewLibrary()..readingMode = ReadingMode.paged;

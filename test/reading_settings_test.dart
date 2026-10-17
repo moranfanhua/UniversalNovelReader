@@ -47,6 +47,112 @@ class PreferencesLibrary extends Library {
 }
 
 void main() {
+  test('翻页动画兼容旧书库和未知设置，三种选择可保存且恢复默认不丢进度', () async {
+    final root = await Directory.systemTemp.createTemp('unr-turn-animation-');
+    addTearDown(() => root.delete(recursive: true));
+    final source = SfacgSource(SfacgApi());
+    addTearDown(source.api.close);
+    Future<Library> open() async {
+      final library = await Library.open(source, directory: root);
+      addTearDown(library.dispose);
+      return library;
+    }
+
+    expect((await open()).pageTurnAnimation, PageTurnAnimation.slide);
+    for (final stored in [null, 'unknown', 123]) {
+      await File('${root.path}/index.json').writeAsString(
+        jsonEncode({
+          'books': [],
+          'pageTurnAnimation': ?stored,
+          'progress': {
+            'local:1': [2, 3],
+          },
+          'pageOffsets': {'local:1': 16},
+        }),
+      );
+      final library = await open();
+      expect(library.pageTurnAnimation, PageTurnAnimation.slide);
+      for (final animation in PageTurnAnimation.values) {
+        library.pageTurnAnimation = animation;
+        await library.save();
+        final restored = await open();
+        expect(restored.pageTurnAnimation, animation);
+        expect(restored.progress['local:1'], [2, 3]);
+        expect(restored.pageOffsets['local:1'], 16);
+      }
+      library.pageTurnAnimation = PageTurnAnimation.simulation;
+      await library.resetReadingPreferences();
+      final defaults = await open();
+      expect(defaults.pageTurnAnimation, PageTurnAnimation.slide);
+      expect(defaults.progress['local:1'], [2, 3]);
+      expect(defaults.pageOffsets['local:1'], 16);
+    }
+  });
+
+  for (final width in [360.0, 1000.0]) {
+    for (final scale in [1.0, 1.5]) {
+      testWidgets('翻页动画选项可切换且滚动阅读保留选择（宽$width，缩放$scale）', (tester) async {
+        tester.view.physicalSize = Size(width, 800);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        final library = PreferencesLibrary();
+        addTearDown(library.dispose);
+        addTearDown(library.source.api.close);
+        await tester.pumpWidget(
+          MaterialApp(
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(
+                context,
+              ).copyWith(textScaler: TextScaler.linear(scale)),
+              child: child!,
+            ),
+            home: Scaffold(
+              body: SingleChildScrollView(
+                padding: const EdgeInsets.all(24),
+                child: ReadingSettings(library: library),
+              ),
+            ),
+          ),
+        );
+        final selection = find.byKey(
+          const ValueKey('reading-page-turn-animation'),
+        );
+        expect(selection, findsNothing);
+        await tester.tap(find.text('翻页阅读'));
+        await tester.pumpAndSettle();
+        for (final entry in {
+          '无动画': PageTurnAnimation.none,
+          '仿真': PageTurnAnimation.simulation,
+          '滑动': PageTurnAnimation.slide,
+        }.entries) {
+          await tester.tap(find.text(entry.key));
+          await tester.pumpAndSettle();
+          expect(library.pageTurnAnimation, entry.value);
+          expect(
+            tester
+                .widget<SegmentedButton<PageTurnAnimation>>(selection)
+                .selected,
+            {entry.value},
+          );
+        }
+        await tester.tap(find.text('仿真'));
+        await tester.tap(find.text('滚动阅读'));
+        await tester.pumpAndSettle();
+        expect(selection, findsNothing);
+        await tester.tap(find.text('翻页阅读'));
+        await tester.pumpAndSettle();
+        expect(library.pageTurnAnimation, PageTurnAnimation.simulation);
+        await tester.ensureVisible(find.text('恢复默认阅读设置'));
+        await tester.tap(find.text('恢复默认阅读设置'));
+        await tester.pumpAndSettle();
+        expect(library.pageTurnAnimation, PageTurnAnimation.slide);
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox.shrink());
+      });
+    }
+  }
+
   test('显示段评默认开启，旧书库兼容，关闭后持久化并可恢复默认', () async {
     final root = await Directory.systemTemp.createTemp(
       'unr-comment-preference-',
@@ -168,6 +274,55 @@ void main() {
     library.dispose();
     library.source.api.close();
   });
+  for (final width in [360.0, 1280.0]) {
+    testWidgets('新增字体在宽度 $width 和放大文字下显示来源并可下载切换', (tester) async {
+      tester.view.physicalSize = Size(width, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final library = PreferencesLibrary();
+      addTearDown(library.dispose);
+      addTearDown(library.source.api.close);
+      await tester.pumpWidget(
+        MaterialApp(
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: TextScaler.linear(1.5)),
+            child: child!,
+          ),
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: ReadingSettings(library: library),
+            ),
+          ),
+        ),
+      );
+      final dropdown = find.byKey(const ValueKey('reading-font'));
+      for (final font in ReaderFonts.catalog.skip(2)) {
+        tester.widget<DropdownButton<String>>(dropdown).onChanged!(font.id);
+        await tester.pumpAndSettle();
+        expect(
+          find.textContaining('来源：${font.source} · SIL OFL 1.1'),
+          findsOneWidget,
+        );
+        if (font.notice != null) {
+          expect(find.text(font.notice!), findsOneWidget);
+        } else {
+          expect(find.textContaining('上游预览测试版'), findsNothing);
+        }
+        final download = find.text('下载并使用字体');
+        await tester.ensureVisible(download);
+        await tester.tap(download);
+        await tester.pumpAndSettle();
+        expect(library.readingFontId, font.id);
+        expect(library.downloadedFonts, contains(font.id));
+        expect(find.text('${font.name} · 已下载'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      }
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  }
   testWidgets('阅读设置同时改变滚动页与翻页布局，关闭面板保留阅读段落', (tester) async {
     tester.view.physicalSize = const Size(360, 640);
     tester.view.devicePixelRatio = 1;
@@ -212,9 +367,12 @@ void main() {
     }
     await tester.tap(find.text('翻页阅读'));
     await tester.pumpAndSettle();
+    await tester.tap(find.text('仿真'));
+    await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('关闭阅读设置'));
     await tester.pumpAndSettle();
     final paged = tester.widget<PagedChapter>(find.byType(PagedChapter));
+    expect(paged.pageTurnAnimation, PageTurnAnimation.simulation);
     expect(
       [
         paged.fontSize,

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
+import 'package:archive/archive.dart';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
@@ -8,17 +9,23 @@ import 'package:uuid/uuid.dart';
 import '../domain/models.dart';
 
 class CloudFont {
-  const CloudFont(this.id, this.name, this.folder, this.filename);
-  final String id, name, folder, filename;
-  Uri get download => Uri.https(
-    'raw.githubusercontent.com',
-    '/google/fonts/main/ofl/$folder/$filename',
-  );
-  Uri get license => Uri.https(
-    'raw.githubusercontent.com',
-    '/google/fonts/main/ofl/$folder/OFL.txt',
-  );
+  const CloudFont(
+    this.id,
+    this.name,
+    this._downloadUrl,
+    this._licenseUrl, {
+    this.source = 'Google Fonts',
+    this.archivePath,
+    this.notice,
+  });
+  final String id, name, source, _downloadUrl, _licenseUrl;
+  final String? archivePath, notice;
+  Uri get download => Uri.parse(_downloadUrl);
+  Uri get license => Uri.parse(_licenseUrl);
 }
+
+const _rawGithub = 'https://raw.githubusercontent.com';
+const _github = 'https://github.com';
 
 class ReaderFonts {
   ReaderFonts(
@@ -31,14 +38,68 @@ class ReaderFonts {
     CloudFont(
       'noto-sans-sc',
       'Noto Sans SC · 黑体',
-      'notosanssc',
-      'NotoSansSC[wght].ttf',
+      '$_rawGithub/google/fonts/main/ofl/notosanssc/NotoSansSC[wght].ttf',
+      '$_rawGithub/google/fonts/main/ofl/notosanssc/OFL.txt',
     ),
     CloudFont(
       'noto-serif-sc',
       'Noto Serif SC · 宋体',
-      'notoserifsc',
-      'NotoSerifSC[wght].ttf',
+      '$_rawGithub/google/fonts/main/ofl/notoserifsc/NotoSerifSC[wght].ttf',
+      '$_rawGithub/google/fonts/main/ofl/notoserifsc/OFL.txt',
+    ),
+    CloudFont(
+      'lxgw-wenkai-gb-screen',
+      '霞鹜文楷 GB 屏幕版 · 楷体',
+      '$_github/lxgw/LxgwWenKai-Screen/releases/download/v1.522/LXGWWenKaiGBScreen.ttf',
+      '$_rawGithub/lxgw/LxgwWenKai-Screen/v1.522/OFL.txt',
+      source: '落霞孤鹜',
+    ),
+    CloudFont(
+      'chill-round-m',
+      '寒蝉半圆体 · 圆体',
+      '$_github/Warren2060/ChillRound/releases/download/v1.805/ChillRoundM_v1.805.zip',
+      '$_rawGithub/Warren2060/ChillRound/v1.805/LICENSE',
+      source: '寒蝉字型',
+      archivePath: 'ChillRoundM_v1.805/ChillRoundM.ttf',
+    ),
+    CloudFont(
+      'yozai',
+      '悠哉字体 · 手写体',
+      '$_github/lxgw/yozai-font/releases/download/v0.868/Yozai-Regular.ttf',
+      '$_rawGithub/lxgw/yozai-font/v0.868/OFL.txt',
+      source: '落霞孤鹜',
+    ),
+    CloudFont(
+      'zhuque-fangsong',
+      '朱雀仿宋 · 仿宋体',
+      '$_github/TrionesType/zhuque/releases/download/v0.212/ZhuqueFangsong-v0.212.zip',
+      '$_rawGithub/TrionesType/zhuque/v0.212/LICENSE.txt',
+      source: '璇玑造字',
+      archivePath: 'ZhuqueFangsong-Regular.ttf',
+      notice: '朱雀仿宋目前为上游预览测试版，部分字形和排版效果仍在完善。',
+    ),
+    CloudFont(
+      'ibm-plex-sans-sc',
+      'IBM Plex Sans SC · 黑体',
+      '$_rawGithub/IBM/plex/71f558992315a12ca1f06a2215d57962a1992162/'
+          'packages/plex-sans-sc/fonts/complete/otf/hinted/IBMPlexSansSC-Regular.otf',
+      '$_rawGithub/IBM/plex/71f558992315a12ca1f06a2215d57962a1992162/'
+          'packages/plex-sans-sc/LICENSE.txt',
+      source: 'IBM',
+    ),
+    CloudFont(
+      'lxgw-zhenkai-gb',
+      '霞鹜臻楷 GB · 楷体',
+      '$_github/lxgw/LxgwZhenKai/releases/download/v0.827/LXGWZhenKaiSlabGB-Regular.ttf',
+      '$_rawGithub/lxgw/LxgwZhenKai/v0.827/OFL.txt',
+      source: '落霞孤鹜',
+    ),
+    CloudFont(
+      'xiaolai',
+      '小赖字体 · 手写体',
+      '$_github/lxgw/kose-font/releases/download/v3.126/Xiaolai-Regular.ttf',
+      '$_rawGithub/lxgw/kose-font/v3.126/OFL.txt',
+      source: '落霞孤鹜',
     ),
   ];
   static const maxSize = 64 * 1024 * 1024;
@@ -85,6 +146,30 @@ class ReaderFonts {
     }
     if (!tables.containsAll(['cmap', 'head', 'hhea', 'hmtx', 'maxp', 'name'])) {
       throw const SourceException('字体缺少必要资源表');
+    }
+  }
+
+  static Uint8List _unpack(CloudFont font, Uint8List bytes) {
+    final path = font.archivePath;
+    if (path == null) return bytes;
+    try {
+      final archive = ZipDecoder().decodeBytes(bytes);
+      final file = archive.findFile(path);
+      if (file == null || !file.isFile || file.isSymbolicLink) {
+        throw const SourceException('字体压缩包缺少所需字体');
+      }
+      if (file.size < 12 || file.size > maxSize) {
+        throw const SourceException('字体文件大小无效');
+      }
+      final content = file.content;
+      if (content.length != file.size || getCrc32(content) != file.crc32) {
+        throw const SourceException('字体压缩包损坏，请重试');
+      }
+      return content;
+    } on SourceException {
+      rethrow;
+    } catch (_) {
+      throw const SourceException('字体压缩包损坏，请重试');
     }
   }
 
@@ -185,7 +270,10 @@ class ReaderFonts {
         // Missing or damaged cache can be downloaded again.
       }
       client = _client = clientFactory();
-      final bytes = await _fetch(client, option.download, maxSize, onProgress);
+      final bytes = _unpack(
+        option,
+        await _fetch(client, option.download, maxSize, onProgress),
+      );
       validate(bytes);
       final license = await _fetch(client, option.license, 128 * 1024, null);
       if (!utf8.decode(license).contains('SIL OPEN FONT LICENSE')) {

@@ -93,8 +93,8 @@ void main() {
     }
 
     expect((await open()).enabledSearchSources.map((s) => s.id), [
-      'sfacg',
       'fanqie',
+      'sfacg',
     ]);
     await File('${root.path}/index.json').writeAsString(
       jsonEncode({
@@ -105,11 +105,11 @@ void main() {
       }),
     );
     final legacy = await open();
-    expect(legacy.enabledSearchSources.map((s) => s.id), ['sfacg', 'fanqie']);
+    expect(legacy.enabledSearchSources.map((s) => s.id), ['fanqie', 'sfacg']);
     await legacy.setSearchSourceEnabled('sfacg', false);
     final restored = await open(extra: true);
     expect(restored.enabledSearchSources.map((s) => s.id), ['fanqie', 'new']);
-    expect(restored.searchSources.map((s) => s.id), ['sfacg', 'fanqie', 'new']);
+    expect(restored.searchSources.map((s) => s.id), ['fanqie', 'sfacg', 'new']);
     expect(restored.books.single.title, '故事');
     expect(restored.progress['sfacg:1'], [2, 3]);
     await restored.setSearchSourceEnabled('fanqie', false);

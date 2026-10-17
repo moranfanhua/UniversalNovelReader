@@ -39,6 +39,7 @@ class LogEntry {
   bool get authentication =>
       event.startsWith('session.') ||
       event.startsWith('session_helper.') ||
+      event.startsWith('ciweimao.auth_') ||
       event.startsWith('fanqie.auth_') ||
       event == 'http.fanqie.auth';
 
@@ -53,6 +54,11 @@ class LogEntry {
         'http.fanqie': '番茄请求完成',
         'http.fanqie.app': '番茄 App 请求完成',
         'http.fanqie.auth': '番茄认证请求完成',
+        'http.ciweimao': '刺猬猫请求完成',
+        'ciweimao.response_invalid': '刺猬猫响应解析失败',
+        'ciweimao.request_rejected': '刺猬猫请求被拒绝',
+        'ciweimao.auth_response_invalid': '刺猬猫认证响应解析失败',
+        'ciweimao.auth_rejected': '刺猬猫认证未通过',
         'sfacg.response_invalid': '菠萝包响应解析失败',
         'sfacg.request_rejected': '菠萝包请求被拒绝',
         'fanqie.response_invalid': '番茄响应解析失败',
@@ -64,6 +70,8 @@ class LogEntry {
         'session.fanqie.restore_failed': '番茄会话恢复失败',
         'session.fanqie.device_restore_failed': '番茄设备信息恢复失败',
         'session.fanqie.save_failed': '番茄会话保存失败',
+        'session.ciweimao.restore_failed': '刺猬猫会话恢复失败',
+        'session.ciweimao.save_failed': '刺猬猫会话保存失败',
         'session_helper.idle': '会话辅助已就绪',
         'session_helper.starting': '正在启动会话辅助',
         'session_helper.capturing': '会话辅助正在运行',
@@ -81,6 +89,7 @@ class LogEntry {
         'search.failed': '搜索失败',
         'book.open_failed': '作品打开失败',
         'book.refresh_failed': '作品刷新失败',
+        'bookshelf.update_failed': '书架作品自动更新失败',
         'import.failed': '小说导入失败',
         'export.failed': '小说导出失败',
         'log.operation_failed': '日志操作失败',
@@ -111,10 +120,13 @@ String logModuleName(String module) =>
       'app': '应用',
       'http.sfacg': '菠萝包网络',
       'http.fanqie': '番茄网络',
+      'http.ciweimao': '刺猬猫网络',
       'sfacg': '菠萝包',
       'fanqie': '番茄',
+      'ciweimao': '刺猬猫',
       'session.sfacg': '菠萝包会话',
       'session.fanqie': '番茄会话',
+      'session.ciweimao': '刺猬猫会话',
       'session_helper': '会话辅助',
       'storage': '本地存储',
       'reader': '阅读器',

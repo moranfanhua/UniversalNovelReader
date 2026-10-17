@@ -368,10 +368,17 @@ class Ebook {
     );
   }
 
+  static String? _sourceUrl(Book book) => switch (book.source) {
+    'sfacg' => 'https://book.sfacg.com/Novel/${book.id}/',
+    'ciweimao' => 'https://www.ciweimao.com/book/${book.id}',
+    _ => null,
+  };
+
   static Uint8List exportTxt(Book book, Map<String, ChapterContent> contents) {
     final out = StringBuffer('${book.title}\n作者：${book.author}\n');
-    if (book.source == 'sfacg') {
-      out.writeln('来源：https://book.sfacg.com/Novel/${book.id}/');
+    final sourceUrl = _sourceUrl(book);
+    if (sourceUrl != null) {
+      out.writeln('来源：$sourceUrl');
     }
     for (final chapter in book.chapters) {
       final c = contents[chapter.id];
@@ -485,7 +492,7 @@ class Ebook {
     zip.addFile(
       ArchiveFile.string(
         'OEBPS/content.opf',
-        '<?xml version="1.0" encoding="UTF-8"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="bookid"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="bookid">urn:unr:${_xml(book.key)}</dc:identifier><dc:title>${_xml(title)}</dc:title><dc:creator>${_xml(book.author)}</dc:creator><dc:description>${_xml(book.description)}</dc:description><dc:language>zh-CN</dc:language>${book.source == 'sfacg' ? '<dc:source>https://book.sfacg.com/Novel/${_xml(book.id)}/</dc:source>' : ''}<meta property="dcterms:modified">${DateTime.now().toUtc().toIso8601String().split('.').first}Z</meta></metadata><manifest>$manifest</manifest><spine>$spine</spine></package>',
+        '<?xml version="1.0" encoding="UTF-8"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="bookid"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="bookid">urn:unr:${_xml(book.key)}</dc:identifier><dc:title>${_xml(title)}</dc:title><dc:creator>${_xml(book.author)}</dc:creator><dc:description>${_xml(book.description)}</dc:description><dc:language>zh-CN</dc:language>${_sourceUrl(book) != null ? '<dc:source>${_xml(_sourceUrl(book)!)}</dc:source>' : ''}<meta property="dcterms:modified">${DateTime.now().toUtc().toIso8601String().split('.').first}Z</meta></metadata><manifest>$manifest</manifest><spine>$spine</spine></package>',
       ),
     );
     return Uint8List.fromList(ZipEncoder().encode(zip));

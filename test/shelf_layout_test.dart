@@ -131,12 +131,12 @@ void main() {
     expect(tester.takeException(), isNull);
   }, variant: platforms);
 
-  testWidgets('常见手机宽度每行三本，封面和文字等比例缩小', (tester) async {
+  testWidgets('手机宫格每行三本占满可用宽度，封面和文字等比例缩放', (tester) async {
     viewport(tester, width: 360);
     final model = library()
       ..books.addAll(List.generate(6, (i) => shelfBook('$i', '作品$i')));
     await tester.pumpWidget(UnrApp(library: model));
-    for (final width in [320.0, 360.0, 390.0]) {
+    for (final width in [320.0, 360.0, 390.0, 412.0, 480.0, 599.0]) {
       tester.view.physicalSize = Size(width, 900);
       await tester.pumpAndSettle();
       Rect cover(int index) => tester.getRect(
@@ -151,9 +151,12 @@ void main() {
           fourth = cover(3);
       expect(first.top, closeTo(second.top, .01));
       expect(first.top, closeTo(third.top, .01));
-      expect(third.right, lessThanOrEqualTo(width));
+      expect(first.left, closeTo(20, .01));
+      expect(width - third.right, closeTo(first.left, .01));
+      expect(second.left - first.right, closeTo(12, .01));
+      expect(third.left - second.right, closeTo(12, .01));
       expect(fourth.top, greaterThan(first.bottom));
-      expect(first.width, lessThanOrEqualTo(100));
+      expect(first.width, closeTo((width - 40 - 24) / 3, .01));
       expect(first.height / first.width, closeTo(1.5, .01));
       final title = tester.widget<Text>(
         find.descendant(
@@ -162,6 +165,29 @@ void main() {
         ),
       );
       expect(title.style!.fontSize! / 13, closeTo(first.width / 150, .01));
+      expect(tester.takeException(), isNull);
+    }
+  });
+
+  testWidgets('手机书架不足三本时保持三列尺寸并左对齐', (tester) async {
+    viewport(tester, width: 412);
+    final model = library()
+      ..books.addAll(List.generate(3, (i) => shelfBook('$i', '作品$i')));
+    await tester.pumpWidget(UnrApp(library: model));
+    for (final count in [3, 2, 1]) {
+      model.books.removeRange(count, model.books.length);
+      await model.save();
+      await tester.pumpAndSettle();
+      for (var i = 0; i < count; i++) {
+        final cover = tester.getRect(
+          find.descendant(
+            of: find.byKey(ValueKey('shelf-book-sfacg:$i')),
+            matching: find.byType(BookCover),
+          ),
+        );
+        expect(cover.width, closeTo(116, .01));
+        expect(cover.left, closeTo(20 + i * (116 + 12), .01));
+      }
       expect(tester.takeException(), isNull);
     }
   });
@@ -241,10 +267,12 @@ void main() {
     expect(tester.takeException(), isNull);
   }, variant: platforms);
 
-  testWidgets('窄屏和放大文字时两种显示方式不溢出', (tester) async {
+  testWidgets('手机和宽屏放大文字时，长书名在两种显示方式下均不溢出', (tester) async {
     viewport(tester, width: 320);
     final model = library()
-      ..books.add(shelfBook('1', '很长的作品名称需要换行显示并且不造成界面溢出'));
+      ..books.addAll(
+        List.generate(6, (i) => shelfBook('$i', '很长的作品名称需要换行显示并且不造成界面溢出$i')),
+      );
     await tester.pumpWidget(
       MaterialApp(
         home: MediaQuery(
@@ -253,10 +281,16 @@ void main() {
         ),
       ),
     );
-    await tester.pumpAndSettle();
-    expect(tester.takeException(), isNull);
-    await tester.tap(find.byTooltip('切换为列表'));
-    await tester.pumpAndSettle();
-    expect(tester.takeException(), isNull);
+    for (final width in [320.0, 412.0, 599.0, 600.0, 1400.0]) {
+      tester.view.physicalSize = Size(width, 900);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      await tester.tap(find.byTooltip('切换为列表'));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      await tester.tap(find.byTooltip('切换为宫格'));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    }
   });
 }

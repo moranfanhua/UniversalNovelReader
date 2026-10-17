@@ -496,7 +496,10 @@ void main() {
         expect(request.url.host, 'api.sfacg.com');
         expect(request.url.path, '/Chaps/8016101');
         expect(request.url.queryParameters['autoOrder'], 'false');
-        expect(request.url.queryParameters['expand'], 'content,expand.content');
+        expect(
+          request.url.queryParameters['expand'],
+          'content,needFireMoney,originNeedFireMoney,tsukkomi,chatlines,isbranch,isContentEncrypted,authorTalk',
+        );
         expect(request.headers['User-Agent'], contains('boluobao/5.2.16'));
         expect(
           request.headers['sfsecurity'],
