@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -37,11 +38,70 @@ class FormatTests(unittest.TestCase):
         ).strip()
 
     def write(self, name, text):
-        (self.root / name).write_text(text, encoding="utf-8")
+        (self.root / name).write_text(text, encoding="utf-8", newline="\n")
 
     def commit(self):
         self.git("add", "--all")
         self.git("commit", "-m", "test fixture")
+
+    def run_workflow_step(self, name):
+        powershell = shutil.which("pwsh")
+        if not powershell:
+            self.skipTest("验证格式化工作流需要 PowerShell 7")
+        workflow = Path(__file__).resolve().parents[2] / "workflows/format.yml"
+        step = workflow.read_text(encoding="utf-8").split(f"      - name: {name}\n", 1)[1]
+        block = step.split("        run: |\n", 1)[1]
+        lines = []
+        for line in block.splitlines():
+            if line and not line.startswith("          "):
+                break
+            lines.append(line[10:])
+        script = self.root / "workflow-step.ps1"
+        script.write_text("$ErrorActionPreference = 'Stop'\n" + "\n".join(lines), encoding="utf-8")
+        return subprocess.run(
+            [powershell, "-NoProfile", "-File", str(script)],
+            cwd=self.root, env={**self.git_env, "GITHUB_OUTPUT": str(self.root / "step-output")},
+            capture_output=True, text=True, encoding="utf-8", timeout=30,
+        )
+
+    def test_workflow_reports_clean_runs_and_accepts_only_staged_tracked_dart(self):
+        result = self.run_workflow_step("Stage only tracked Dart changes")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual((self.root / "step-output").read_text(encoding="utf-8"), "changed=false\n")
+        result = self.run_workflow_step("Verify only tracked Dart changes will be submitted")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+        self.write("keep.dart", "void main() { print(1); }\n")
+        self.write("ignored.dart", "generated file")
+        result = self.run_workflow_step("Stage only tracked Dart changes")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue((self.root / "step-output").read_text(encoding="utf-8").endswith("changed=true\n"))
+        self.assertEqual(self.git("diff", "--cached", "--name-only"), "keep.dart")
+        result = self.run_workflow_step("Verify only tracked Dart changes will be submitted")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_workflow_rejects_non_dart_changes_after_validation(self):
+        self.write("keep.dart", "void main() { print(1); }\n")
+        self.git("add", "--update", "--", "*.dart")
+        self.write(".gitignore", "ignored.dart\nother-generated-file\n")
+        for staged in (False, True):
+            with self.subTest(staged=staged):
+                if staged:
+                    self.git("add", "--", ".gitignore")
+                result = self.run_workflow_step("Verify only tracked Dart changes will be submitted")
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                expected = "暂存区包含非 Dart 变更" if staged else "验证期间产生了额外变更"
+                self.assertIn(expected, result.stderr)
+
+    def test_workflow_rejects_untracked_dart_instead_of_adding_it_to_the_pr(self):
+        self.write("keep.dart", "void main() { print(1); }\n")
+        self.write("untracked.dart", "void main() {}\n")
+        result = self.run_workflow_step("Stage only tracked Dart changes")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.git("diff", "--cached", "--name-only"), "keep.dart")
+        result = self.run_workflow_step("Verify only tracked Dart changes will be submitted")
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("存在未跟踪 Dart 文件", result.stderr)
 
     def test_changed_files_include_renames_and_unusual_names_but_skip_deletions(self):
         self.write("keep.dart", "void main() { print(1); }\n")
