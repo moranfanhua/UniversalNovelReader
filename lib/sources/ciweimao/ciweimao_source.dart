@@ -3,18 +3,16 @@ import 'dart:convert';
 import '../../domain/models.dart';
 import '../chapter_batch_source.dart';
 import '../novel_source.dart';
-import 'ciweimao_api.dart';
 import 'ciweimao_bookshelf.dart';
+import 'ciweimao_comments.dart';
 import 'ciweimao_content.dart';
 import 'ciweimao_crypto.dart';
 import 'ciweimao_parser.dart';
 
-class CiweimaoSource
+class CiweimaoSource extends CiweimaoComments
     with CiweimaoBookshelf
     implements SearchableNovelSource, ChapterBatchSource {
-  CiweimaoSource(this.api);
-  @override
-  final CiweimaoApi api;
+  CiweimaoSource(super.api);
   @override
   String get id => 'ciweimao';
   @override

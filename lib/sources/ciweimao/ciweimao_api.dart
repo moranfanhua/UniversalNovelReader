@@ -129,6 +129,9 @@ class CiweimaoApi {
     bool write = false,
   }) async {
     final current = session ?? await ensureSession();
+    if (session == null && !identical(current, _credentials)) {
+      throw const SourceException('刺猬猫账号已切换，请重试');
+    }
     final generation = _generation;
     final result = await _send(path, params, session: current, write: write);
     checkSession(generation);

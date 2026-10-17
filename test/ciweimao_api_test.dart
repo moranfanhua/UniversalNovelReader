@@ -21,6 +21,20 @@ http.Response ok(Object? data, {String code = '100000'}) => http.Response(
 );
 
 void main() {
+  test('请求在等待会话的微任务间隙切换账号时，不使用旧凭据发送请求', () async {
+    var calls = 0;
+    final api = CiweimaoApi(
+      client: MockClient((_) async {
+        calls++;
+        return ok({});
+      }),
+    )..restoreSession(session());
+    addTearDown(api.close);
+    final pending = api.request('reader/get_my_info', {});
+    api.restoreSession(session(id: '107'));
+    await expectLater(pending, throwsA(isA<SourceException>()));
+    expect(calls, 0);
+  });
   test('当前 APK 签名与独立 Python HMAC 向量一致，值仅编码一次', () {
     final body = CiweimaoCrypto.form({
       'account': 'synthetic+account',

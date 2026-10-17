@@ -44,6 +44,9 @@ class CiweimaoAuth {
     _resendAt = api.clock().add(const Duration(seconds: 60));
     final generation = _generation;
     final session = await api.ensureSession();
+    if (!identical(session, api.credentials)) {
+      throw const SourceException('刺猬猫账号已切换，请重试');
+    }
     final sessionGeneration = api.sessionGeneration;
     _check(generation, sessionGeneration);
     final timestamp = '${api.clock().millisecondsSinceEpoch}';
@@ -101,6 +104,9 @@ class CiweimaoAuth {
   ) async {
     final generation = _generation;
     final session = await api.ensureSession();
+    if (!identical(session, api.credentials)) {
+      throw const SourceException('刺猬猫账号已切换，请重试');
+    }
     final sessionGeneration = api.sessionGeneration;
     _check(generation, sessionGeneration);
     final data = await api.request(path, params, session: session, write: true);
