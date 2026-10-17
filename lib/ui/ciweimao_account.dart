@@ -146,7 +146,7 @@ class _CiweimaoAccountPageState extends State<CiweimaoAccountPage> {
           padding: const EdgeInsets.all(24),
           children: [
             Text(widget.api.hasSession ? '已保存刺猬猫登录会话' : '未登录 · 可阅读免费正文及公开段评'),
-            const SizedBox(height: 20),
+            const SizedBox(height: 12),
             if (widget.method == null)
               AccountLoginMethodList(
                 onPassword: busy

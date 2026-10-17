@@ -76,7 +76,7 @@ class QidianAuth {
     final code = int.tryParse('${doc['code']}');
     if (response.statusCode != 200 || code != 0) {
       throw SourceException(
-        '起点登录请求失败，请检查验证码或稍后重试（${code ?? response.statusCode}）',
+        '起点登录请求失败，请检查登录信息或稍后重试（${code ?? response.statusCode}）',
         code: code ?? response.statusCode,
       );
     }
@@ -208,6 +208,71 @@ class QidianAuth {
     } finally {
       _busy = false;
     }
+  }
+
+  Future<QidianCredentials> loginPassword(
+    String account,
+    String password,
+  ) async {
+    if (account.trim().isEmpty) throw const SourceException('请输入起点账号');
+    final encrypted = QidianCrypto.encryptPassword(password);
+    if (_busy) throw const SourceException('登录请求进行中，请稍候');
+    _busy = true;
+    final generation = ++_generation;
+    try {
+      final data = await _request('staticlogin', {
+        'username': account.trim(),
+        'password': encrypted,
+      });
+      _checkActive(generation);
+      if (_nextAction(data) != 0) {
+        throw const SourceException('起点要求额外安全验证，请在官方 App 完成后导入会话，或使用手机号验证码登录');
+      }
+      return await _validateCredentials(data, generation);
+    } finally {
+      _busy = false;
+    }
+  }
+
+  Future<QidianCredentials> importSession(String input) async {
+    Map<String, dynamic> data;
+    try {
+      final decoded = jsonDecode(input);
+      if (decoded is! Map) throw const FormatException();
+      final nested = decoded['credentials'] ?? decoded['data'] ?? decoded;
+      if (nested is! Map) throw const FormatException();
+      data = Map<String, dynamic>.from(nested);
+    } catch (_) {
+      throw const SourceException('请输入有效的起点 App 会话 JSON');
+    }
+    if (_busy) throw const SourceException('登录请求进行中，请稍候');
+    _busy = true;
+    final generation = ++_generation;
+    try {
+      return await _validateCredentials(data, generation);
+    } finally {
+      _busy = false;
+    }
+  }
+
+  Future<QidianCredentials> _validateCredentials(
+    Map<String, dynamic> data,
+    int generation,
+  ) async {
+    final guid = '${data['ywGuid'] ?? ''}', key = '${data['ywKey'] ?? ''}';
+    if (!RegExp(r'^[1-9]\d*$').hasMatch(guid) ||
+        key.isEmpty ||
+        RegExp(r'[\s;,\x00-\x1f\x7f]').hasMatch(key)) {
+      throw const SourceException('起点 App 会话需要有效的 ywGuid 和 ywKey');
+    }
+    final candidate = QidianApi(
+      client: api.client,
+      device: api.device,
+      clock: api.clock,
+    );
+    final credentials = await candidate.validateLogin(guid, key);
+    _checkActive(generation);
+    return credentials;
   }
 
   void clear() {

@@ -76,15 +76,20 @@ void main() {
 
     await tester.tap(find.text('菠萝包轻小说'));
     await tester.pumpAndSettle();
-    expect(find.text('已保存登录会话'), findsOneWidget);
+    expect(find.text('已保存菠萝包登录会话'), findsOneWidget);
     expect(find.text('选择登录方式'), findsOneWidget);
     expect(find.text('账号密码登录'), findsOneWidget);
     expect(find.text('退出登录'), findsOneWidget);
     await tester.tap(find.text('账号密码登录'));
     await tester.pumpAndSettle();
     expect(find.text('登录菠萝包'), findsOneWidget);
-    expect(find.text('导入 App 会话'), findsOneWidget);
+    expect(find.text('验证并保存会话'), findsNothing);
     expect(find.text('打开官网登录'), findsNothing);
+    await tester.tap(find.byType(BackButton));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('导入会话'));
+    await tester.pumpAndSettle();
+    expect(find.text('验证并保存会话'), findsOneWidget);
     await tester.tap(find.byType(BackButton));
     await tester.pumpAndSettle();
     await tester.tap(find.byType(BackButton));

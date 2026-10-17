@@ -322,7 +322,7 @@ void main() {
     expect(value.books.single, same(preview));
     expect(value.lastActiveTimes, isEmpty);
     expect(find.byType(ReaderPage), findsNothing);
-    expect(find.text('搜索书名或作者，也可粘贴作品 ID、链接'), findsOneWidget);
+    expect(find.text('搜索书名或作者'), findsOneWidget);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
   }, variant: platforms);

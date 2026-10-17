@@ -9,6 +9,7 @@ import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
 import 'package:pinyin/pinyin.dart';
 import '../domain/models.dart';
+import '../sources/source_order.dart';
 import '../domain/reading_preferences.dart';
 import '../domain/bookshelf.dart';
 import '../sources/bookshelf_source.dart';
@@ -57,15 +58,16 @@ class Library extends ChangeNotifier {
        };
   final Map<String, NovelSource> _novelSources;
   NovelSource? sourceFor(Book book) => _novelSources[book.source];
-  List<SearchableNovelSource> get searchSources =>
-      _novelSources.values.whereType<SearchableNovelSource>().toList();
+  List<SearchableNovelSource> get searchSources => platformDisplayOrder(
+    _novelSources.values.whereType<SearchableNovelSource>(),
+  );
   final Set<String> _disabledSearchSources = {};
   bool isSearchSourceEnabled(String id) => !_disabledSearchSources.contains(id);
   List<SearchableNovelSource> get enabledSearchSources => searchSources
       .where((source) => isSearchSourceEnabled(source.id))
       .toList();
   List<BookshelfSource> get bookshelfSources =>
-      _novelSources.values.whereType<BookshelfSource>().toList();
+      platformDisplayOrder(_novelSources.values.whereType<BookshelfSource>());
   String sourceName(Book book) =>
       sourceFor(book)?.name ?? (book.source == 'local' ? '本地小说' : '未知书源');
   final Map<String, CommentSource> _commentSources;

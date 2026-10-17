@@ -55,15 +55,23 @@ void main() {
     WidgetTester tester,
     ImmersiveLibrary library, {
     int chapter = 0,
+    double width = 360,
+    double textScale = 1,
   }) async {
     tester.view.devicePixelRatio = 1;
-    tester.view.physicalSize = const Size(360, 640);
+    tester.view.physicalSize = Size(width, 640);
     addTearDown(tester.view.resetDevicePixelRatio);
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(library.dispose);
     addTearDown(library.source.api.close);
     await tester.pumpWidget(
       MaterialApp(
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(
+            context,
+          ).copyWith(textScaler: TextScaler.linear(textScale)),
+          child: child!,
+        ),
         home: ReaderPage(library: library, book: book, initialChapter: chapter),
       ),
     );
@@ -77,64 +85,54 @@ void main() {
   }
 
   for (final mode in ReadingMode.values) {
-    testWidgets(
-      '默认隐藏菜单，手机点击中央切换且正文不移动（${mode.name}）',
-      (tester) async {
-        final library = ImmersiveLibrary()..readingMode = mode;
-        await open(tester, library);
-        expect(find.byType(AppBar), findsNothing);
-        expect(find.text('下一章'), findsNothing);
-        final area = tester.getRect(find.byType(ReadingTapZones));
-        final page = mode == ReadingMode.paged
-            ? readingPager(tester).page
-            : null;
-        final reader = tester.state(find.byType(ReaderPage)) as dynamic;
-        final position = (
-          reader.chapter,
-          reader.paragraph,
-          reader.characterOffset,
-        );
-        await center(tester);
-        expect(find.byType(AppBar), findsOneWidget);
-        expect(find.text('下一章'), findsOneWidget);
-        expect(tester.getRect(find.byType(ReadingTapZones)), area);
-        if (page != null) expect(readingPager(tester).page, page);
-        expect((
-          reader.chapter,
-          reader.paragraph,
-          reader.characterOffset,
-        ), position);
-        expect(find.textContaining(RegExp(r'^第 .* 页')), findsNothing);
-        expect(find.text('1 / 3'), findsNothing);
-        await center(tester);
-        expect(find.byType(AppBar), findsNothing);
-        expect(find.text('下一章'), findsNothing);
-        await tester.pumpWidget(const SizedBox.shrink());
-        expect(tester.takeException(), isNull);
-      },
-      variant: TargetPlatformVariant.only(TargetPlatform.android),
-    );
+    testWidgets('默认隐藏菜单，手机点击中央切换且正文不移动（${mode.name}）', (tester) async {
+      final library = ImmersiveLibrary()..readingMode = mode;
+      await open(tester, library);
+      expect(find.byType(AppBar), findsNothing);
+      expect(find.text('下一章'), findsNothing);
+      final area = tester.getRect(find.byType(ReadingTapZones));
+      final page = mode == ReadingMode.paged ? readingPager(tester).page : null;
+      final reader = tester.state(find.byType(ReaderPage)) as dynamic;
+      final position = (
+        reader.chapter,
+        reader.paragraph,
+        reader.characterOffset,
+      );
+      await center(tester);
+      expect(find.byType(AppBar), findsOneWidget);
+      expect(find.text('下一章'), findsOneWidget);
+      expect(tester.getRect(find.byType(ReadingTapZones)), area);
+      if (page != null) expect(readingPager(tester).page, page);
+      expect((
+        reader.chapter,
+        reader.paragraph,
+        reader.characterOffset,
+      ), position);
+      expect(find.textContaining(RegExp(r'^第 .* 页')), findsNothing);
+      expect(find.text('1 / 3'), findsNothing);
+      await center(tester);
+      expect(find.byType(AppBar), findsNothing);
+      expect(find.text('下一章'), findsNothing);
+      await tester.pumpWidget(const SizedBox.shrink());
+      expect(tester.takeException(), isNull);
+    }, variant: TargetPlatformVariant.only(TargetPlatform.android));
   }
 
-  testWidgets(
-    '桌面 Esc 切换菜单，隐藏时仍可用方向键翻页',
-    (tester) async {
-      final library = ImmersiveLibrary()..readingMode = ReadingMode.paged;
-      await open(tester, library);
-      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
-      await tester.pumpAndSettle();
-      expect(readingPager(tester).page, 1);
-      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
-      await tester.pumpAndSettle();
-      expect(find.byType(AppBar), findsOneWidget);
-      expect(readingPager(tester).page, 1);
-      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
-      await tester.pumpAndSettle();
-      expect(find.byType(AppBar), findsNothing);
-      await tester.pumpWidget(const SizedBox.shrink());
-    },
-    variant: TargetPlatformVariant.only(TargetPlatform.windows),
-  );
+  testWidgets('桌面 Esc 切换菜单，隐藏时仍可用方向键翻页', (tester) async {
+    final library = ImmersiveLibrary()..readingMode = ReadingMode.paged;
+    await open(tester, library);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await tester.pumpAndSettle();
+    expect(readingPager(tester).page, 1);
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    expect(find.byType(AppBar), findsOneWidget);
+    expect(readingPager(tester).page, 1);
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    expect(find.byType(AppBar), findsNothing);
+    await tester.pumpWidget(const SizedBox.shrink());
+  }, variant: TargetPlatformVariant.only(TargetPlatform.windows));
 
   testWidgets('完整缓存按全书累计页码，跨章不重置为一', (tester) async {
     final library = ImmersiveLibrary()..readingMode = ReadingMode.paged;
@@ -168,5 +166,67 @@ void main() {
     expect(library.reads, ['1']);
     await tester.pumpWidget(const SizedBox.shrink());
     expect(tester.takeException(), isNull);
+  });
+
+  for (final mode in ReadingMode.values) {
+    for (final width in [360.0, 1280.0]) {
+      testWidgets('进度滑条在 $mode / $width 跳转章内页并拖至全书两端', (tester) async {
+        final library = ImmersiveLibrary()..readingMode = mode;
+        await open(tester, library, width: width);
+        await showReadingControls(tester);
+        await tester.pumpAndSettle();
+        final sliderFinder = find.byKey(const ValueKey('book-progress-slider'));
+        final slider = tester.widget<Slider>(sliderFinder);
+        final target = ((slider.max - 2) / 2).roundToDouble();
+        expect(target, greaterThan(1));
+        slider.onChangeStart!(slider.value);
+        slider.onChanged!(target);
+        await tester.pump();
+        tester.widget<Slider>(sliderFinder).onChangeEnd!(target);
+        await tester.pumpAndSettle();
+        expect(tester.widget<Slider>(sliderFinder).value, greaterThan(1));
+        expect(library.progress[book.key]!.first, 0);
+        final toolbar = tester.getRect(
+          find.byKey(const ValueKey('reader-bottom-toolbar')),
+        );
+        final appBar = tester.getRect(find.byType(AppBar));
+        expect(toolbar.height, appBar.height);
+        expect(toolbar.width, appBar.width);
+
+        Future<void> dragTo(bool end) async {
+          final rect = tester.getRect(sliderFinder);
+          final gesture = await tester.startGesture(rect.center);
+          await gesture.moveTo(
+            Offset(end ? rect.right - 12 : rect.left + 12, rect.center.dy),
+          );
+          await gesture.up();
+          await tester.pumpAndSettle();
+        }
+
+        await dragTo(true);
+        expect(library.progress[book.key]!.first, 2);
+        await dragTo(false);
+        expect(library.progress[book.key], [0, 0]);
+        expect(tester.widget<Slider>(sliderFinder).value, 1);
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox.shrink());
+      });
+    }
+  }
+
+  testWidgets('窄屏两倍文字的底栏保持工具栏高度并显示章节按钮', (tester) async {
+    final library = ImmersiveLibrary()..readingMode = ReadingMode.paged;
+    await open(tester, library, width: 320, textScale: 2);
+    await showReadingControls(tester);
+    expect(find.byTooltip('上一章'), findsOneWidget);
+    expect(find.byTooltip('下一章'), findsOneWidget);
+    expect(
+      tester
+          .getSize(find.byKey(const ValueKey('reader-bottom-toolbar')))
+          .height,
+      kToolbarHeight,
+    );
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
   });
 }

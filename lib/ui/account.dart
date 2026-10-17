@@ -54,7 +54,7 @@ class AccountSettingsPage extends StatelessWidget {
                           : source is FanqieSource
                           ? FanqieAccountPage(api: source.api)
                           : Scaffold(
-                              appBar: AppBar(title: Text(source.name)),
+                              appBar: AppBar(title: Text('${source.name}账号')),
                               body: AccountPage(library: library),
                             ),
                     ),
@@ -149,11 +149,9 @@ class _AccountPageState extends State<AccountPage> {
       child: ListView(
         padding: const EdgeInsets.all(24),
         children: [
-          Text('菠萝包账号', style: Theme.of(context).textTheme.titleLarge),
-          const SizedBox(height: 12),
           Text(
             widget.library.source.api.hasSession
-                ? '已保存登录会话'
+                ? '已保存菠萝包登录会话'
                 : '未登录 · 可阅读免费正文及公开段评',
           ),
           if (widget.library.source.api.websiteSession)
@@ -168,6 +166,9 @@ class _AccountPageState extends State<AccountPage> {
                   ? null
                   : () => _openMethod(AccountLoginMethod.password),
               onVpn: !SessionHelper.supported || busy ? null : _appLogin,
+              onImport: busy
+                  ? null
+                  : () => _openMethod(AccountLoginMethod.manual),
             ),
           if (widget.method == AccountLoginMethod.password) ...[
             TextField(
@@ -196,25 +197,26 @@ class _AccountPageState extends State<AccountPage> {
             const SizedBox(height: 8),
             Text('如需验证码或安全验证，请在官方 App 完成后使用 VPN 辅助或导入 App 会话。'),
           ],
-          if (widget.method != null)
-            ExpansionTile(
-              title: const Text('导入 App 会话'),
-              children: [
-                TextField(
-                  controller: cookie,
-                  obscureText: true,
-                  decoration: const InputDecoration(
-                    labelText: '.SFCommunity=…; session_APP=…',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                OutlinedButton(
-                  onPressed: busy ? null : () => authenticate(useCookie: true),
-                  child: const Text('验证并保存会话'),
-                ),
-              ],
+          if (widget.method == AccountLoginMethod.manual) ...[
+            const Text('导入官方 App 会话，验证成功后保存在本机安全存储中。'),
+            const SizedBox(height: 12),
+            TextField(
+              controller: cookie,
+              enabled: !busy,
+              obscureText: true,
+              autocorrect: false,
+              enableSuggestions: false,
+              decoration: const InputDecoration(
+                labelText: '.SFCommunity=…; session_APP=…',
+                border: OutlineInputBorder(),
+              ),
             ),
+            const SizedBox(height: 12),
+            FilledButton(
+              onPressed: busy ? null : () => authenticate(useCookie: true),
+              child: const Text('验证并保存会话'),
+            ),
+          ],
           if (busy) const LinearProgressIndicator(),
           if (message != null ||
               widget.library.source.api.sessionNotice != null)
