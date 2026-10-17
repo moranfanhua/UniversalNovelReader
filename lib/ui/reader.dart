@@ -1020,10 +1020,14 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
           child: Focus(
             autofocus: true,
             child: Scaffold(
+              // Comment sheets handle keyboard insets in their own routes.
+              // Keep the reading viewport stable to avoid repagination.
+              resizeToAvoidBottomInset: false,
               body: Stack(
                 fit: StackFit.expand,
                 children: [
                   SafeArea(
+                    maintainBottomViewPadding: true,
                     child: LayoutBuilder(
                       builder: (context, constraints) {
                         final layout = ChapterPageLayout(
