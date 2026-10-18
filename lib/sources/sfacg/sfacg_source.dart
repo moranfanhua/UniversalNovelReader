@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 
 import '../../domain/models.dart';
 import '../novel_source.dart';
+import '../source_verification.dart';
 import '../chapter_batch_source.dart';
 import '../bookshelf_source.dart';
 import 'sfacg_api.dart';
@@ -20,6 +21,7 @@ class SfacgSource extends CommentSource
         SearchableNovelSource,
         BookshelfSource,
         ChapterBatchSource,
+        VerifiableNovelSource,
         BookUpdateSource {
   SfacgSource(this.api, {Map<String, String>? cipher}) : cipher = cipher ?? {};
   final SfacgApi api;
@@ -36,6 +38,12 @@ class SfacgSource extends CommentSource
   String get id => 'sfacg';
   @override
   String get name => '菠萝包轻小说';
+  @override
+  bool get canVerifyAccess => api.hasSession;
+  @override
+  Future<SourceVerificationOutcome> verifyAccess(
+    SourceVerificationSolver solve,
+  ) => api.verifyAccess(solve);
   @override
   Future<List<RemoteBookshelf>> getShelves() async {
     _shelfPreviews.clear();

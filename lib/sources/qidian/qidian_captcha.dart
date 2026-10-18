@@ -1,11 +1,29 @@
 import '../../domain/models.dart';
+import '../source_verification.dart';
+import 'qidian_captcha_document.dart';
 
 /// YWLogin's nextAction=11 uses the Tencent captcha configured in the App.
-class QidianCaptchaChallenge {
+class QidianCaptchaChallenge
+    extends SourceVerificationChallenge<QidianCaptchaResult> {
   const QidianCaptchaChallenge({required this.expiresAt});
 
   static const appId = '1600000770';
+  @override
   final DateTime expiresAt;
+  @override
+  String get title => '起点安全验证';
+  @override
+  String get instruction => '请完成下方验证，通过后将继续获取短信验证码。';
+  @override
+  String get profileId => 'qidian';
+  @override
+  String get returnLabel => '返回登录';
+  @override
+  QidianCaptchaDocument createDocument(String nonce) =>
+      QidianCaptchaDocument(nonce);
+  @override
+  QidianCaptchaResult? parseResult(Object? value) =>
+      QidianCaptchaResult.fromCallback(value);
 }
 
 class QidianCaptchaResult {
