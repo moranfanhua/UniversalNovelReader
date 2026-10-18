@@ -2,10 +2,12 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
+import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:unr/data/library.dart';
+import 'package:unr/data/download_mirror.dart';
 import 'package:unr/data/reader_fonts.dart';
 import 'package:unr/domain/models.dart';
 import 'package:unr/sources/sfacg/sfacg_api.dart';
@@ -23,6 +25,15 @@ Uint8List engineTestFont() {
   throw StateError('找不到 Flutter 自带的 Ahem 测试字体');
 }
 
+List<int> fontDownload(CloudFont font, Uint8List bytes) =>
+    font.archivePath == null
+    ? bytes
+    : ZipEncoder().encode(
+        Archive()
+          ..add(ArchiveFile.string('unrelated.ttf', '不是字体'))
+          ..add(ArchiveFile.bytes(font.archivePath!, bytes)),
+      );
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   late Directory root;
@@ -32,54 +43,155 @@ void main() {
   tearDown(() async => root.delete(recursive: true));
   const id = 'noto-sans-sc';
   const license = 'Copyright test fixture\nSIL OPEN FONT LICENSE Version 1.1';
-  test('字体及许可下载后加载到 Flutter，离线重新打开可恢复阅读偏好', () async {
+  for (final option in ReaderFonts.catalog) {
+    test('${option.name} 下载加载后，离线重新打开可恢复阅读偏好', () async {
+      final id = option.id;
+      final bytes = engineTestFont();
+      final requests = <Uri>[];
+      final progress = <int>[];
+      final fonts = ReaderFonts(
+        Directory('${root.path}/fonts'),
+        clientFactory: () => MockClient((request) async {
+          requests.add(request.url);
+          expect(request.headers.containsKey('Cookie'), isFalse);
+          expect(request.headers.containsKey('Authorization'), isFalse);
+          if (request.url == DownloadMirror.defaults.resolve(option.download)) {
+            return http.Response.bytes(fontDownload(option, bytes), 200);
+          }
+          expect(request.url, DownloadMirror.defaults.resolve(option.license));
+          return http.Response(license, 200);
+        }),
+      );
+      final api = SfacgApi();
+      final library = Library(root, SfacgSource(api), fonts: fonts);
+      library.horizontalMargin = 38;
+      library.verticalMargin = 32;
+      library.lineHeight = 2.2;
+      await library.downloadFont(
+        id,
+        onProgress: (received, total) => progress.add(received),
+      );
+      expect(requests, [
+        DownloadMirror.defaults.resolve(option.download),
+        DownloadMirror.defaults.resolve(option.license),
+      ]);
+      expect(progress.last, fontDownload(option, bytes).length);
+      expect(library.readingFontFamily, startsWith('UNR_${id}_'));
+      expect(library.downloadedFonts, contains(id));
+      expect(await fonts.licenseText(id), license);
+      expect(await File('${root.path}/fonts/$id.ttf').readAsBytes(), bytes);
+      final offlineFonts = ReaderFonts(
+        Directory('${root.path}/fonts'),
+        clientFactory: () => throw StateError('不应联网'),
+      );
+      final reopened = await Library.open(
+        library.source,
+        directory: root,
+        fonts: offlineFonts,
+      );
+      expect(reopened.readingFontId, id);
+      expect(reopened.readingFontFamily, library.readingFontFamily);
+      expect(
+        [
+          reopened.horizontalMargin,
+          reopened.verticalMargin,
+          reopened.lineHeight,
+        ],
+        [38, 32, 2.2],
+      );
+      expect(await offlineFonts.download(id), library.readingFontFamily);
+      reopened.dispose();
+      library.dispose();
+      api.close();
+    });
+  }
+  for (final mirror in [
+    DownloadMirror(enabled: false),
+    DownloadMirror(baseUrl: 'https://mirror.example/proxy/'),
+  ]) {
+    test('字体和许可证使用同一下载配置（${mirror.enabled ? '自定义镜像' : '直连'}）', () async {
+      final option = ReaderFonts.font('chill-round-m');
+      final bytes = engineTestFont();
+      final requests = <Uri>[];
+      final fonts = ReaderFonts(
+        Directory('${root.path}/fonts'),
+        clientFactory: () => MockClient((request) async {
+          requests.add(request.url);
+          if (request.url == mirror.resolve(option.download)) {
+            return http.Response.bytes(fontDownload(option, bytes), 200);
+          }
+          expect(request.url, mirror.resolve(option.license));
+          return http.Response(license, 200);
+        }),
+      );
+      final api = SfacgApi();
+      addTearDown(api.close);
+      final library = Library(root, SfacgSource(api), fonts: fonts);
+      addTearDown(library.dispose);
+      await library.setDownloadMirror(mirror);
+      await library.downloadFont(option.id);
+      expect(requests, [
+        mirror.resolve(option.download),
+        mirror.resolve(option.license),
+      ]);
+      expect(await fonts.licenseText(option.id), license);
+      expect(library.readingFontId, option.id);
+    });
+  }
+  test('损坏、缺少指定字体或解压后过大的 ZIP 不落盘、不改变所选字体', () async {
+    final option = ReaderFonts.font('zhuque-fangsong');
     final bytes = engineTestFont();
-    final requests = <Uri>[];
-    final progress = <int>[];
-    final fonts = ReaderFonts(
-      Directory('${root.path}/fonts'),
-      clientFactory: () => MockClient((request) async {
-        requests.add(request.url);
-        expect(request.headers.containsKey('Cookie'), isFalse);
-        expect(request.headers.containsKey('Authorization'), isFalse);
-        return request.url.path.endsWith('.ttf')
-            ? http.Response.bytes(bytes, 200)
-            : http.Response(license, 200);
-      }),
+    final storedZip = ZipEncoder().encode(
+      Archive()
+        ..add(ArchiveFile.noCompress(option.archivePath!, bytes.length, bytes)),
     );
+    final damaged = Uint8List.fromList(storedZip);
+    final header = ByteData.sublistView(damaged);
+    final contentOffset =
+        30 +
+        header.getUint16(26, Endian.little) +
+        header.getUint16(28, Endian.little);
+    damaged[contentOffset + bytes.length - 1] ^= 1;
+    final oversized = Uint8List.fromList(storedZip);
+    final oversizedData = ByteData.sublistView(oversized);
+    oversizedData.setUint32(22, ReaderFonts.maxSize + 1, Endian.little);
+    for (var i = 0; i + 46 <= oversized.length; i++) {
+      if (oversizedData.getUint32(i, Endian.little) == 0x02014b50) {
+        oversizedData.setUint32(i + 24, ReaderFonts.maxSize + 1, Endian.little);
+        break;
+      }
+    }
     final api = SfacgApi();
-    final library = Library(root, SfacgSource(api), fonts: fonts);
-    library.horizontalMargin = 38;
-    library.verticalMargin = 32;
-    library.lineHeight = 2.2;
-    await library.downloadFont(
-      id,
-      onProgress: (received, total) => progress.add(received),
-    );
-    expect(requests.length, 2);
-    expect(progress.last, bytes.length);
-    expect(library.readingFontFamily, startsWith('UNR_noto-sans-sc_'));
-    expect(library.downloadedFonts, contains(id));
-    expect(await fonts.licenseText(id), license);
-    final offlineFonts = ReaderFonts(
-      Directory('${root.path}/fonts'),
-      clientFactory: () => throw StateError('不应联网'),
-    );
-    final reopened = await Library.open(
-      library.source,
-      directory: root,
-      fonts: offlineFonts,
-    );
-    expect(reopened.readingFontId, id);
-    expect(reopened.readingFontFamily, library.readingFontFamily);
-    expect(
-      [reopened.horizontalMargin, reopened.verticalMargin, reopened.lineHeight],
-      [38, 32, 2.2],
-    );
-    expect(await offlineFonts.download(id), library.readingFontFamily);
-    reopened.dispose();
-    library.dispose();
-    api.close();
+    addTearDown(api.close);
+    for (final payload in [
+      utf8.encode('<html>错误页</html>'),
+      ZipEncoder().encode(
+        Archive()..add(ArchiveFile.bytes('other.ttf', bytes)),
+      ),
+      fontDownload(option, Uint8List.fromList(utf8.encode('无效字体文件内容'))),
+      damaged,
+      oversized,
+    ]) {
+      final fonts = ReaderFonts(
+        Directory('${root.path}/fonts'),
+        clientFactory: () =>
+            MockClient((_) async => http.Response.bytes(payload, 200)),
+      );
+      final library = Library(root, SfacgSource(api), fonts: fonts)
+        ..readingFontFamily = 'current';
+      try {
+        await expectLater(
+          library.downloadFont(option.id),
+          throwsA(isA<SourceException>()),
+        );
+        expect(library.readingFontFamily, 'current');
+        expect(library.readingFontId, '');
+        expect(await fonts.available(), isEmpty);
+        expect(await root.list(recursive: true).toList(), isEmpty);
+      } finally {
+        library.dispose();
+      }
+    }
   });
   test('HTTP 错误或伪装成字体的 HTML 不保存字体、不改变所选字体', () async {
     final api = SfacgApi();

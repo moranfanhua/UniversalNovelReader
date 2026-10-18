@@ -27,11 +27,13 @@ class BookPageProgress extends StatefulWidget {
     required this.book,
     required this.position,
     required this.contents,
+    required this.onSeek,
   });
   final Library library;
   final Book book;
   final ValueListenable<ReaderPagePosition?> position;
   final Map<int, ChapterContent> contents;
+  final void Function(int chapter, int paragraph, int offset) onSeek;
   @override
   State<BookPageProgress> createState() => _BookPageProgressState();
 }
@@ -42,6 +44,64 @@ class _BookPageProgressState extends State<BookPageProgress> {
   int generation = 0;
   Book? metadata;
   bool metadataRequested = false;
+  double? dragPage;
+  List<int>? dragCounts;
+  bool seeking = false;
+
+  Future<void> _seek(double value, List<int> counts) async {
+    final position = widget.position.value;
+    if (position == null || seeking) return;
+    final token = generation;
+    var page = value.round() - 1;
+    var chapter = 0;
+    while (chapter < counts.length - 1 && page >= counts[chapter]) {
+      page -= counts[chapter++];
+    }
+    setState(() {
+      seeking = true;
+      dragPage = null;
+      dragCounts = null;
+    });
+    try {
+      var starts = stats[chapter]?.starts;
+      if (starts == null) {
+        // Only the chapter explicitly selected by the reader is fetched.
+        final content = await widget.library.read(
+          widget.book,
+          widget.book.chapters[chapter],
+        );
+        if (!mounted ||
+            token != generation ||
+            widget.position.value != position) {
+          return;
+        }
+        widget.contents[chapter] = content;
+        _index(chapter, content, position.layout);
+        starts = stats[chapter]!.starts;
+      }
+      if (!mounted ||
+          token != generation ||
+          widget.position.value != position ||
+          starts.isEmpty) {
+        return;
+      }
+      if (counts[chapter] != starts.length) {
+        page = counts[chapter] <= 1
+            ? 0
+            : (page / (counts[chapter] - 1) * (starts.length - 1)).round();
+      }
+      final (paragraph, offset) = starts[page.clamp(0, starts.length - 1)];
+      widget.onSeek(chapter, paragraph, offset);
+    } catch (error) {
+      if (mounted && token == generation) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('跳转失败，请重试：$error')));
+      }
+    } finally {
+      if (mounted) setState(() => seeking = false);
+    }
+  }
 
   @override
   void initState() {
@@ -52,7 +112,16 @@ class _BookPageProgressState extends State<BookPageProgress> {
 
   void _index(int index, ChapterContent content, ChapterPageLayout layout) {
     if (stats.containsKey(index)) return;
-    final pages = layout.paginate(content, widget.book.chapters[index].title);
+    final chapter = widget.book.chapters[index];
+    final pages = layout.paginate(
+      content,
+      chapter.title,
+      titleComments:
+          widget.library
+              .commentsFor(widget.book)
+              ?.chapterTitleParagraph(chapter) !=
+          null,
+    );
     stats[index] = (
       words: content.paragraphs.fold(0, (sum, p) => sum + p.text.runes.length),
       starts: [
@@ -68,6 +137,8 @@ class _BookPageProgressState extends State<BookPageProgress> {
     if (signature != position.layout.signature) {
       signature = position.layout.signature;
       stats.clear();
+      dragPage = null;
+      dragCounts = null;
       final token = ++generation;
       unawaited(_scan(position.layout, token));
     }
@@ -126,7 +197,14 @@ class _BookPageProgressState extends State<BookPageProgress> {
   @override
   Widget build(BuildContext context) {
     final position = widget.position.value;
-    if (position == null || stats.isEmpty) return const Text('—/—');
+    if (position == null || stats.isEmpty) {
+      return const Column(
+        children: [
+          Expanded(child: Slider(value: 0, onChanged: null)),
+          Text('—/—'),
+        ],
+      );
+    }
     final chapters = widget.book.chapters;
     final extra = {
       for (final c in metadata?.chapters ?? <Chapter>[]) c.id: c.wordCount,
@@ -150,15 +228,17 @@ class _BookPageProgressState extends State<BookPageProgress> {
     final average = unknown > 0 && totalWords != null
         ? math.max(0.0, (totalWords - knownWords) / unknown)
         : knownWords / math.max(1, words.length - unknown);
-    final counts = <int>[
-      for (var i = 0; i < chapters.length; i++)
-        if (i == position.chapter && position.localPages != null)
-          position.localPages!
-        else if (stats[i] != null)
-          stats[i]!.starts.length
-        else
-          math.max(1, ((words[i] ?? average) / perPage).ceil()),
-    ];
+    final counts =
+        dragCounts ??
+        <int>[
+          for (var i = 0; i < chapters.length; i++)
+            if (i == position.chapter && position.localPages != null)
+              position.localPages!
+            else if (stats[i] != null)
+              stats[i]!.starts.length
+            else
+              math.max(1, ((words[i] ?? average) / perPage).ceil()),
+        ];
     var local = position.localPage;
     if (local == null) {
       local = 1;
@@ -176,12 +256,50 @@ class _BookPageProgressState extends State<BookPageProgress> {
         (counts.take(position.chapter).fold(0, (a, b) => a + b) + (local ?? 1))
             .clamp(1, total);
     final estimated = stats.length != chapters.length;
-    return Text(
-      '$current/${estimated ? '约' : ''}$total',
-      key: const ValueKey('book-page-progress'),
-      textAlign: TextAlign.center,
-      semanticsLabel:
-          '${estimated ? '估算全书页码' : '全书页码'}，第 $current 页，共 $total 页',
+    final displayed = (dragPage?.round() ?? current).clamp(1, total);
+    return Column(
+      children: [
+        Expanded(
+          child: SliderTheme(
+            data: SliderTheme.of(context).copyWith(
+              trackHeight: 2,
+              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5),
+              overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
+            ),
+            child: Slider(
+              key: const ValueKey('book-progress-slider'),
+              min: 1,
+              max: total > 1 ? total.toDouble() : 2,
+              value: displayed.toDouble(),
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              semanticFormatterCallback: (value) =>
+                  '第 ${value.round()} 页，共 $total 页',
+              onChangeStart: seeking || total <= 1
+                  ? null
+                  : (_) => dragCounts = List.of(counts),
+              onChanged: seeking || total <= 1
+                  ? null
+                  : (value) => setState(() => dragPage = value),
+              onChangeEnd: seeking || total <= 1
+                  ? null
+                  : (value) => unawaited(_seek(value, dragCounts ?? counts)),
+            ),
+          ),
+        ),
+        SizedBox(
+          height: 20,
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              '$displayed/${estimated ? '约' : ''}$total',
+              key: const ValueKey('book-page-progress'),
+              textAlign: TextAlign.center,
+              semanticsLabel:
+                  '${estimated ? '估算全书页码' : '全书页码'}，第 $displayed 页，共 $total 页',
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

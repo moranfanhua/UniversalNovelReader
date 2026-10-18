@@ -327,12 +327,13 @@ class _DownloadDialogState extends State<DownloadDialog> {
   late final end = TextEditingController(
     text: '${widget.book.chapters.length}',
   );
-  bool running = false, cancelled = false;
+  bool running = false, cancelled = false, refreshCached = false;
   int done = 0, total = 0, success = 0;
   String status = '选择需要保存到本机的章节范围';
   final failures = <String>[];
   @override
   void dispose() {
+    cancelled = true;
     start.dispose();
     end.dispose();
     super.dispose();
@@ -355,21 +356,34 @@ class _DownloadDialogState extends State<DownloadDialog> {
       success = 0;
       total = to - from + 1;
       failures.clear();
+      status = '正在准备下载…';
     });
-    for (var i = from - 1; i < to; i++) {
-      if (cancelled) break;
-      final c = widget.book.chapters[i];
-      setState(() => status = c.title);
-      try {
-        final content = await widget.library.read(widget.book, c);
-        await widget.library.cacheImages(widget.book, content);
-        success++;
-      } catch (e) {
-        failures.add('${c.title}：$e');
-      }
+    try {
+      await widget.library.downloadChapters(
+        widget.book,
+        widget.book.chapters.sublist(from - 1, to),
+        isCancelled: () => cancelled || !mounted,
+        refreshCached: refreshCached,
+        onProgress: (chapter, error) {
+          if (!mounted) return;
+          setState(() {
+            done++;
+            status = '${chapter.title} · $done / $total';
+            if (error == null) {
+              success++;
+            } else {
+              failures.add('${chapter.title}：$error');
+            }
+          });
+        },
+      );
+    } catch (error) {
       if (!mounted) return;
-      setState(() => done++);
-      await Future<void>.delayed(const Duration(milliseconds: 120));
+      setState(() {
+        running = false;
+        status = '下载失败：$error';
+      });
+      return;
     }
     if (mounted) {
       setState(() {
@@ -421,8 +435,19 @@ class _DownloadDialogState extends State<DownloadDialog> {
                   child: LinearProgressIndicator(value: done / total),
                 ),
               const SizedBox(height: 12),
+              CheckboxListTile(
+                key: const ValueKey('refresh-cached-chapters'),
+                contentPadding: EdgeInsets.zero,
+                controlAffinity: ListTileControlAffinity.leading,
+                title: const Text('重新获取已缓存章节'),
+                value: refreshCached,
+                onChanged: running
+                    ? null
+                    : (value) => setState(() => refreshCached = value ?? false),
+              ),
               const Text(
-                '已缓存正文会继续使用。付费章节需要已有权限，失败章节可再次下载。',
+                '默认复用已缓存正文。旧版起点缓存需要重新获取才能使用段评；'
+                '获取失败会保留原正文和阅读进度。付费章节需要已有权限。',
                 style: TextStyle(fontSize: 12),
               ),
               for (final f in failures)

@@ -4,6 +4,7 @@ import '../domain/reading_preferences.dart';
 import 'reading_layout.dart';
 import 'text_pagination.dart';
 import 'reading_text_layout.dart';
+import 'reading_heading.dart';
 
 class ChapterPageLayout {
   ChapterPageLayout(
@@ -93,36 +94,42 @@ class ChapterPageLayout {
     textLayout.signature,
   );
 
-  double headingSpace(String title) {
-    final heading = TextPainter(
-      text: TextSpan(text: title, style: headingStyle),
-      textScaler: scaler,
-      textDirection: direction,
+  double headingSpace(String title, {bool titleComments = false}) {
+    final heading = ReadingHeading.measure(
+      text: title,
+      style: headingStyle,
+      width: width + commentRightInset,
+      rightInset: commentRightInset,
+      scaler: scaler,
+      direction: direction,
+      placement: commentPlacement,
+      comments: comments && titleComments,
       maxLines: 2,
-      ellipsis: '…',
       locale: locale,
-    )..layout(maxWidth: width);
+    );
     final space = (heading.height + 24).clamp(
       0.0,
       (height - minimum).clamp(0.0, double.infinity),
     );
-    heading.dispose();
     return space;
   }
 
-  List<List<PageFragment>> paginate(ChapterContent content, String title) =>
-      TextPagination.paginate(
-        content.paragraphs,
-        width: width,
-        height: height,
-        style: style,
-        scaler: scaler,
-        direction: direction,
-        locale: locale,
-        comments: comments,
-        commentPlacement: commentPlacement,
-        commentRightInset: commentRightInset,
-        headingSpace: headingSpace(title),
-        textLayout: textLayout,
-      );
+  List<List<PageFragment>> paginate(
+    ChapterContent content,
+    String title, {
+    bool titleComments = false,
+  }) => TextPagination.paginate(
+    content.paragraphs,
+    width: width,
+    height: height,
+    style: style,
+    scaler: scaler,
+    direction: direction,
+    locale: locale,
+    comments: comments,
+    commentPlacement: commentPlacement,
+    commentRightInset: commentRightInset,
+    headingSpace: headingSpace(title, titleComments: titleComments),
+    textLayout: textLayout,
+  );
 }

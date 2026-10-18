@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:unr/data/library.dart';
 import 'package:unr/domain/models.dart';
+import 'package:unr/domain/reading_preferences.dart';
 import 'package:unr/sources/sfacg/sfacg_api.dart';
 import 'package:unr/sources/sfacg/sfacg_source.dart';
 import 'package:unr/ui/reader.dart';
@@ -69,31 +70,35 @@ void main() {
     await settle(tester);
   }
 
-  testWidgets('音量键逐页前后移动，并从下一章返回上一章末页', (tester) async {
-    final library = TransitionLibrary()..readingMode = ReadingMode.paged;
-    await open(tester, library);
-    expect(enabledCalls.last, isTrue);
-    expect(readingPager(tester).page, 0);
-    await volume(tester, 1);
-    expect(readingPager(tester).page, 1);
-    await volume(tester, -1);
-    expect(readingPager(tester).page, 0);
-    await showReadingControls(tester);
-    await tester.tap(find.text('下一章'));
-    await settle(tester);
-    await volume(tester, -1);
-    expect(readingChapter(tester), 0);
-    expect(find.textContaining('上一章结尾标记').hitTestable(), findsOneWidget);
-    await volume(tester, 1);
-    expect(readingChapter(tester), 1);
-    await volume(tester, 1);
-    expect(readingChapter(tester), 2);
-    await volume(tester, 1);
-    expect(readingChapter(tester), 2);
-    await tester.pumpWidget(const SizedBox.shrink());
-    expect(enabledCalls.last, isFalse);
-    expect(tester.takeException(), isNull);
-  });
+  for (final animation in PageTurnAnimation.values) {
+    testWidgets('音量键逐页前后移动，并从下一章返回上一章末页（${animation.name}）', (tester) async {
+      final library = TransitionLibrary()
+        ..readingMode = ReadingMode.paged
+        ..pageTurnAnimation = animation;
+      await open(tester, library);
+      expect(enabledCalls.last, isTrue);
+      expect(readingPager(tester).page, 0);
+      await volume(tester, 1);
+      expect(readingPager(tester).page, 1);
+      await volume(tester, -1);
+      expect(readingPager(tester).page, 0);
+      await showReadingControls(tester);
+      await tester.tap(find.text('下一章'));
+      await settle(tester);
+      await volume(tester, -1);
+      expect(readingChapter(tester), 0);
+      expect(find.textContaining('上一章结尾标记').hitTestable(), findsOneWidget);
+      await volume(tester, 1);
+      expect(readingChapter(tester), 1);
+      await volume(tester, 1);
+      expect(readingChapter(tester), 2);
+      await volume(tester, 1);
+      expect(readingChapter(tester), 2);
+      await tester.pumpWidget(const SizedBox.shrink());
+      expect(enabledCalls.last, isFalse);
+      expect(tester.takeException(), isNull);
+    });
+  }
 
   testWidgets('滚动阅读音量键按一屏移动，到边界才切章', (tester) async {
     final library = TransitionLibrary();

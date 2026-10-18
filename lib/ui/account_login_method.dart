@@ -14,11 +14,10 @@ class AccountLoginMethodList extends StatelessWidget {
     super.key,
     this.onPassword,
     this.onSms,
-    this.onVpn,
     this.onImport,
   });
 
-  final VoidCallback? onPassword, onSms, onVpn, onImport;
+  final VoidCallback? onPassword, onSms, onImport;
 
   @override
   Widget build(BuildContext context) => Column(
@@ -32,7 +31,6 @@ class AccountLoginMethodList extends StatelessWidget {
       ),
       if (onPassword != null) _entry('账号密码登录', Icons.password, onPassword!),
       if (onSms != null) _entry('手机号验证码登录', Icons.sms, onSms!),
-      if (onVpn != null) _entry('VPN 辅助登录', Icons.vpn_lock, onVpn!),
       if (onImport != null) _entry('导入会话', Icons.key, onImport!),
     ],
   );

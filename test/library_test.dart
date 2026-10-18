@@ -46,8 +46,11 @@ void main() {
     cover: 'https://rs.sfacg.com/cover.png',
   );
   const illustration = 'https://rs.sfacg.com/illustration.png';
-  const chapterApiUrl =
-      'https://api.sfacg.com/Chaps/1?expand=content%2Cexpand.content&autoOrder=false';
+  final chapterApiUrl = Uri.https('api.sfacg.com', '/Chaps/1', {
+    'expand':
+        'content,needFireMoney,originNeedFireMoney,tsukkomi,chatlines,isbranch,isContentEncrypted,authorTalk',
+    'autoOrder': 'false',
+  }).toString();
 
   test('下载包含封面和插图，断网重开后可阅读并导出 EPUB 和 TXT', () async {
     final calls = <String, int>{};

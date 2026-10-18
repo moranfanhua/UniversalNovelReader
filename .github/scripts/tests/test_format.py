@@ -1,5 +1,7 @@
 import os
+import json
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -37,11 +39,70 @@ class FormatTests(unittest.TestCase):
         ).strip()
 
     def write(self, name, text):
-        (self.root / name).write_text(text, encoding="utf-8")
+        (self.root / name).write_text(text, encoding="utf-8", newline="\n")
 
     def commit(self):
         self.git("add", "--all")
         self.git("commit", "-m", "test fixture")
+
+    def run_workflow_step(self, name):
+        powershell = shutil.which("pwsh")
+        if not powershell:
+            self.skipTest("验证格式化工作流需要 PowerShell 7")
+        workflow = Path(__file__).resolve().parents[2] / "workflows/format.yml"
+        step = workflow.read_text(encoding="utf-8").split(f"      - name: {name}\n", 1)[1]
+        block = step.split("        run: |\n", 1)[1]
+        lines = []
+        for line in block.splitlines():
+            if line and not line.startswith("          "):
+                break
+            lines.append(line[10:])
+        script = self.root / "workflow-step.ps1"
+        script.write_text("$ErrorActionPreference = 'Stop'\n" + "\n".join(lines), encoding="utf-8")
+        return subprocess.run(
+            [powershell, "-NoProfile", "-File", str(script)],
+            cwd=self.root, env={**self.git_env, "GITHUB_OUTPUT": str(self.root / "step-output")},
+            capture_output=True, text=True, encoding="utf-8", timeout=30,
+        )
+
+    def test_workflow_reports_clean_runs_and_accepts_only_staged_tracked_dart(self):
+        result = self.run_workflow_step("Stage only tracked Dart changes")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual((self.root / "step-output").read_text(encoding="utf-8"), "changed=false\n")
+        result = self.run_workflow_step("Verify only tracked Dart changes will be submitted")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+        self.write("keep.dart", "void main() { print(1); }\n")
+        self.write("ignored.dart", "generated file")
+        result = self.run_workflow_step("Stage only tracked Dart changes")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue((self.root / "step-output").read_text(encoding="utf-8").endswith("changed=true\n"))
+        self.assertEqual(self.git("diff", "--cached", "--name-only"), "keep.dart")
+        result = self.run_workflow_step("Verify only tracked Dart changes will be submitted")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_workflow_rejects_non_dart_changes_after_validation(self):
+        self.write("keep.dart", "void main() { print(1); }\n")
+        self.git("add", "--update", "--", "*.dart")
+        self.write(".gitignore", "ignored.dart\nother-generated-file\n")
+        for staged in (False, True):
+            with self.subTest(staged=staged):
+                if staged:
+                    self.git("add", "--", ".gitignore")
+                result = self.run_workflow_step("Verify only tracked Dart changes will be submitted")
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                expected = "暂存区包含非 Dart 变更" if staged else "验证期间产生了额外变更"
+                self.assertIn(expected, result.stderr)
+
+    def test_workflow_rejects_untracked_dart_instead_of_adding_it_to_the_pr(self):
+        self.write("keep.dart", "void main() { print(1); }\n")
+        self.write("untracked.dart", "void main() {}\n")
+        result = self.run_workflow_step("Stage only tracked Dart changes")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.git("diff", "--cached", "--name-only"), "keep.dart")
+        result = self.run_workflow_step("Verify only tracked Dart changes will be submitted")
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("存在未跟踪 Dart 文件", result.stderr)
 
     def test_changed_files_include_renames_and_unusual_names_but_skip_deletions(self):
         self.write("keep.dart", "void main() { print(1); }\n")
@@ -112,6 +173,89 @@ class FormatTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 check_format.check_files(self.root, ["keep.dart", "bad.json"], fix=True)
             executable.assert_not_called()
+
+    def test_report_collects_json_python_and_git_whitespace_line_numbers(self):
+        self.write("note.txt", "trailing whitespace  \n")
+        self.commit()
+        self.write("bad.json", '{\n  "broken":\n}\n')
+        self.write("bad.py", "value = 1\ndef broken(\n")
+        issues = check_format.collect_diagnostics(self.root, ["note.txt", "bad.json", "bad.py"], self.base)
+        self.assertEqual([(item["path"], item["line"]) for item in issues], [
+            ("note.txt", 1), ("bad.json", 3), ("bad.py", 2),
+        ])
+
+    def test_report_compares_formatter_json_without_writing_sources_or_shell_expansion(self):
+        name = "name with spaces;$(noop).dart"
+        source = "void main(){\nprint(1);\n}\n"
+        formatted = "void main() {\n  print(1);\n}\n"
+        self.write(name, source)
+        output = json.dumps({"path": name, "source": formatted}) + "\n"
+        with patch.object(check_format, "dart_executable", return_value="dart-sdk"), patch.object(
+            check_format.subprocess, "run", side_effect=[
+                subprocess.CompletedProcess([], 0, "", ""),
+                subprocess.CompletedProcess([], 0, output, ""),
+            ],
+        ) as run:
+            issues = check_format.collect_diagnostics(self.root, [name])
+        self.assertEqual([(item["path"], item["line"], item["end_line"]) for item in issues], [(name, 1, 2)])
+        self.assertEqual((self.root / name).read_text(encoding="utf-8"), source)
+        self.assertEqual(run.call_args.args[0], [
+            "dart-sdk", "format", "--output=json", "--show=none", "--summary=none", "--", name,
+        ])
+        self.assertNotIn("shell", run.call_args.kwargs)
+
+    def test_report_uses_original_line_numbers_for_eof_and_insertions(self):
+        for source, formatted, expected in [
+            ("a\nb\nc\n", "a\nextra\nb\nc\n", (2, 2)),
+            ("a\nb", "a\nb\n", (2, 2)),
+            ("", "\n", (1, 1)),
+        ]:
+            with self.subTest(source=source):
+                issue, = check_format.changed_line_diagnostics("file.dart", source, formatted)
+                self.assertEqual((issue["line"], issue["end_line"]), expected)
+
+    def test_report_includes_dart_syntax_errors_and_does_not_skip_unformatted_files(self):
+        self.write("keep.dart", "void main(){}\n")
+        output = json.dumps({"path": "keep.dart", "source": "void main() {}\n"}) + "\n"
+        with patch.object(check_format, "dart_executable", return_value="dart-sdk"), patch.object(
+            check_format.subprocess, "run", side_effect=[
+                subprocess.CompletedProcess([], 0, "", ""),
+                subprocess.CompletedProcess([], 65, output, "line 2, column 3 of remove.dart: Expected a name.\n"),
+            ],
+        ):
+            issues = check_format.collect_diagnostics(self.root, ["keep.dart", "remove.dart"])
+        self.assertEqual({(item["path"], item["line"]) for item in issues}, {("remove.dart", 2), ("keep.dart", 1)})
+
+    def test_report_is_saved_with_run_identity_even_when_check_cannot_start(self):
+        report = self.root / "report.json"
+        with patch.dict(os.environ, {
+            "FORMAT_PR_NUMBER": "12", "FORMAT_HEAD_SHA": "a" * 40,
+            "GITHUB_RUN_ID": "34", "GITHUB_RUN_ATTEMPT": "2",
+        }):
+            code = check_format.write_report(self.root, report, "not-a-sha")
+        self.assertEqual(code, 1)
+        data = json.loads(report.read_text(encoding="utf-8"))
+        self.assertEqual((data["pr_number"], data["head_sha"], data["run_id"], data["run_attempt"]), (12, "a" * 40, 34, 2))
+        self.assertFalse(data["passed"])
+        self.assertIsNone(data["diagnostics"][0]["line"])
+
+    def test_diagnostics_beyond_comment_limit_remain_available_in_logs(self):
+        issues = [check_format.diagnostic("keep.dart", f"问题 {line}", line) for line in range(1, 56)]
+        with patch.object(check_format, "collect_diagnostics", return_value=issues), patch("builtins.print") as output:
+            self.assertEqual(check_format.write_report(self.root, self.root / "report.json"), 1)
+        lines = [call.args[0] for call in output.call_args_list]
+        self.assertEqual(sum(line.startswith("::error") for line in lines), 50)
+        self.assertTrue(any('"line": 55' in line for line in lines))
+
+    @unittest.skipUnless(shutil.which("dart"), "需要本机 Dart SDK")
+    def test_real_dart_reports_formatting_and_parse_lines_without_changing_files(self):
+        self.write("keep.dart", "void main(){\nprint(1);\n}\n")
+        self.write("remove.dart", "void main() {\n  var = ;\n}\n")
+        original = {name: (self.root / name).read_bytes() for name in ("keep.dart", "remove.dart")}
+        issues = check_format.collect_diagnostics(self.root, list(original))
+        self.assertIn(("keep.dart", 1), {(item["path"], item["line"]) for item in issues})
+        self.assertIn(("remove.dart", 2), {(item["path"], item["line"]) for item in issues})
+        self.assertEqual({name: (self.root / name).read_bytes() for name in original}, original)
 
 
 if __name__ == "__main__":

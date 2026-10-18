@@ -9,6 +9,7 @@ import 'package:html/parser.dart' as html;
 
 import '../../domain/models.dart';
 import '../novel_source.dart';
+import '../chapter_batch_source.dart';
 import '../bookshelf_source.dart';
 import 'sfacg_api.dart';
 import 'sfacg_markup.dart';
@@ -17,7 +18,7 @@ import '../comment_source.dart';
 export '../comment_source.dart' show CommentSort;
 
 class SfacgSource extends CommentSource
-    implements SearchableNovelSource, BookshelfSource {
+    implements SearchableNovelSource, BookshelfSource, ChapterBatchSource {
   SfacgSource(this.api, {Map<String, String>? cipher}) : cipher = cipher ?? {};
   final SfacgApi api;
   final Map<String, String> cipher;
@@ -149,7 +150,7 @@ class SfacgSource extends CommentSource
       parts.add(
         image == null
             ? CommentPart.text(tag[0]!)
-            : CommentPart.image(image, text: tag[0]!),
+            : CommentPart.image(image, text: tag[0]!, inline: true),
       );
       start = tag.end;
     }
@@ -272,18 +273,56 @@ class SfacgSource extends CommentSource
     return _readAppChapter(chapter);
   }
 
+  // Official 5.2.84: DownloadViewModel.T1 -> r7.H/W -> pe.M5/N5/O5.
+  // W stops when active > 4, so a fresh queue admits five chapter tasks.
+  @override
+  int get chapterBatchSize => 1;
+  @override
+  int get chapterBatchConcurrency => 5;
+
+  @override
+  Future<List<ChapterBatchResult>> readChapterBatch(
+    Book book,
+    List<Chapter> chapters,
+  ) async {
+    if (book.source != id || chapters.length > chapterBatchSize) {
+      throw const SourceException('菠萝包下载作品或章节数量无效');
+    }
+    final directory = {
+      for (final chapter in book.chapters) chapter.id: chapter,
+    };
+    return Future.wait(
+      chapters.map((chapter) async {
+        try {
+          final selected = directory[chapter.id];
+          if (selected == null) throw const SourceException('菠萝包作品与章节不匹配');
+          return ChapterBatchResult.success(
+            selected.id,
+            await readChapter(book, selected),
+          );
+        } catch (error) {
+          return ChapterBatchResult.failure(chapter.id, error);
+        }
+      }),
+    );
+  }
+
   Future<ChapterContent> _readAppChapter(Chapter chapter) async {
     final data =
         await api.get(
               'Chaps/${chapter.id}',
-              query: {'expand': 'content,expand.content', 'autoOrder': 'false'},
+              query: {
+                'expand':
+                    'content,needFireMoney,originNeedFireMoney,tsukkomi,chatlines,isbranch,isContentEncrypted,authorTalk',
+                'autoOrder': 'false',
+              },
             )
             as Map;
     final raw = '${data['content'] ?? ''}${data['expand']?['content'] ?? ''}';
     if (raw.trim().isEmpty) throw const SourceException('未取得正文，请检查已有章节阅读权限');
     if (cipher.length != 3751) throw const SourceException('菠萝包正文字符表不完整');
-    // isContentEncrypted describes a different encryption layer. The verified
-    // free-chapter response still substitutes Han characters when it is false.
+    // The bundled table matches the official kw.b.a substitution exactly.
+    // Verified free responses also need it when isContentEncrypted is false.
     return parseAppContent(decode(raw));
   }
 

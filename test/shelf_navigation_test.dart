@@ -29,6 +29,13 @@ class ShelfNavigationLibrary extends Library {
   ShelfNavigationLibrary({SfacgSource? source})
     : super(Directory.systemTemp, source ?? SfacgSource(SfacgApi()));
   final reads = <String>[];
+  // These tests isolate opening cached books and loading missing directories.
+  // Automatic visit updates are covered by shelf_updates_test.dart.
+  @override
+  Future<ShelfUpdateResult> refreshShelfBooks({
+    String? shelfId,
+    required bool Function() isCancelled,
+  }) async => const ShelfUpdateResult();
   @override
   Future<void> save() async => notifyListeners();
   @override
@@ -322,7 +329,7 @@ void main() {
     expect(value.books.single, same(preview));
     expect(value.lastActiveTimes, isEmpty);
     expect(find.byType(ReaderPage), findsNothing);
-    expect(find.text('搜索书名或作者，也可粘贴作品 ID、链接'), findsOneWidget);
+    expect(find.text('搜索书名或作者'), findsOneWidget);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
   }, variant: platforms);

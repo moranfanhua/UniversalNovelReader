@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -8,13 +9,16 @@ import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
 import 'package:pinyin/pinyin.dart';
 import '../domain/models.dart';
+import '../sources/source_order.dart';
 import '../domain/reading_preferences.dart';
 import '../domain/bookshelf.dart';
 import '../sources/bookshelf_source.dart';
+import '../sources/chapter_batch_source.dart';
 import '../sources/sfacg/sfacg_source.dart';
 import '../sources/comment_source.dart';
 import '../sources/novel_source.dart';
 import 'reader_fonts.dart';
+import 'download_mirror.dart';
 import 'app_log.dart';
 
 enum ReadingMode { scroll, paged }
@@ -24,6 +28,11 @@ enum AppThemeMode { system, light, dark }
 enum ShelfSort { updated, name, lastActive }
 
 enum ShelfLayout { grid, list }
+
+class ShelfUpdateResult {
+  const ShelfUpdateResult({this.checked = 0, this.failed = 0});
+  final int checked, failed;
+}
 
 extension ShelfSortLabel on ShelfSort {
   String get label => switch (this) {
@@ -55,21 +64,24 @@ class Library extends ChangeNotifier {
        };
   final Map<String, NovelSource> _novelSources;
   NovelSource? sourceFor(Book book) => _novelSources[book.source];
-  List<SearchableNovelSource> get searchSources =>
-      _novelSources.values.whereType<SearchableNovelSource>().toList();
+  List<SearchableNovelSource> get searchSources => platformDisplayOrder(
+    _novelSources.values.whereType<SearchableNovelSource>(),
+  );
   final Set<String> _disabledSearchSources = {};
   bool isSearchSourceEnabled(String id) => !_disabledSearchSources.contains(id);
   List<SearchableNovelSource> get enabledSearchSources => searchSources
       .where((source) => isSearchSourceEnabled(source.id))
       .toList();
   List<BookshelfSource> get bookshelfSources =>
-      _novelSources.values.whereType<BookshelfSource>().toList();
+      platformDisplayOrder(_novelSources.values.whereType<BookshelfSource>());
   String sourceName(Book book) =>
       sourceFor(book)?.name ?? (book.source == 'local' ? '本地小说' : '未知书源');
   final Map<String, CommentSource> _commentSources;
   CommentSource? commentsFor(Book book) => _commentSources[book.source];
   final DateTime Function() clock;
   final ReaderFonts fonts;
+  DownloadMirror _downloadMirror = DownloadMirror.defaults;
+  DownloadMirror get downloadMirror => _downloadMirror;
   final Directory root;
   final SfacgSource source;
   final List<Book> books = [];
@@ -88,6 +100,10 @@ class Library extends ChangeNotifier {
   ShelfSort shelfSort = ShelfSort.lastActive;
   ShelfLayout shelfLayout = ShelfLayout.grid;
   final Map<String, int> updatedTimes = {}, lastActiveTimes = {};
+  static const shelfUpdateInterval = Duration(minutes: 10);
+  final Map<String, int> _shelfUpdateTimes = {};
+  Future<void>? _shelfUpdates;
+  bool _disposed = false;
   final Map<String, String> _nameSortKeys = {};
   static String _nameSortKey(String title) {
     final text = title.trim().toLowerCase();
@@ -150,12 +166,14 @@ class Library extends ChangeNotifier {
   double fontSize = 20;
   AppThemeMode themeMode = AppThemeMode.system;
   ReadingMode readingMode = ReadingMode.scroll;
+  PageTurnAnimation pageTurnAnimation = PageTurnAnimation.slide;
   bool volumeKeyPaging = true;
   bool showParagraphComments = true;
   ParagraphCommentPlacement paragraphCommentPlacement =
       ParagraphCommentPlacement.right;
   final Map<String, int> pageOffsets = {};
   // Entry alignment and preceding spread origin, indexed by book and chapter.
+  // Values: [skipFirstPage, precedingChapterIndex, precedingSkipFirstPage].
   final Map<String, List<int>> pagedChapterEntries = {};
   String readingFontId = '';
   String? readingFontFamily, fontNotice;
@@ -233,6 +251,7 @@ class Library extends ChangeNotifier {
       library._disabledSearchSources.addAll(
         (data['disabledSearchSources'] as List? ?? []).whereType<String>(),
       );
+      library._downloadMirror = DownloadMirror.fromJson(data['downloadMirror']);
       library.shelfSort = ShelfSort.values.firstWhere(
         (sort) => sort.name == data['shelfSort'],
         orElse: () => ShelfSort.lastActive,
@@ -252,6 +271,11 @@ class Library extends ChangeNotifier {
               .toInt();
         }
       }
+      for (final entry in (data['shelfUpdateTimes'] as Map? ?? {}).entries) {
+        if (entry.value is int) {
+          library._shelfUpdateTimes['${entry.key}'] = entry.value;
+        }
+      }
       library.horizontalMargin = (data['horizontalMargin'] as num? ?? 22)
           .toDouble()
           .clamp(8, 64);
@@ -266,6 +290,10 @@ class Library extends ChangeNotifier {
       library.readingMode = data['readingMode'] == 'paged'
           ? ReadingMode.paged
           : ReadingMode.scroll;
+      library.pageTurnAnimation = PageTurnAnimation.values.firstWhere(
+        (animation) => animation.name == data['pageTurnAnimation'],
+        orElse: () => PageTurnAnimation.slide,
+      );
       library.pageOffsets.addAll(
         (data['pageOffsets'] as Map? ?? {}).map(
           (key, value) => MapEntry('$key', (value as num).toInt()),
@@ -359,10 +387,12 @@ class Library extends ChangeNotifier {
       // Keep the explicit dark preference readable by older app versions.
       'night': themeMode == AppThemeMode.dark,
       'readingMode': readingMode.name,
+      'pageTurnAnimation': pageTurnAnimation.name,
       'volumeKeyPaging': volumeKeyPaging,
       'showParagraphComments': showParagraphComments,
       'paragraphCommentPlacement': paragraphCommentPlacement.name,
       'disabledSearchSources': _disabledSearchSources.toList(),
+      'downloadMirror': _downloadMirror.toJson(),
       'pageOffsets': pageOffsets,
       'pagedChapterEntries': pagedChapterEntries,
       'readingFontId': readingFontId,
@@ -373,6 +403,7 @@ class Library extends ChangeNotifier {
       'shelfLayout': shelfLayout.name,
       'updatedTimes': updatedTimes,
       'lastActiveTimes': lastActiveTimes,
+      'shelfUpdateTimes': _shelfUpdateTimes,
     });
     // Serialize preferences writes so navigation and font changes cannot race.
     final next = _writes
@@ -428,9 +459,25 @@ class Library extends ChangeNotifier {
     String id, {
     void Function(int, int?)? onProgress,
   }) async {
-    await fonts.download(id, onProgress: onProgress);
+    await fonts.download(id, mirror: downloadMirror, onProgress: onProgress);
     downloadedFonts.add(id);
     await selectFont(id);
+  }
+
+  Future<void> setDownloadMirror(DownloadMirror value) async {
+    if (downloadMirror.enabled == value.enabled &&
+        downloadMirror.baseUrl == value.baseUrl) {
+      return;
+    }
+    final previous = _downloadMirror;
+    _downloadMirror = value;
+    try {
+      await save();
+    } catch (_) {
+      if (identical(_downloadMirror, value)) _downloadMirror = previous;
+      notifyListeners();
+      rethrow;
+    }
   }
 
   Future<void> resetReadingPreferences() async {
@@ -442,6 +489,7 @@ class Library extends ChangeNotifier {
     verticalMargin = 24;
     lineHeight = 1.9;
     readingMode = ReadingMode.scroll;
+    pageTurnAnimation = PageTurnAnimation.slide;
     volumeKeyPaging = true;
     showParagraphComments = true;
     paragraphCommentPlacement = ParagraphCommentPlacement.right;
@@ -493,12 +541,78 @@ class Library extends ChangeNotifier {
     }
   }
 
-  Future<void> updateBook(Book book) async {
+  Future<void> updateBook(
+    Book book, {
+    bool preserveChapterPosition = false,
+  }) async {
     final shelfIndex = books.indexWhere((item) => item.key == book.key);
     final recentIndex = recentBooks.indexWhere((item) => item.key == book.key);
     final oldShelf = shelfIndex < 0 ? null : books[shelfIndex];
     final oldRecent = recentIndex < 0 ? null : recentBooks[recentIndex];
     final oldUpdated = updatedTimes[book.key];
+    final previous = oldShelf ?? oldRecent;
+    final oldProgress = progress[book.key];
+    List<int>? nextProgress;
+    final oldEntries = <String, List<int>>{};
+    final nextEntries = <String, List<int>>{};
+    if (preserveChapterPosition && previous != null) {
+      final indices = {
+        for (var i = 0; i < book.chapters.length; i++) book.chapters[i].id: i,
+      };
+      if (oldProgress != null &&
+          oldProgress.isNotEmpty &&
+          oldProgress.first >= 0 &&
+          oldProgress.first < previous.chapters.length) {
+        final index = indices[previous.chapters[oldProgress.first].id];
+        if (index == null) {
+          throw const SourceException('当前阅读章节不在新目录中，已保留原目录，请手动检查');
+        }
+        if (index != oldProgress.first) {
+          nextProgress = [index, ...oldProgress.skip(1)];
+        }
+      }
+      for (final entry in pagedChapterEntries.entries) {
+        if (!entry.key.startsWith('${book.key}:')) continue;
+        oldEntries[entry.key] = entry.value;
+        final index = int.tryParse(entry.key.substring(book.key.length + 1));
+        if (index == null || index < 0 || index >= previous.chapters.length) {
+          continue;
+        }
+        final next = indices[previous.chapters[index].id];
+        if (next == null) continue;
+        var migrated = List<int>.of(entry.value);
+        if (migrated.length >= 3) {
+          final origin = migrated[1];
+          final nextOrigin = origin >= 0 && origin < index
+              ? indices[previous.chapters[origin].id]
+              : null;
+          var sameSpan = false;
+          if (nextOrigin != null && next - nextOrigin == index - origin) {
+            sameSpan = true;
+            for (var offset = 0; offset <= index - origin; offset++) {
+              if (previous.chapters[origin + offset].id !=
+                  book.chapters[nextOrigin + offset].id) {
+                sameSpan = false;
+                break;
+              }
+            }
+          }
+          if (sameSpan) {
+            migrated[1] = nextOrigin!;
+          } else {
+            // The old spread may have shown a page from a removed or moved
+            // chapter. Reset its alignment and use the new directory order.
+            migrated = [0];
+          }
+        }
+        nextEntries['${book.key}:$next'] = migrated;
+      }
+    }
+    if (nextProgress != null) progress[book.key] = nextProgress;
+    for (final key in oldEntries.keys) {
+      pagedChapterEntries.remove(key);
+    }
+    pagedChapterEntries.addAll(nextEntries);
     if (shelfIndex >= 0) books[shelfIndex] = book;
     if (recentIndex >= 0) recentBooks[recentIndex] = book;
     if (book.updatedAt != null) {
@@ -507,6 +621,18 @@ class Library extends ChangeNotifier {
     try {
       await save();
     } catch (_) {
+      if (nextProgress != null && identical(progress[book.key], nextProgress)) {
+        progress[book.key] = oldProgress!;
+      }
+      for (final key in {...oldEntries.keys, ...nextEntries.keys}) {
+        if (!identical(pagedChapterEntries[key], nextEntries[key])) continue;
+        final old = oldEntries[key];
+        if (old == null) {
+          pagedChapterEntries.remove(key);
+        } else {
+          pagedChapterEntries[key] = old;
+        }
+      }
       final shelf = books.indexWhere((item) => item.key == book.key);
       final recent = recentBooks.indexWhere((item) => item.key == book.key);
       if (shelf >= 0 && oldShelf != null && identical(books[shelf], book)) {
@@ -525,6 +651,91 @@ class Library extends ChangeNotifier {
       notifyListeners();
       rethrow;
     }
+  }
+
+  /// Visits share a per-book cooldown, including failed attempts and restarts.
+  /// Queued visits and workers stop when their shelf is no longer visible.
+  Future<ShelfUpdateResult> refreshShelfBooks({
+    String? shelfId,
+    required bool Function() isCancelled,
+  }) {
+    Future<ShelfUpdateResult> run() async {
+      bool cancelled() => _disposed || isCancelled();
+      if (cancelled()) return const ShelfUpdateResult();
+      final keys = shelfId == null || shelfId == recentShelfId
+          ? null
+          : shelves.where((shelf) => shelf.id == shelfId).firstOrNull?.bookKeys;
+      if (shelfId != null && shelfId != recentShelfId && keys == null) {
+        return const ShelfUpdateResult();
+      }
+      final candidates = (shelfId == recentShelfId ? recentBooks : books)
+          .where((book) => keys == null || keys.contains(book.key))
+          .where((book) => book.source != 'local' && sourceFor(book) != null)
+          .toList();
+      var cursor = 0, checked = 0, failed = 0;
+      Book? current(String key) =>
+          (shelfId == recentShelfId ? recentBooks : books)
+              .where((book) => book.key == key)
+              .firstOrNull;
+      Future<void> worker() async {
+        while (!cancelled() && cursor < candidates.length) {
+          final book = candidates[cursor++];
+          if (!identical(current(book.key), book)) continue;
+          final now = clock().millisecondsSinceEpoch;
+          final last = _shelfUpdateTimes[book.key];
+          if (last != null && now - last < shelfUpdateInterval.inMilliseconds) {
+            continue;
+          }
+          _shelfUpdateTimes[book.key] = now;
+          checked++;
+          try {
+            // Persist before sending, so reopening cannot bypass the cooldown.
+            await save();
+            if (cancelled()) return;
+            final next = await sourceFor(book)!.getBook(book.id);
+            if (cancelled() || !identical(current(book.key), book)) continue;
+            if (next.key != book.key || next.chapters.isEmpty) {
+              throw const SourceException('书源未返回对应作品的完整目录，已保留本地内容');
+            }
+            await updateBook(next, preserveChapterPosition: true);
+          } catch (error, stack) {
+            if (cancelled()) return;
+            failed++;
+            AppLog.instance.record(
+              LogLevel.warning,
+              'bookshelf.update_failed',
+              error: error,
+              stackTrace: stack,
+            );
+          }
+        }
+      }
+
+      await Future.wait(List.generate(3, (_) => worker()));
+      return ShelfUpdateResult(checked: checked, failed: failed);
+    }
+
+    final previous = _shelfUpdates;
+    final next = previous == null
+        ? Future<ShelfUpdateResult>.sync(run)
+        : previous.then((_) => run());
+    late final Future<void> tail;
+    void finished() {
+      if (identical(_shelfUpdates, tail)) _shelfUpdates = null;
+    }
+
+    tail = next.then<void>(
+      (_) => finished(),
+      onError: (Object _, StackTrace _) => finished(),
+    );
+    _shelfUpdates = tail;
+    return next;
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
   }
 
   Future<Bookshelf> importShelf({
@@ -733,7 +944,14 @@ class Library extends ChangeNotifier {
     return ChapterContent.fromJson(jsonDecode(await file.readAsString()));
   }
 
-  Future<ChapterContent> read(Book book, Chapter chapter) {
+  Future<ChapterContent> read(Book book, Chapter chapter) async {
+    // An explicit cache refresh must not block reading the existing chapter,
+    // or make a failed refresh prevent offline reading.
+    final saved = await AppLog.instance.capture(
+      'reader.chapter_failed',
+      () => cached(book, chapter),
+    );
+    if (saved != null) return saved;
     final key = '${book.key}/${chapter.id}';
     return _reads.putIfAbsent(key, () {
       return _readChapter(book, chapter).whenComplete(() {
@@ -756,6 +974,173 @@ class Library extends ChangeNotifier {
         await store(book, chapter, content);
         return content;
       });
+
+  final _downloads = <String>{};
+
+  Future<void> downloadChapters(
+    Book book,
+    List<Chapter> chapters, {
+    required void Function(Chapter chapter, Object? error) onProgress,
+    bool Function()? isCancelled,
+    bool refreshCached = false,
+  }) async {
+    if (!_downloads.add(book.key)) {
+      throw const SourceException('本书已有下载任务，请等待完成或停止后重试');
+    }
+    try {
+      final service = sourceFor(book);
+      final batchSource = service is ChapterBatchSource ? service : null;
+      final size = batchSource?.chapterBatchSize ?? 1;
+      final concurrency = batchSource?.chapterBatchConcurrency ?? 1;
+      if (size < 1) throw StateError('书源下载批量大小无效');
+      if (concurrency < 1) throw StateError('书源下载并发数量无效');
+      final selected = <String, Chapter>{};
+      final directory = {for (final chapter in book.chapters) chapter.id};
+      for (final chapter in chapters) {
+        if (!directory.contains(chapter.id)) {
+          throw const SourceException('下载章节不属于当前作品');
+        }
+        selected[chapter.id] = chapter;
+      }
+      final queue = selected.values.toList();
+      var offset = 0;
+      Future<void> worker() async {
+        while (offset < queue.length && isCancelled?.call() != true) {
+          final batch = queue.sublist(
+            offset,
+            (offset + size).clamp(0, queue.length),
+          );
+          offset += batch.length;
+          final results = await _downloadBatch(
+            book,
+            batch,
+            service,
+            refreshCached: refreshCached,
+          );
+          for (var i = 0; i < batch.length; i++) {
+            var error = results[i].error;
+            if (error == null && !refreshCached) {
+              try {
+                await cacheImages(book, results[i].content!);
+              } catch (reason) {
+                error = reason;
+              }
+            }
+            onProgress(batch[i], error);
+          }
+        }
+      }
+
+      // Active batches finish caching; cancellation prevents scheduling more.
+      await Future.wait(List.generate(concurrency, (_) => worker()));
+    } finally {
+      _downloads.remove(book.key);
+    }
+  }
+
+  Future<List<ChapterBatchResult>> _downloadBatch(
+    Book book,
+    List<Chapter> chapters,
+    NovelSource? service, {
+    bool refreshCached = false,
+  }) async {
+    final owned = <Chapter, Completer<ChapterContent>>{};
+    final waiting = <Future<ChapterBatchResult>>[];
+    for (final chapter in chapters) {
+      final key = '${book.key}/${chapter.id}';
+      var reading = _reads[key];
+      if (refreshCached) {
+        // Finish any earlier read before refetching so it cannot overwrite
+        // the refreshed cache later. A cached read is never a refresh result.
+        while (reading != null) {
+          await reading.then<void>((_) {}, onError: (Object _) {});
+          if (identical(_reads[key], reading)) _reads.remove(key);
+          reading = _reads[key];
+        }
+      }
+      if (reading == null) {
+        final completer = Completer<ChapterContent>();
+        owned[chapter] = completer;
+        reading = completer.future;
+        _reads[key] = reading;
+        void release() {
+          if (identical(_reads[key], reading)) _reads.remove(key);
+        }
+
+        unawaited(
+          reading.then((_) => release(), onError: (Object _) => release()),
+        );
+      }
+      waiting.add(
+        reading.then(
+          (content) => ChapterBatchResult.success(chapter.id, content),
+          onError: (Object error) =>
+              ChapterBatchResult.failure(chapter.id, error),
+        ),
+      );
+    }
+    try {
+      final missing = <Chapter>[];
+      for (final entry in owned.entries) {
+        try {
+          final saved = await cached(book, entry.key);
+          if (saved == null || refreshCached) {
+            missing.add(entry.key);
+          } else {
+            entry.value.complete(saved);
+          }
+        } catch (error, stack) {
+          entry.value.completeError(error, stack);
+        }
+      }
+      if (missing.isNotEmpty) {
+        if (service == null) throw const SourceException('当前书源不可用，已缓存章节仍可阅读');
+        final results = service is ChapterBatchSource
+            ? await service.readChapterBatch(book, missing)
+            : [
+                ChapterBatchResult.success(
+                  missing.single.id,
+                  await service.readChapter(book, missing.single),
+                ),
+              ];
+        final byId = <String, ChapterBatchResult>{};
+        final requested = missing.map((chapter) => chapter.id).toSet();
+        for (final result in results) {
+          if (!requested.contains(result.id) || byId.containsKey(result.id)) {
+            throw const SourceException('书源批量下载返回了不匹配或重复的章节');
+          }
+          byId[result.id] = result;
+        }
+        for (final chapter in missing) {
+          final completer = owned[chapter]!;
+          final result = byId[chapter.id];
+          try {
+            if (result?.content == null) {
+              throw result?.error ?? const SourceException('书源未返回该章节正文，请重试');
+            }
+            // Refreshes retain the old body until both the new chapter and
+            // its resources are ready. Failure must leave offline reading intact.
+            if (refreshCached) await cacheImages(book, result!.content!);
+            await store(book, chapter, result!.content!);
+            completer.complete(result.content);
+          } catch (error, stack) {
+            completer.completeError(error, stack);
+          }
+        }
+      }
+    } catch (error, stack) {
+      AppLog.instance.record(
+        LogLevel.error,
+        'download.batch_failed',
+        error: error,
+        stackTrace: stack,
+      );
+      for (final completer in owned.values) {
+        if (!completer.isCompleted) completer.completeError(error, stack);
+      }
+    }
+    return Future.wait(waiting);
+  }
 
   Future<Map<String, ChapterContent>> cachedContents(Book book) async {
     final result = <String, ChapterContent>{};

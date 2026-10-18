@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
@@ -7,6 +8,7 @@ import '../data/app_log.dart';
 import '../domain/models.dart';
 import '../formats/ebook.dart';
 import '../sources/novel_search.dart';
+import '../sources/ciweimao/ciweimao_source.dart';
 import 'book_page.dart';
 import 'reader.dart';
 import 'image_bytes.dart';
@@ -23,7 +25,7 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage> {
+class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   int tab = 0;
   bool busy = false, gbk = false, searchFailed = false;
   String? error;
@@ -34,10 +36,14 @@ class _HomePageState extends State<HomePage> {
   Library get library => widget.library;
   late List<String> searchSourceIds;
   int searchGeneration = 0;
+  bool shelfVisible = false, updatingShelf = false;
+  String? visitedShelf, shelfUpdateError;
+  int shelfVisit = 0;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     searchSourceIds = library.enabledSearchSources
         .map((source) => source.id)
         .toList();
@@ -51,6 +57,7 @@ class _HomePageState extends State<HomePage> {
       oldWidget.library.removeListener(_searchSourcesChanged);
       library.addListener(_searchSourcesChanged);
       _searchSourcesChanged();
+      shelfVisible = false;
     }
   }
 
@@ -71,9 +78,73 @@ class _HomePageState extends State<HomePage> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    shelfVisit++;
     library.removeListener(_searchSourcesChanged);
     query.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) {
+      shelfVisible = false;
+      shelfVisit++;
+    }
+    if (mounted) setState(() {});
+  }
+
+  void _visitShelf(BuildContext context) {
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    final visible =
+        tab == 0 &&
+        (ModalRoute.of(context)?.isCurrent ?? false) &&
+        (lifecycle == null || lifecycle == AppLifecycleState.resumed);
+    if (visible == shelfVisible &&
+        (!visible || visitedShelf == selectedShelf)) {
+      return;
+    }
+    shelfVisible = visible;
+    visitedShelf = selectedShelf;
+    final visit = ++shelfVisit;
+    updatingShelf = false;
+    shelfUpdateError = null;
+    if (visible) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && visit == shelfVisit) unawaited(_updateShelf(visit));
+      });
+    }
+  }
+
+  Future<void> _updateShelf(int visit) async {
+    final value = library;
+    bool cancelled() =>
+        !mounted ||
+        visit != shelfVisit ||
+        !shelfVisible ||
+        busy ||
+        library != value ||
+        !(ModalRoute.of(context)?.isCurrent ?? false);
+    if (cancelled()) return;
+    setState(() => updatingShelf = true);
+    try {
+      final result = await value.refreshShelfBooks(
+        shelfId: selectedShelf,
+        isCancelled: cancelled,
+      );
+      if (!cancelled() && result.failed > 0) {
+        setState(
+          () => shelfUpdateError =
+              '${result.failed} 本作品更新失败，已保留本地内容。10 分钟后再次进入书架可重试，也可在作品详情手动刷新。',
+        );
+      }
+    } catch (_) {
+      if (!cancelled()) {
+        setState(() => shelfUpdateError = '书架更新失败，已保留本地内容，请稍后重新进入书架重试。');
+      }
+    } finally {
+      if (mounted && visit == shelfVisit) setState(() => updatingShelf = false);
+    }
   }
 
   Future<void> _open(String input, {String? sourceId}) async {
@@ -89,12 +160,22 @@ class _HomePageState extends State<HomePage> {
           : Uri.tryParse(link[0]!)?.host.toLowerCase();
       final sourceHint =
           sourceId ??
-          ([
-                    'fanqienovel.com',
-                    'www.fanqienovel.com',
-                    'reading.snssdk.com',
-                  ].contains(host) ||
-                  RegExp(r'^[1-9]\d{14,19}$').hasMatch(input.trim())
+          (CiweimaoSource.acceptsLink(input) ||
+                  input.trim().startsWith('ciweimao:')
+              ? 'ciweimao'
+              : {
+                  'qidian.com',
+                  'www.qidian.com',
+                  'm.qidian.com',
+                  'book.qidian.com',
+                }.contains(host)
+              ? 'qidian'
+              : [
+                      'fanqienovel.com',
+                      'www.fanqienovel.com',
+                      'reading.snssdk.com',
+                    ].contains(host) ||
+                    RegExp(r'^[1-9]\d{14,19}$').hasMatch(input.trim())
               ? 'fanqie'
               : 'sfacg');
       final service = library.searchSources.firstWhere(
@@ -130,6 +211,7 @@ class _HomePageState extends State<HomePage> {
     final text = query.text.trim();
     if (text.isEmpty) return;
     if (RegExp(r'^\d+$').hasMatch(text) ||
+        text.startsWith('ciweimao:') ||
         text.contains(RegExp(r'https?://'))) {
       await _open(text);
       return;
@@ -266,6 +348,12 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _openShelfBook(Book book, {bool details = false}) async {
     if (busy) return;
+    book =
+        [
+          ...library.books,
+          ...library.recentBooks,
+        ].where((item) => item.key == book.key).firstOrNull ??
+        book;
     final service = library.sourceFor(book);
     if (!details && book.chapters.isEmpty && service == null) {
       setState(() => error = '当前作品暂无可阅读章节，可长按作品查看详情。');
@@ -403,21 +491,23 @@ class _HomePageState extends State<HomePage> {
     builder: (context, constraints) {
       final compact = constraints.maxWidth < 600;
       final spacing = compact ? 12.0 : 18.0;
-      final desiredWidth = compact ? 100.0 : 150.0;
+      const desiredWidth = 150.0;
       final available = math.max(1.0, constraints.maxWidth - 40);
-      final columns = math.min(
-        shelf.length,
-        compact
-            ? 3
-            : math.max(
+      final columns = compact
+          ? 3
+          : math.min(
+              shelf.length,
+              math.max(
                 1,
                 ((available + spacing) / (desiredWidth + spacing)).floor(),
               ),
-      );
-      final width = math.min(
-        desiredWidth,
-        (available - (columns - 1) * spacing) / columns,
-      );
+            );
+      final width = compact
+          ? (available - (columns - 1) * spacing) / columns
+          : math.min(
+              desiredWidth,
+              (available - (columns - 1) * spacing) / columns,
+            );
       final scale = width / 150;
       final titleSize = 13.0 * scale, detailSize = 11.5 * scale;
       final textScaler = MediaQuery.textScalerOf(context);
@@ -606,6 +696,7 @@ class _HomePageState extends State<HomePage> {
   );
 
   Widget _buildLibrary(BuildContext context) {
+    _visitShelf(context);
     if (selectedShelf == Library.recentShelfId) {
       return _buildPage(context, library.sortedRecentBooks);
     }
@@ -626,21 +717,8 @@ class _HomePageState extends State<HomePage> {
     appBar: AppBar(
       toolbarHeight: 48,
       titleTextStyle: Theme.of(context).textTheme.titleMedium,
-      title: Text(['我的书库', '搜索', '我的'][tab]),
+      title: tab == 1 ? null : Text(tab == 0 ? '我的书库' : '我的'),
       actions: [
-        IconButton(
-          tooltip: '开源许可',
-          onPressed: () => showLicensePage(
-            context: context,
-            applicationName: 'UNR 阅读器',
-            applicationVersion: const String.fromEnvironment(
-              'APP_VERSION',
-              defaultValue: '开发版',
-            ),
-            applicationLegalese: 'AGPL-3.0\n非官方阅读器，作品与段评归相应权利人所有。',
-          ),
-          icon: const Icon(Icons.info_outline),
-        ),
         if (tab == 0)
           IconButton(
             tooltip: '导入',
@@ -695,7 +773,18 @@ class _HomePageState extends State<HomePage> {
               ],
             ),
           ),
-        if (busy) const LinearProgressIndicator(),
+        if (busy || (tab == 0 && updatingShelf))
+          const LinearProgressIndicator(),
+        if (tab == 0 && shelfUpdateError != null)
+          MaterialBanner(
+            content: Text(shelfUpdateError!),
+            actions: [
+              TextButton(
+                onPressed: () => setState(() => shelfUpdateError = null),
+                child: const Text('关闭'),
+              ),
+            ],
+          ),
         if (error != null)
           MaterialBanner(
             content: Text(error!),
@@ -767,7 +856,7 @@ class _HomePageState extends State<HomePage> {
                           enabled: !busy,
                           onSubmitted: busy ? null : (_) => _search(),
                           decoration: InputDecoration(
-                            hintText: '搜索书名或作者，也可粘贴作品 ID、链接',
+                            hintText: '搜索书名或作者',
                             prefixIcon: const Icon(Icons.search),
                             suffixIcon: IconButton(
                               tooltip: '搜索或添加作品',

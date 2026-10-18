@@ -8,6 +8,8 @@ import 'boundary_scroll.dart';
 import 'reading_tap_zones.dart';
 import 'chapter_page_layout.dart';
 import 'reading_paragraph.dart';
+import 'page_turn_effect.dart';
+import 'reading_heading.dart';
 
 class ChapterPreview {
   const ChapterPreview({
@@ -15,11 +17,13 @@ class ChapterPreview {
     required this.title,
     required this.hasFollowingChapter,
     required this.commentBuilder,
+    this.titleParagraph,
   });
   final ChapterContent content;
   final String title;
   final bool hasFollowingChapter;
   final Widget Function(Paragraph paragraph) commentBuilder;
+  final Paragraph? titleParagraph;
 }
 
 typedef ChapterContinuation = ({
@@ -41,6 +45,7 @@ class PagedChapter extends StatefulWidget {
     required this.imageBuilder,
     required this.commentBuilder,
     required this.comments,
+    this.titleParagraph,
     this.fontFamily,
     this.horizontalMargin = 22,
     this.verticalMargin = 24,
@@ -56,6 +61,7 @@ class PagedChapter extends StatefulWidget {
     this.onCenterTap,
     this.showPageIndicator = true,
     this.commentPlacement = ParagraphCommentPlacement.right,
+    this.pageTurnAnimation = PageTurnAnimation.slide,
   });
   final ChapterContent content;
   final String title;
@@ -64,7 +70,9 @@ class PagedChapter extends StatefulWidget {
   final double horizontalMargin, verticalMargin, lineHeight;
   final int initialParagraph, initialOffset;
   final bool comments;
+  final Paragraph? titleParagraph;
   final ParagraphCommentPlacement commentPlacement;
+  final PageTurnAnimation pageTurnAnimation;
   final bool startAtEnd;
   final VoidCallback? onPreviousChapter, onNextChapter;
   final Future<ChapterPreview> Function()? loadNextChapter;
@@ -103,6 +111,9 @@ class PagedChapterState extends State<PagedChapter> {
       widget.onNextChapter != null;
   late int anchorParagraph = widget.initialParagraph;
   late int anchorOffset = widget.initialOffset;
+  PageTurnAnimation get animation => MediaQuery.disableAnimationsOf(context)
+      ? PageTurnAnimation.none
+      : widget.pageTurnAnimation;
   @override
   void dispose() {
     controller?.dispose();
@@ -117,11 +128,21 @@ class PagedChapterState extends State<PagedChapter> {
       anchorOffset = fragments.first.offset;
     }
     widget.onPosition(anchorParagraph, anchorOffset, {
+      if (widget.comments &&
+          page == 0 &&
+          widget.titleParagraph?.remoteIndex != null)
+        widget.titleParagraph!.remoteIndex!,
       for (final fragment in fragments)
         if (widget.content.paragraphs[fragment.paragraph].remoteIndex != null)
           widget.content.paragraphs[fragment.paragraph].remoteIndex!,
     });
     widget.onPreviewRows?.call({
+      if (widget.comments &&
+          fillsRight &&
+          page == pages.length - 1 &&
+          previewPages.isNotEmpty &&
+          preview?.titleParagraph?.remoteIndex != null)
+        preview!.titleParagraph!.remoteIndex!,
       if (fillsRight && page == pages.length - 1 && previewPages.isNotEmpty)
         for (final fragment in previewPages.first)
           if (preview!.content.paragraphs[fragment.paragraph].remoteIndex !=
@@ -185,9 +206,15 @@ class PagedChapterState extends State<PagedChapter> {
       if (hasNext) _continue();
       return;
     }
+    if (animation == PageTurnAnimation.none) {
+      controller!.jumpToPage(target);
+      return;
+    }
     await controller!.animateToPage(
       target,
-      duration: const Duration(milliseconds: 180),
+      duration: Duration(
+        milliseconds: animation == PageTurnAnimation.simulation ? 360 : 180,
+      ),
       curve: Curves.easeOut,
     );
   }
@@ -213,8 +240,11 @@ class PagedChapterState extends State<PagedChapter> {
       final style = layout.style, headingStyle = layout.headingStyle;
       final scaler = layout.scaler, direction = layout.direction;
       final locale = layout.locale;
-      final minimum = layout.minimum, verticalMargin = layout.margin;
-      final headingSpace = layout.headingSpace(widget.title);
+      final verticalMargin = layout.margin;
+      final headingSpace = layout.headingSpace(
+        widget.title,
+        titleComments: widget.titleParagraph != null,
+      );
       final nextSignature = (
         widget.content,
         columns,
@@ -226,6 +256,7 @@ class PagedChapterState extends State<PagedChapter> {
         locale,
         headingSpace,
         widget.comments,
+        widget.titleParagraph?.remoteIndex,
         widget.commentPlacement,
         widget.horizontalMargin,
         layout.textLayout.signature,
@@ -281,20 +312,11 @@ class PagedChapterState extends State<PagedChapter> {
       final next = preview;
       if (next != null && previewSignature != (nextSignature, next)) {
         previewSignature = (nextSignature, next);
-        final nextHeading = TextPainter(
-          text: TextSpan(text: next.title, style: headingStyle),
-          textScaler: scaler,
-          textDirection: direction,
-          maxLines: 2,
-          ellipsis: '…',
-          locale: locale,
-        )..layout(maxWidth: width);
-        final nextHeadingSpace = (nextHeading.height + 24).clamp(
-          0.0,
-          (height - minimum).clamp(0.0, double.infinity),
+        final nextHeadingSpace = layout.headingSpace(
+          next.title,
+          titleComments: next.titleParagraph != null,
         );
         previewHeadingSpace = nextHeadingSpace;
-        nextHeading.dispose();
         previewPages = TextPagination.paginate(
           next.content.paragraphs,
           width: width,
@@ -376,64 +398,68 @@ class PagedChapterState extends State<PagedChapter> {
                           setState(() => page = firstPage + value * columns);
                           _report();
                         },
-                        itemBuilder: (context, spread) => Align(
-                          alignment: Alignment.topCenter,
-                          child: SizedBox(
-                            width: canvasWidth,
-                            child: Padding(
-                              padding: EdgeInsets.symmetric(
-                                vertical: verticalMargin,
-                              ),
-                              child: Stack(
-                                children: [
-                                  if (columns == 2)
-                                    Positioned.fill(
-                                      child: Center(
-                                        child: VerticalDivider(
-                                          width: 1,
-                                          color: Theme.of(context).dividerColor
-                                              .withValues(alpha: 0.25),
+                        itemBuilder: (context, spread) => _pageEffect(
+                          spread,
+                          Align(
+                            alignment: Alignment.topCenter,
+                            child: SizedBox(
+                              width: canvasWidth,
+                              child: Padding(
+                                padding: EdgeInsets.symmetric(
+                                  vertical: verticalMargin,
+                                ),
+                                child: Stack(
+                                  children: [
+                                    if (columns == 2)
+                                      Positioned.fill(
+                                        child: Center(
+                                          child: VerticalDivider(
+                                            width: 1,
+                                            color: Theme.of(context)
+                                                .dividerColor
+                                                .withValues(alpha: 0.25),
+                                          ),
                                         ),
                                       ),
-                                    ),
-                                  Row(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.stretch,
-                                    children: [
-                                      for (
-                                        var column = 0;
-                                        column < columns;
-                                        column++
-                                      ) ...[
-                                        if (column > 0)
-                                          SizedBox(width: layout.gutter),
-                                        Expanded(
-                                          child:
-                                              firstPage +
-                                                      spread * columns +
-                                                      column <
-                                                  pages.length
-                                              ? _page(
-                                                  context,
-                                                  firstPage +
-                                                      spread * columns +
-                                                      column,
-                                                  style,
-                                                  headingStyle,
-                                                  scaler,
-                                                  headingSpace,
-                                                )
-                                              : _previewPage(
-                                                  context,
-                                                  style,
-                                                  headingStyle,
-                                                  scaler,
-                                                ),
-                                        ),
+                                    Row(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.stretch,
+                                      children: [
+                                        for (
+                                          var column = 0;
+                                          column < columns;
+                                          column++
+                                        ) ...[
+                                          if (column > 0)
+                                            SizedBox(width: layout.gutter),
+                                          Expanded(
+                                            child:
+                                                firstPage +
+                                                        spread * columns +
+                                                        column <
+                                                    pages.length
+                                                ? _page(
+                                                    context,
+                                                    firstPage +
+                                                        spread * columns +
+                                                        column,
+                                                    style,
+                                                    headingStyle,
+                                                    scaler,
+                                                    headingSpace,
+                                                  )
+                                                : _previewPage(
+                                                    context,
+                                                    style,
+                                                    headingStyle,
+                                                    scaler,
+                                                  ),
+                                          ),
+                                        ],
                                       ],
-                                    ],
-                                  ),
-                                ],
+                                    ),
+                                  ],
+                                ),
                               ),
                             ),
                           ),
@@ -461,6 +487,42 @@ class PagedChapterState extends State<PagedChapter> {
     },
   );
 
+  Widget _pageEffect(int spread, Widget child) {
+    if (animation == PageTurnAnimation.slide) return child;
+    final pageController = controller!;
+    return LayoutBuilder(
+      builder: (context, constraints) => AnimatedBuilder(
+        animation: pageController,
+        child: child,
+        builder: (context, child) {
+          final position =
+              pageController.hasClients &&
+                  pageController.position.hasContentDimensions
+              ? pageController.page ?? pageController.initialPage.toDouble()
+              : pageController.initialPage.toDouble();
+          final relative = spread - position;
+          final rtl = Directionality.of(context) == TextDirection.rtl;
+          // Cancel the viewport translation: the sheet stays in place while
+          // the fold reveals its neighbour. Paging, gestures and boundaries
+          // still use the same PageController as the sliding mode.
+          return Transform.translate(
+            offset: Offset(
+              -relative * constraints.maxWidth * (rtl ? -1 : 1),
+              0,
+            ),
+            child: PageTurnEffect(
+              position: relative,
+              animation: animation,
+              paperColor: Theme.of(context).scaffoldBackgroundColor,
+              reverse: rtl,
+              child: child!,
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   Widget _page(
     BuildContext context,
     int index,
@@ -479,14 +541,24 @@ class PagedChapterState extends State<PagedChapter> {
         if (index == 0)
           SizedBox(
             height: headingSpace,
-            child: Padding(
-              padding: EdgeInsets.only(right: widget.horizontalMargin),
-              child: Text(
-                next?.title ?? widget.title,
-                style: headingStyle,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
+            child: ReadingHeading(
+              text: next?.title ?? widget.title,
+              style: headingStyle,
+              maxLines: 2,
+              rightInset: widget.horizontalMargin,
+              placement: widget.commentPlacement,
+              comment:
+                  widget.comments &&
+                      (next == null
+                              ? widget.titleParagraph
+                              : next.titleParagraph) !=
+                          null
+                  ? (next?.commentBuilder ?? widget.commentBuilder)(
+                      (next == null
+                          ? widget.titleParagraph
+                          : next.titleParagraph)!,
+                    )
+                  : null,
             ),
           ),
         for (final fragment in fragments ?? pages[index])

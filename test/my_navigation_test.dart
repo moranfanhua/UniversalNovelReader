@@ -3,11 +3,13 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/testing.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:unr/data/library.dart';
 import 'package:unr/main.dart';
 import 'package:unr/sources/sfacg/sfacg_api.dart';
 import 'package:unr/sources/sfacg/sfacg_source.dart';
 import 'package:unr/ui/account.dart';
+import 'package:unr/ui/about.dart';
 import 'package:unr/ui/settings.dart';
 
 class MyMemoryLibrary extends Library {
@@ -39,6 +41,45 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
   }
+
+  testWidgets('关于收纳版本、检查更新与许可，逐级返回我的页', (tester) async {
+    configureViewport(tester);
+    PackageInfo.setMockInitialValues(
+      appName: 'UNR 阅读器',
+      packageName: 'io.github.moranfanhua.unr',
+      version: '0.3.2',
+      buildNumber: '4',
+      buildSignature: '',
+    );
+    final library = MyMemoryLibrary();
+    addTearDown(library.dispose);
+    addTearDown(library.source.api.close);
+    await tester.pumpWidget(UnrApp(library: library));
+    expect(find.byTooltip('开源许可'), findsNothing);
+    await tester.tap(find.text('我的').last);
+    await tester.pumpAndSettle();
+    expect(find.text('开源许可'), findsNothing);
+    await tester.tap(find.text('关于'));
+    await tester.pumpAndSettle();
+    expect(find.byType(AboutPage), findsOneWidget);
+    expect(find.byType(NavigationBar), findsNothing);
+    expect(find.text('0.3.2+4'), findsOneWidget);
+    expect(find.text('检查更新'), findsOneWidget);
+    await tester.tap(find.text('开源许可'));
+    await tester.pumpAndSettle();
+    expect(find.byType(LicensePage), findsOneWidget);
+    await tester.tap(find.byType(BackButton));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(BackButton));
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<NavigationBar>(find.byType(NavigationBar)).selectedIndex,
+      2,
+    );
+    expect(find.text('关于'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  }, variant: platforms);
 
   testWidgets('三个底部入口，账号按平台进入并逐级返回', (tester) async {
     configureViewport(tester);
@@ -76,15 +117,20 @@ void main() {
 
     await tester.tap(find.text('菠萝包轻小说'));
     await tester.pumpAndSettle();
-    expect(find.text('已保存登录会话'), findsOneWidget);
+    expect(find.text('已保存菠萝包登录会话'), findsOneWidget);
     expect(find.text('选择登录方式'), findsOneWidget);
     expect(find.text('账号密码登录'), findsOneWidget);
     expect(find.text('退出登录'), findsOneWidget);
     await tester.tap(find.text('账号密码登录'));
     await tester.pumpAndSettle();
     expect(find.text('登录菠萝包'), findsOneWidget);
-    expect(find.text('导入 App 会话'), findsOneWidget);
+    expect(find.text('验证并保存会话'), findsNothing);
     expect(find.text('打开官网登录'), findsNothing);
+    await tester.tap(find.byType(BackButton));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('导入会话'));
+    await tester.pumpAndSettle();
+    expect(find.text('验证并保存会话'), findsOneWidget);
     await tester.tap(find.byType(BackButton));
     await tester.pumpAndSettle();
     await tester.tap(find.byType(BackButton));
@@ -120,7 +166,7 @@ void main() {
       tester
           .widgetList<ListTile>(find.byType(ListTile))
           .map((tile) => (tile.title! as Text).data),
-      ['外观', '书架', '阅读', '搜索', '导入', '日志'],
+      ['外观', '书架', '阅读', '搜索', '下载', '导入', '日志'],
     );
     expect(find.text('阅读方式'), findsNothing);
     expect(find.byType(NavigationBar), findsNothing);

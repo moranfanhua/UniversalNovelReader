@@ -194,6 +194,34 @@ class _ReadingSettingsState extends State<ReadingSettings> {
             },
           ),
           const SizedBox(height: 16),
+          if (library.readingMode == ReadingMode.paged) ...[
+            const Text('翻页动画'),
+            const SizedBox(height: 8),
+            SegmentedButton<PageTurnAnimation>(
+              key: const ValueKey('reading-page-turn-animation'),
+              showSelectedIcon: false,
+              segments: const [
+                ButtonSegment(
+                  value: PageTurnAnimation.none,
+                  label: Text('无动画'),
+                ),
+                ButtonSegment(
+                  value: PageTurnAnimation.simulation,
+                  label: Text('仿真'),
+                ),
+                ButtonSegment(
+                  value: PageTurnAnimation.slide,
+                  label: Text('滑动'),
+                ),
+              ],
+              selected: {library.pageTurnAnimation},
+              onSelectionChanged: (value) {
+                setState(() => library.pageTurnAnimation = value.single);
+                _save();
+              },
+            ),
+            const SizedBox(height: 16),
+          ],
           SwitchListTile(
             key: const ValueKey('reading-paragraph-comments'),
             contentPadding: EdgeInsets.zero,
@@ -254,6 +282,8 @@ class _ReadingSettingsState extends State<ReadingSettings> {
                   value: font.id,
                   child: Text(
                     '${font.name}${library.downloadedFonts.contains(font.id) ? ' · 已下载' : ''}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ),
             ],
@@ -289,7 +319,13 @@ class _ReadingSettingsState extends State<ReadingSettings> {
               ],
             ),
             const SizedBox(height: 8),
-            const Text('来源：Google Fonts · SIL OFL 1.1\n下载后保存在本机，可离线使用。'),
+            Text(
+              '来源：${ReaderFonts.font(selected).source} · SIL OFL 1.1\n下载后保存在本机，可离线使用。',
+            ),
+            if (ReaderFonts.font(selected).notice case final notice?) ...[
+              const SizedBox(height: 8),
+              Text(notice),
+            ],
           ],
           if (fontBusy) ...[
             const SizedBox(height: 10),

@@ -21,7 +21,7 @@
 | `lib/sources/sfacg/`、`lib/sources/fanqie/` | 各平台协议、认证、正文与评论适配 |
 | `lib/ui/` | 书架、作品详情、阅读器、设置及账号页面 |
 | `assets/` | 字符表、平台图标等应用资源 |
-| `android/` | Android 工程、原生登录与本地 VPN 会话辅助、NetBare 模块 |
+| `android/` | Android 工程、原生音量键翻页与平台集成 |
 | `windows/` | Windows 工程及平台集成 |
 | `test/` | Dart 单元测试、Flutter 组件与交互回归测试 |
 | `.github/` | 分支策略、发布准备、构建发布脚本及其测试 |
@@ -60,7 +60,7 @@ flutter test --no-pub <相关测试文件>
 
 * 优先运行与行为相关的现有回归测试。修复故障或新增重要行为时，补能重现问题、验证结果的测试；纯文档、格式及低影响布局调整不必机械添加测试。
 * 影响书库持久化、阅读器公共逻辑或多个书源的改动，交付前运行 `flutter test --no-pub`。检查通过且没有新改动或未解决问题时，不重复执行同一批检查。
-* Android 原生会话辅助改动需运行对应原生测试；可在 `android/` 执行 `./gradlew.bat :app:testDebugUnitTest`，并按需构建 `flutter build apk --debug --no-pub`。
+* Android 原生集成改动需运行相关现有原生测试（如有），并按需构建 `flutter build apk --debug --no-pub`。
 * Windows 平台集成改动按需运行 `flutter build windows --debug --no-pub`。使用平台构建验证改动，但不要把构建成功等同于真实账号或设备交互已验证。
 * `.github/` 发布脚本或分支策略改动运行以下测试；分支策略测试需要 Node.js，未在 PATH 中时可通过 `UNR_TEST_NODE` 指定可执行文件。
 
