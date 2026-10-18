@@ -332,4 +332,48 @@ void main() {
       'https://example.com/a.png',
     );
   });
+  test('最新段评与回复保留 App 图集、表情及富文本图片字段', () async {
+    final api = apiWith((req) async {
+      final content = {
+        'text': '配图[笑]',
+        'image_data_list': {
+          'image_data': [
+            {'dynamic_url': 'https://cdn.example/animated.webp'},
+          ],
+        },
+        'text_exts': [
+          {'s': 0, 'e': 2, 'tp': 3, 'uri': 'https://cdn.example/inline.png'},
+        ],
+      };
+      if (req.method == 'GET') {
+        final latestContent = Map<String, dynamic>.from(content)
+          ..remove('image_data_list')
+          ..['image_data'] = (content['image_data_list'] as Map)['image_data'];
+        return response({
+          'comments': [
+            {'comment_id': rootId, ...latestContent},
+          ],
+          'has_more': false,
+        });
+      }
+      final raw = entry(replyId, reply: true);
+      (raw['Common'] as Map)['content'] = content;
+      return response({
+        'reply_list': [raw],
+        'comment_list_info': {'has_more': false},
+      });
+    });
+    addTearDown(api.close);
+    final source = FanqieSource(api);
+    final page = await source.commentPage(location);
+    final replies = await source.repliesFor(location, page.items.single);
+    for (final comment in [page.items.single, replies.single]) {
+      final parts = source.commentContent(comment.text);
+      expect(parts.where((p) => p.image != null).map((p) => p.image), [
+        'https://cdn.example/inline.png',
+        'https://cdn.example/animated.webp',
+      ]);
+      expect(parts.where((p) => p.asset != null).single.text, '[笑]');
+    }
+  });
 }
