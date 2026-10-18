@@ -19,6 +19,7 @@ import 'chapter_directory.dart';
 import 'add_to_shelf_button.dart';
 import 'paragraph_comment_button.dart';
 import 'reading_paragraph.dart';
+import 'reading_heading.dart';
 
 class ReaderPage extends StatefulWidget {
   const ReaderPage({
@@ -77,6 +78,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   Library get library => widget.library;
   CommentSource? get comments =>
       library.showParagraphComments ? library.commentsFor(widget.book) : null;
+  Paragraph? _titleParagraph(int index) => library
+      .commentsFor(widget.book)
+      ?.chapterTitleParagraph(widget.book.chapters[index]);
   CommentLocation _commentLocation(Paragraph paragraph, {int? chapterIndex}) =>
       CommentLocation(
         book: widget.book,
@@ -496,6 +500,16 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       final top = view.localToGlobal(Offset.zero).dy - 150;
       final bottom = top + view.size.height + 300;
       for (final block in scrollChapters) {
+        final heading = block.titleKey.currentContext?.findRenderObject();
+        final title = _titleParagraph(block.index);
+        if (title?.remoteIndex != null &&
+            heading is RenderBox &&
+            heading.hasSize) {
+          final y = heading.localToGlobal(Offset.zero).dy;
+          if (y < bottom && y + heading.size.height > top) {
+            visible.add((block.index, title!.remoteIndex!));
+          }
+        }
         for (var i = 0; i < block.keys.length; i++) {
           final box = block.keys[i].currentContext?.findRenderObject();
           final row = block.content.paragraphs[i].remoteIndex;
@@ -518,17 +532,21 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       service!
           .paragraphCommentCount(
             _commentLocation(
-              (library.readingMode == ReadingMode.scroll
-                      ? scrollChapters
-                            .firstWhere((block) => block.index == location.$1)
-                            .content
-                            .paragraphs
-                      : location.$1 == chapter
-                      ? loadedParagraphs
-                      : previewContent!.paragraphs)
-                  .firstWhere(
-                    (paragraph) => paragraph.remoteIndex == location.$2,
-                  ),
+              _titleParagraph(location.$1)?.remoteIndex == location.$2
+                  ? _titleParagraph(location.$1)!
+                  : (library.readingMode == ReadingMode.scroll
+                            ? scrollChapters
+                                  .firstWhere(
+                                    (block) => block.index == location.$1,
+                                  )
+                                  .content
+                                  .paragraphs
+                            : location.$1 == chapter
+                            ? loadedParagraphs
+                            : previewContent!.paragraphs)
+                        .firstWhere(
+                          (paragraph) => paragraph.remoteIndex == location.$2,
+                        ),
               chapterIndex: location.$1,
             ),
           )
@@ -665,6 +683,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     return ChapterPreview(
       content: value,
       title: widget.book.chapters[index].title,
+      titleParagraph: _titleParagraph(index),
       hasFollowingChapter: index + 1 < widget.book.chapters.length,
       commentBuilder: (paragraph) =>
           _commentButton(paragraph, chapterIndex: index),
@@ -991,12 +1010,18 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Padding(
-              padding: EdgeInsets.only(right: library.horizontalMargin),
-              child: Text(
-                widget.book.chapters[block.index].title,
-                style: Theme.of(context).textTheme.headlineSmall,
-              ),
+            ReadingHeading(
+              key: block.titleKey,
+              text: widget.book.chapters[block.index].title,
+              style: Theme.of(context).textTheme.headlineSmall!,
+              rightInset: library.horizontalMargin,
+              placement: library.paragraphCommentPlacement,
+              comment: comments == null || _titleParagraph(block.index) == null
+                  ? null
+                  : _commentButton(
+                      _titleParagraph(block.index)!,
+                      chapterIndex: block.index,
+                    ),
             ),
             const SizedBox(height: 32),
             for (var i = 0; i < block.content.paragraphs.length; i++)
@@ -1199,6 +1224,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
           key: pagedKey,
           content: snapshot.data!,
           title: widget.book.chapters[chapter].title,
+          titleParagraph: _titleParagraph(chapter),
           fontSize: library.fontSize,
           fontFamily: library.readingFontFamily,
           horizontalMargin: library.horizontalMargin,
@@ -1320,6 +1346,7 @@ class _ScrollChapter {
   final ChapterContent content;
   final List<GlobalKey> keys;
   final key = GlobalKey();
+  final titleKey = GlobalKey();
 }
 
 class BookImage extends StatefulWidget {

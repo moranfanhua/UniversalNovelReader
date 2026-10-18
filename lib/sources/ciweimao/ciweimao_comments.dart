@@ -7,6 +7,7 @@ import '../../domain/models.dart';
 import '../comment_source.dart';
 import 'ciweimao_api.dart';
 import 'ciweimao_parser.dart';
+import 'ciweimao_markup.dart';
 
 abstract class CiweimaoComments extends CommentSource {
   CiweimaoComments(this.api);
@@ -22,6 +23,9 @@ abstract class CiweimaoComments extends CommentSource {
 
   @override
   bool get hasSession => api.hasSession;
+  @override
+  Paragraph chapterTitleParagraph(Chapter chapter) =>
+      Paragraph(chapter.title, remoteIndex: 0);
   @override
   CommentCapabilities get commentCapabilities => const CommentCapabilities(
     counts: true,
@@ -52,7 +56,7 @@ abstract class CiweimaoComments extends CommentSource {
     final row = location.paragraph.remoteIndex;
     final book = location.book;
     if (row == null ||
-        row < 1 ||
+        row < 0 ||
         bookRequired && book == null ||
         book != null &&
             (book.source != 'ciweimao' ||
@@ -457,24 +461,5 @@ abstract class CiweimaoComments extends CommentSource {
   @override
   String? avatarAddress(String address) => CiweimaoParser.imageAddress(address);
   @override
-  List<CommentPart> commentContent(String text) {
-    final parts = <CommentPart>[];
-    var offset = 0;
-    for (final match in RegExp(r'\[img\]([^\[\]]+)\[/img\]').allMatches(text)) {
-      if (match.start > offset) {
-        parts.add(CommentPart.text(text.substring(offset, match.start)));
-      }
-      final address = CiweimaoParser.imageAddress(match[1]!.trim());
-      parts.add(
-        address == null
-            ? CommentPart.text(match[0]!)
-            : CommentPart.image(address),
-      );
-      offset = match.end;
-    }
-    if (offset < text.length) {
-      parts.add(CommentPart.text(text.substring(offset)));
-    }
-    return parts;
-  }
+  List<CommentPart> commentContent(String text) => CiweimaoMarkup.content(text);
 }

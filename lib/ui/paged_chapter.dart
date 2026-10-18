@@ -9,6 +9,7 @@ import 'reading_tap_zones.dart';
 import 'chapter_page_layout.dart';
 import 'reading_paragraph.dart';
 import 'page_turn_effect.dart';
+import 'reading_heading.dart';
 
 class ChapterPreview {
   const ChapterPreview({
@@ -16,11 +17,13 @@ class ChapterPreview {
     required this.title,
     required this.hasFollowingChapter,
     required this.commentBuilder,
+    this.titleParagraph,
   });
   final ChapterContent content;
   final String title;
   final bool hasFollowingChapter;
   final Widget Function(Paragraph paragraph) commentBuilder;
+  final Paragraph? titleParagraph;
 }
 
 typedef ChapterContinuation = ({
@@ -42,6 +45,7 @@ class PagedChapter extends StatefulWidget {
     required this.imageBuilder,
     required this.commentBuilder,
     required this.comments,
+    this.titleParagraph,
     this.fontFamily,
     this.horizontalMargin = 22,
     this.verticalMargin = 24,
@@ -66,6 +70,7 @@ class PagedChapter extends StatefulWidget {
   final double horizontalMargin, verticalMargin, lineHeight;
   final int initialParagraph, initialOffset;
   final bool comments;
+  final Paragraph? titleParagraph;
   final ParagraphCommentPlacement commentPlacement;
   final PageTurnAnimation pageTurnAnimation;
   final bool startAtEnd;
@@ -123,11 +128,21 @@ class PagedChapterState extends State<PagedChapter> {
       anchorOffset = fragments.first.offset;
     }
     widget.onPosition(anchorParagraph, anchorOffset, {
+      if (widget.comments &&
+          page == 0 &&
+          widget.titleParagraph?.remoteIndex != null)
+        widget.titleParagraph!.remoteIndex!,
       for (final fragment in fragments)
         if (widget.content.paragraphs[fragment.paragraph].remoteIndex != null)
           widget.content.paragraphs[fragment.paragraph].remoteIndex!,
     });
     widget.onPreviewRows?.call({
+      if (widget.comments &&
+          fillsRight &&
+          page == pages.length - 1 &&
+          previewPages.isNotEmpty &&
+          preview?.titleParagraph?.remoteIndex != null)
+        preview!.titleParagraph!.remoteIndex!,
       if (fillsRight && page == pages.length - 1 && previewPages.isNotEmpty)
         for (final fragment in previewPages.first)
           if (preview!.content.paragraphs[fragment.paragraph].remoteIndex !=
@@ -225,8 +240,11 @@ class PagedChapterState extends State<PagedChapter> {
       final style = layout.style, headingStyle = layout.headingStyle;
       final scaler = layout.scaler, direction = layout.direction;
       final locale = layout.locale;
-      final minimum = layout.minimum, verticalMargin = layout.margin;
-      final headingSpace = layout.headingSpace(widget.title);
+      final verticalMargin = layout.margin;
+      final headingSpace = layout.headingSpace(
+        widget.title,
+        titleComments: widget.titleParagraph != null,
+      );
       final nextSignature = (
         widget.content,
         columns,
@@ -238,6 +256,7 @@ class PagedChapterState extends State<PagedChapter> {
         locale,
         headingSpace,
         widget.comments,
+        widget.titleParagraph?.remoteIndex,
         widget.commentPlacement,
         widget.horizontalMargin,
         layout.textLayout.signature,
@@ -293,20 +312,11 @@ class PagedChapterState extends State<PagedChapter> {
       final next = preview;
       if (next != null && previewSignature != (nextSignature, next)) {
         previewSignature = (nextSignature, next);
-        final nextHeading = TextPainter(
-          text: TextSpan(text: next.title, style: headingStyle),
-          textScaler: scaler,
-          textDirection: direction,
-          maxLines: 2,
-          ellipsis: '…',
-          locale: locale,
-        )..layout(maxWidth: width);
-        final nextHeadingSpace = (nextHeading.height + 24).clamp(
-          0.0,
-          (height - minimum).clamp(0.0, double.infinity),
+        final nextHeadingSpace = layout.headingSpace(
+          next.title,
+          titleComments: next.titleParagraph != null,
         );
         previewHeadingSpace = nextHeadingSpace;
-        nextHeading.dispose();
         previewPages = TextPagination.paginate(
           next.content.paragraphs,
           width: width,
@@ -531,14 +541,24 @@ class PagedChapterState extends State<PagedChapter> {
         if (index == 0)
           SizedBox(
             height: headingSpace,
-            child: Padding(
-              padding: EdgeInsets.only(right: widget.horizontalMargin),
-              child: Text(
-                next?.title ?? widget.title,
-                style: headingStyle,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
+            child: ReadingHeading(
+              text: next?.title ?? widget.title,
+              style: headingStyle,
+              maxLines: 2,
+              rightInset: widget.horizontalMargin,
+              placement: widget.commentPlacement,
+              comment:
+                  widget.comments &&
+                      (next == null
+                              ? widget.titleParagraph
+                              : next.titleParagraph) !=
+                          null
+                  ? (next?.commentBuilder ?? widget.commentBuilder)(
+                      (next == null
+                          ? widget.titleParagraph
+                          : next.titleParagraph)!,
+                    )
+                  : null,
             ),
           ),
         for (final fragment in fragments ?? pages[index])

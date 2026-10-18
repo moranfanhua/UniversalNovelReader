@@ -42,10 +42,19 @@ class CommentLocation {
 }
 
 class CommentPart {
-  const CommentPart.text(this.text) : image = null;
-  const CommentPart.image(this.image, {this.text = ''});
+  const CommentPart.text(this.text)
+    : image = null,
+      asset = null,
+      inline = false;
+  const CommentPart.image(this.image, {this.text = '', this.inline = false})
+    : asset = null;
+  const CommentPart.asset(this.asset, {this.text = ''})
+    : image = null,
+      inline = true;
   final String text;
   final String? image;
+  final String? asset;
+  final bool inline;
 }
 
 /// Optional comment service for a book source. Providers own authentication,
@@ -90,6 +99,9 @@ abstract class CommentSource {
   }) => Future.error(const SourceException('当前书源不支持点赞'));
 
   List<CommentPart> commentContent(String text) => [CommentPart.text(text)];
+
+  /// Providers opt in with the title's actual App paragraph identifier.
+  Paragraph? chapterTitleParagraph(Chapter chapter) => null;
   String? avatarAddress(String address) => commentImageAddress(address);
   List<ParagraphComment> orderedReplies(Iterable<ParagraphComment> comments) {
     final indexed = comments.toList().asMap().entries.toList();

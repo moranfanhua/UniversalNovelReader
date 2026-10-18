@@ -107,3 +107,4 @@ UniversalNovelReader是一个非官方第三方阅读工具，与任何小说平
 ## 协议参考来源
 
 - [刺猬猫官方 Android 客户端](https://www.ciweimao.com/setting/download) 2.9.367 — 刺猬猫 App 接口、签名及数据格式的兼容性参考；客户端及平台标识的权利归原权利人所有。
+- `assets/ciweimao_emoji/` 的 40 个内置表情取自上述官方客户端的 `drawable/emoji_01` 至 `drawable/emoji_40`，用于还原评论中的 `#(表情名)`；表情图片的版权归原权利人所有，不属于本项目原创代码的 AGPL-3.0 授权范围。

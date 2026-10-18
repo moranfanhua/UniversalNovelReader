@@ -150,7 +150,7 @@ class SfacgSource extends CommentSource
       parts.add(
         image == null
             ? CommentPart.text(tag[0]!)
-            : CommentPart.image(image, text: tag[0]!),
+            : CommentPart.image(image, text: tag[0]!, inline: true),
       );
       start = tag.end;
     }
