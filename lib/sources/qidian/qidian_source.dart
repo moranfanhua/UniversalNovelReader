@@ -7,12 +7,15 @@ import 'package:archive/archive.dart';
 import '../../domain/models.dart';
 import '../novel_source.dart';
 import '../chapter_batch_source.dart';
+import '../chapter_subscription_source.dart';
 import 'qidian_api.dart';
 import 'qidian_comments.dart';
 import 'qidian_crypto.dart';
 import 'qidian_fock.dart';
+import 'qidian_subscriptions.dart';
 
 class QidianSource extends QidianComments
+    with QidianSubscriptions
     implements SearchableNovelSource, ChapterBatchSource, BookUpdateSource {
   QidianSource(super.api);
   @override
@@ -260,7 +263,7 @@ class QidianSource extends QidianComments
       checkSession();
       if (owned is! List) throw const SourceException('起点已购章节列表格式已变化');
       if (!owned.any((id) => '$id' == cid)) {
-        throw const SourceException('此章节尚未购买，请先在起点官方 App 购买后重试');
+        throw const SubscriptionRequiredException('此章节尚未购买，可订阅后续章节');
       }
     }
     final response = await api.send(
