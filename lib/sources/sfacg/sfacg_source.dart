@@ -12,11 +12,14 @@ import '../chapter_batch_source.dart';
 import '../bookshelf_source.dart';
 import 'sfacg_api.dart';
 import 'sfacg_markup.dart';
+import 'sfacg_subscriptions.dart';
+import '../chapter_subscription_source.dart';
 import '../comment_source.dart';
 
 export '../comment_source.dart' show CommentSort;
 
 class SfacgSource extends CommentSource
+    with SfacgSubscriptions
     implements
         SearchableNovelSource,
         BookshelfSource,
@@ -24,6 +27,7 @@ class SfacgSource extends CommentSource
         VerifiableNovelSource,
         BookUpdateSource {
   SfacgSource(this.api, {Map<String, String>? cipher}) : cipher = cipher ?? {};
+  @override
   final SfacgApi api;
   final Map<String, String> cipher;
   final Map<String, Book> _shelfPreviews = {};
@@ -292,7 +296,19 @@ class SfacgSource extends CommentSource
         '此章节需要 App 会话，请在“我的 → 账号设置”使用账号密码登录或导入 App 会话',
       );
     }
-    return _readAppChapter(chapter);
+    try {
+      return await _readAppChapter(chapter);
+    } on SourceException catch (error) {
+      if (error is! SourceVerificationRequiredException &&
+          error.errorCode == 402) {
+        throw SubscriptionRequiredException(
+          '尚未订阅本章，可订阅后续章节',
+          code: error.code,
+          errorCode: error.errorCode,
+        );
+      }
+      rethrow;
+    }
   }
 
   // Official 5.2.84: DownloadViewModel.T1 -> r7.H/W -> pe.M5/N5/O5.
@@ -341,7 +357,15 @@ class SfacgSource extends CommentSource
             )
             as Map;
     final raw = '${data['content'] ?? ''}${data['expand']?['content'] ?? ''}';
-    if (raw.trim().isEmpty) throw const SourceException('未取得正文，请检查已有章节阅读权限');
+    final price =
+        data['needFireMoney'] ??
+        (data['expand'] is Map ? data['expand']['needFireMoney'] : null);
+    if ((num.tryParse('$price') ?? 0) > 0) {
+      throw const SubscriptionRequiredException('此章节尚未订阅');
+    }
+    if (raw.trim().isEmpty) {
+      throw const SourceException('未取得正文，请检查已有章节阅读权限');
+    }
     if (cipher.length != 3751) throw const SourceException('菠萝包正文字符表不完整');
     // The bundled table matches the official kw.b.a substitution exactly.
     // Verified free responses also need it when isContentEncrypted is false.
