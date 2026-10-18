@@ -7,6 +7,7 @@ import '../sources/ciweimao/ciweimao_api.dart';
 import '../sources/ciweimao/ciweimao_auth.dart';
 import '../sources/ciweimao/ciweimao_session.dart';
 import 'account_login_method.dart';
+import 'account_session_check.dart';
 
 class CiweimaoAccountPage extends StatefulWidget {
   const CiweimaoAccountPage({super.key, required this.api, this.method});
@@ -147,6 +148,14 @@ class _CiweimaoAccountPageState extends State<CiweimaoAccountPage> {
           children: [
             Text(widget.api.hasSession ? '已保存刺猬猫登录会话' : '未登录 · 可阅读免费正文及公开段评'),
             const SizedBox(height: 12),
+            if (widget.method == null)
+              AccountSessionCheck(
+                session: widget.api.hasSession ? widget.api.credentials : null,
+                currentSession: () =>
+                    widget.api.hasSession ? widget.api.credentials : null,
+                validate: auth.checkSession,
+                enabled: !busy,
+              ),
             if (widget.method == null)
               AccountLoginMethodList(
                 onPassword: busy

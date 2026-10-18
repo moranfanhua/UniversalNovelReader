@@ -9,6 +9,7 @@ import '../sources/qidian/qidian_captcha.dart';
 import '../sources/qidian/qidian_session.dart';
 import 'qidian_captcha.dart';
 import 'account_login_method.dart';
+import 'account_session_check.dart';
 
 class QidianAccountPage extends StatefulWidget {
   const QidianAccountPage({
@@ -170,6 +171,13 @@ class _QidianAccountPageState extends State<QidianAccountPage> {
           children: [
             Text(widget.api.hasSession ? '已保存起点登录会话' : '未登录 · 可阅读免费章节'),
             const SizedBox(height: 12),
+            if (widget.method == null)
+              AccountSessionCheck(
+                session: widget.api.credentials,
+                currentSession: () => widget.api.credentials,
+                validate: widget.api.checkSession,
+                enabled: !busy,
+              ),
             if (widget.method == null)
               AccountLoginMethodList(
                 onPassword: busy

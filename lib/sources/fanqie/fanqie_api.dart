@@ -149,5 +149,12 @@ class FanqieApi {
     await app.accountId();
   }
 
+  Future<void> checkSession() async {
+    if (!hasSession) throw const SourceException('请先登录番茄小说');
+    final probe = FanqieApi(client: client)..setCookie(cookie);
+    if (app.deviceId.isNotEmpty) probe.app.restore(app.toJson());
+    await probe.validateSession();
+  }
+
   void close() => client.close();
 }

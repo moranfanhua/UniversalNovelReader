@@ -634,7 +634,7 @@ void main() {
     await tester.tap(find.text('验证并保存会话'));
     await tester.pumpAndSettle();
     expect(api.cookie, 'sessionid=original');
-    expect(find.text('番茄会话未登录或已失效'), findsOneWidget);
+    expect(find.text('番茄账号检测返回的数据格式已变化'), findsOneWidget);
   });
 
   test('会话导入拒绝控制字符和缺少会话标识，失败不替换原会话', () {

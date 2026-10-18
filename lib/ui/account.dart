@@ -8,6 +8,7 @@ import 'ciweimao_account.dart';
 import 'qidian_account.dart';
 import 'fanqie_account.dart';
 import 'account_login_method.dart';
+import 'account_session_check.dart';
 import 'platform_order.dart';
 import 'source_icon.dart';
 
@@ -81,6 +82,13 @@ class _AccountPageState extends State<AccountPage> {
   bool busy = false;
   String? message;
 
+  Object? get _session {
+    final api = widget.library.source.api;
+    return api.hasSession
+        ? (api.cookies['.SFCommunity'], api.cookies['session_APP'])
+        : null;
+  }
+
   Future<void> _openMethod(AccountLoginMethod method) async {
     await Navigator.push<void>(
       context,
@@ -145,6 +153,13 @@ class _AccountPageState extends State<AccountPage> {
               child: Text('旧网页会话已停用，请使用账号密码登录或导入 App 会话。'),
             ),
           const SizedBox(height: 12),
+          if (widget.method == null)
+            AccountSessionCheck(
+              session: _session,
+              currentSession: () => _session,
+              validate: widget.library.source.api.checkSession,
+              enabled: !busy,
+            ),
           if (widget.method == null)
             AccountLoginMethodList(
               onPassword: busy
