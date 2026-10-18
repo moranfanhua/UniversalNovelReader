@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../data/library.dart';
+import 'download_settings.dart';
 import 'reading_settings.dart';
 import 'platform_order.dart';
 import 'logs.dart';
@@ -91,6 +92,17 @@ class SettingsPage extends StatelessWidget {
             '搜索',
             Icons.search,
             (_) => _SearchSettingsPage(library: library),
+          ),
+          const SizedBox(height: 16),
+          _entry(
+            context,
+            'download',
+            '下载',
+            Icons.download_outlined,
+            (_) => _SettingsSection(
+              title: '下载设置',
+              children: [DownloadSettings(library: library)],
+            ),
           ),
           const SizedBox(height: 16),
           _entry(

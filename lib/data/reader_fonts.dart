@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
 import '../domain/models.dart';
+import 'download_mirror.dart';
 
 class CloudFont {
   const CloudFont(
@@ -253,6 +254,7 @@ class ReaderFonts {
 
   Future<String> download(
     String id, {
+    DownloadMirror mirror = DownloadMirror.defaults,
     void Function(int, int?)? onProgress,
   }) async {
     final option = font(id);
@@ -272,10 +274,20 @@ class ReaderFonts {
       client = _client = clientFactory();
       final bytes = _unpack(
         option,
-        await _fetch(client, option.download, maxSize, onProgress),
+        await _fetch(
+          client,
+          mirror.resolve(option.download),
+          maxSize,
+          onProgress,
+        ),
       );
       validate(bytes);
-      final license = await _fetch(client, option.license, 128 * 1024, null);
+      final license = await _fetch(
+        client,
+        mirror.resolve(option.license),
+        128 * 1024,
+        null,
+      );
       if (!utf8.decode(license).contains('SIL OPEN FONT LICENSE')) {
         throw const SourceException('无法取得字体开源许可');
       }

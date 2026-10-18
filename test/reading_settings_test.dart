@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:unr/data/library.dart';
+import 'package:unr/data/download_mirror.dart';
 import 'package:unr/data/reader_fonts.dart';
 import 'package:unr/domain/models.dart';
 import 'package:unr/domain/reading_preferences.dart';
@@ -20,6 +21,7 @@ class FakeFonts extends ReaderFonts {
   @override
   Future<String> download(
     String id, {
+    DownloadMirror mirror = DownloadMirror.defaults,
     void Function(int, int?)? onProgress,
   }) async {
     onProgress?.call(10, 10);
