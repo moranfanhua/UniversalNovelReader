@@ -1,18 +1,24 @@
 import 'dart:convert';
 
 import 'qidian_captcha.dart';
+import '../source_verification.dart';
 
 /// Served locally by the WebView interceptor. No phone or login keys enter it.
-class QidianCaptchaDocument {
+class QidianCaptchaDocument implements SourceVerificationDocument {
   QidianCaptchaDocument(this.nonce) {
     if (!RegExp(r'^[a-zA-Z0-9-]{1,64}$').hasMatch(nonce)) {
       throw ArgumentError('Invalid captcha document nonce');
     }
   }
 
+  @override
   final String nonce;
+  @override
+  String get handlerName => 'qidianCaptcha';
+  @override
   Uri get uri => Uri.https('turing.captcha.qcloud.com', '/unr-captcha/$nonce');
 
+  @override
   String get html =>
       '''<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8">

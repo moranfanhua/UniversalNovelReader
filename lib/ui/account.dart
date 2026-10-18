@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../sources/source_verification.dart';
+import 'source_verification_button.dart';
 import '../data/library.dart';
 import '../sources/sfacg/sfacg_session.dart';
 import '../sources/fanqie/fanqie_source.dart';
@@ -68,9 +70,15 @@ class AccountSettingsPage extends StatelessWidget {
 }
 
 class AccountPage extends StatefulWidget {
-  const AccountPage({super.key, required this.library, this.method});
+  const AccountPage({
+    super.key,
+    required this.library,
+    this.method,
+    this.verificationSolver,
+  });
   final Library library;
   final AccountLoginMethod? method;
+  final SourceVerificationSolver? verificationSolver;
   @override
   State<AccountPage> createState() => _AccountPageState();
 }
@@ -95,7 +103,11 @@ class _AccountPageState extends State<AccountPage> {
       MaterialPageRoute(
         builder: (_) => Scaffold(
           appBar: AppBar(title: Text('菠萝包 · ${method.label}')),
-          body: AccountPage(library: widget.library, method: method),
+          body: AccountPage(
+            library: widget.library,
+            method: method,
+            verificationSolver: widget.verificationSolver,
+          ),
         ),
       ),
     );
@@ -153,6 +165,15 @@ class _AccountPageState extends State<AccountPage> {
               child: Text('旧网页会话已停用，请使用账号密码登录或导入 App 会话。'),
             ),
           const SizedBox(height: 12),
+          if (widget.method == null && widget.library.source.canVerifyAccess)
+            SourceVerificationButton(
+              source: widget.library.source,
+              enabled: !busy,
+              solver: widget.verificationSolver,
+              onBusyChanged: (value) {
+                if (mounted) setState(() => busy = value);
+              },
+            ),
           if (widget.method == null)
             AccountSessionCheck(
               session: _session,

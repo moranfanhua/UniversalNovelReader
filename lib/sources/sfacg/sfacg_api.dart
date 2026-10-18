@@ -9,7 +9,9 @@ import '../../domain/models.dart';
 import '../../data/app_log.dart';
 import '../logged_request.dart';
 import '../session_validation.dart';
+import '../source_verification.dart';
 import 'sfacg_signature.dart';
+import 'sfacg_verification.dart';
 
 class SfacgApi {
   // The API checks the App protocol profile on chapter reads. A random UUID
@@ -32,6 +34,8 @@ class SfacgApi {
   String? sessionNotice;
   final Map<String, String> cookies = {};
   bool websiteSession = false;
+  bool _closed = false;
+  Future<SourceVerificationOutcome>? _verification;
   Future<void> Function()? onSessionChanged;
   bool get hasSession =>
       !websiteSession &&
@@ -105,7 +109,9 @@ class SfacgApi {
     try {
       await probe.validateSession();
     } on SourceException catch (error) {
-      if (error.code == 401 && error.errorCode != 507) {
+      if (error is! SourceVerificationRequiredException &&
+          error.code == 401 &&
+          error.errorCode != 507) {
         throw const SessionExpiredException('菠萝包会话已失效，请重新登录');
       }
       rethrow;
@@ -188,6 +194,11 @@ class SfacgApi {
       }
       final status = (doc['status'] as Map?) ?? {};
       final code = status['httpCode'] as int? ?? response.statusCode;
+      // The App may supply a security prompt with different HTTP/error codes.
+      // Keep this interpretation in the source; never infer it in reader UI.
+      final requiresVerification = RegExp(
+        r'风控|人机验证|安全验证',
+      ).hasMatch('${status['msg'] ?? ''}');
       if (code >= 200 &&
           code < 300 &&
           response.statusCode >= 200 &&
@@ -217,7 +228,10 @@ class SfacgApi {
         ),
         httpStatus: response.statusCode,
       );
-      if (retry && attempt < 3 && (code == 417 || code == 429 || code >= 500)) {
+      if (!requiresVerification &&
+          retry &&
+          attempt < 3 &&
+          (code == 417 || code == 429 || code >= 500)) {
         nonce = const Uuid().v4().toUpperCase();
         if (code == 417 && response.headers['date'] != null) {
           try {
@@ -250,6 +264,8 @@ class SfacgApi {
       for (final secret in [
         ...cookies.values,
         if (body != null) ...body.values.whereType<String>(),
+        if (query?['captcha_ticket'] != null) query!['captcha_ticket']!,
+        if (query?['captcha_randstr'] != null) query!['captcha_randstr']!,
       ]) {
         if (secret.isNotEmpty) message = message.replaceAll(secret, '[已隐藏]');
       }
@@ -257,6 +273,13 @@ class SfacgApi {
           .replaceAll(RegExp(r'1[3-9]\d{9}'), '[手机号已隐藏]')
           .replaceAll(RegExp(r'[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}'), '[邮箱已隐藏]');
       final errorCode = int.tryParse('${status['errorCode']}');
+      if (requiresVerification) {
+        throw SourceVerificationRequiredException(
+          '$endpoint遇到平台安全限制${message.isEmpty ? '' : '：$message'}',
+          code: code,
+          errorCode: errorCode,
+        );
+      }
       if (uri.path.startsWith('/Chaps/') && code == 401 && errorCode == 507) {
         throw const SourceException(
           '菠萝包正文接口拒绝当前 App 请求配置（错误码 507），请检查 App 版本和设备标识；登录成功不代表正文接口可用',
@@ -302,5 +325,113 @@ class SfacgApi {
     await onSessionChanged?.call();
   }
 
-  void close() => client.close();
+  Future<SourceVerificationOutcome> verifyAccess(
+    SourceVerificationSolver solve,
+  ) {
+    return _verification ??= _verifyAccess(solve).whenComplete(() {
+      _verification = null;
+    });
+  }
+
+  Future<SourceVerificationOutcome> _verifyAccess(
+    SourceVerificationSolver solve,
+  ) async {
+    if (!hasSession || _closed) {
+      throw const SourceException('请先登录菠萝包或导入 App 会话，再处理安全验证');
+    }
+    final original = Map<String, String>.of(cookies);
+    void checkActive() {
+      if (_closed ||
+          !hasSession ||
+          original.length != cookies.length ||
+          original.entries.any((entry) => cookies[entry.key] != entry.value)) {
+        throw const SourceException('菠萝包会话已变更，请重新发起安全验证');
+      }
+    }
+
+    // Keep rotated cookies isolated until the result and active login have
+    // both been checked. A late callback must never replace another login.
+    final candidate = SfacgApi(
+      client: client,
+      device: device,
+      nonce: nonce,
+      appUserAgent: appUserAgent,
+    )..clockOffset = clockOffset;
+    candidate.cookies.addAll(original);
+    const query = {'expand': 'accountException'};
+    final user = await candidate.request('user', query: query, retry: false);
+    checkActive();
+    final accountId = _verificationAccountId(user);
+    final ban = _verificationBanStatus(user);
+    if (ban == 0) return SourceVerificationOutcome.notRequired;
+    // APK WebCommonFragment.E2 opens CaptchaDialog only for banStatus=6.
+    // Binding, identity and other restrictions have separate official flows.
+    if (ban != 6) {
+      throw const SourceException('当前菠萝包账号限制需要在官方 App 中处理，无法通过人机验证解除');
+    }
+    final aid = await candidate.request('user/captcha/aid', retry: false);
+    checkActive();
+    if (aid is! String) {
+      throw const SourceException('菠萝包安全验证配置无效，请稍后重试');
+    }
+    final challenge = SfacgVerificationChallenge(
+      aid: aid,
+      expiresAt: DateTime.now().add(const Duration(minutes: 5)),
+    );
+    final result = await solve(challenge);
+    checkActive();
+    if (result == null) return SourceVerificationOutcome.cancelled;
+    if (!challenge.expiresAt.isAfter(DateTime.now())) {
+      throw const SourceException('菠萝包安全验证已过期，请重新发起验证');
+    }
+    final verified = await candidate.request(
+      'user',
+      query: {
+        ...query,
+        'captcha_randstr': result.randstr,
+        'captcha_ticket': result.ticket,
+      },
+      retry: false,
+    );
+    checkActive();
+    if (_verificationAccountId(verified) != accountId ||
+        _verificationBanStatus(verified) != 0 ||
+        !candidate.hasSession) {
+      throw const SourceException('菠萝包尚未确认解除账号限制，请稍后重试或在官方 App 检查');
+    }
+    cookies
+      ..clear()
+      ..addAll(candidate.cookies);
+    nonce = candidate.nonce;
+    clockOffset = candidate.clockOffset;
+    await onSessionChanged?.call();
+    return SourceVerificationOutcome.verified;
+  }
+
+  static int _verificationAccountId(dynamic user) {
+    final id = user is Map ? int.tryParse('${user['accountId']}') : null;
+    if (id == null || id <= 0) {
+      throw const SourceException('菠萝包会话未登录或已失效，请重新登录');
+    }
+    return id;
+  }
+
+  static int _verificationBanStatus(dynamic user) {
+    final expand = user is Map ? user['expand'] : null;
+    // APK treats a null accountException in a valid expansion as unrestricted.
+    if (expand is Map && expand['accountException'] == null) return 0;
+    final exception = expand is Map ? expand['accountException'] : null;
+    final ban = exception is Map
+        ? int.tryParse('${exception['banStatus']}')
+        : null;
+    if (ban == null || ban < 0) {
+      throw const SourceException('无法确认菠萝包账号限制状态，请稍后重试');
+    }
+    return ban;
+  }
+
+  void close() {
+    _closed = true;
+    client.close();
+  }
 }
