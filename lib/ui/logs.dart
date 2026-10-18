@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 
 import '../data/app_log.dart';
 import 'log_entry.dart';
+import 'top_dropdown_button.dart';
 
 enum _LogAction { refresh, clear, about }
 
@@ -250,9 +251,8 @@ class _LogsPageState extends State<LogsPage> {
           ),
       ],
     );
-    final moduleFilter = DropdownButton<String>(
+    final moduleFilter = TopDropdownButton<String>(
       key: const ValueKey('log-module-filter'),
-      isExpanded: true,
       value: module ?? '',
       menuMaxHeight: 320,
       items: [

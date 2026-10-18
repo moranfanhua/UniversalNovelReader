@@ -15,6 +15,7 @@ import 'image_bytes.dart';
 import 'my.dart';
 import 'import_shelf.dart';
 import '../domain/bookshelf.dart';
+import 'top_dropdown_button.dart';
 
 enum _ShelfBookAction { details, pin, remove }
 
@@ -735,9 +736,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             child: Row(
               children: [
                 Expanded(
-                  child: DropdownButton<String>(
+                  child: TopDropdownButton<String>(
                     key: const ValueKey('bookshelf-selector'),
-                    isExpanded: true,
                     value: selectedShelf ?? '',
                     items: [
                       const DropdownMenuItem(value: '', child: Text('全部作品')),
