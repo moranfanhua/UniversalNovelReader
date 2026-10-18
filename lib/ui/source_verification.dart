@@ -10,20 +10,35 @@ import 'package:uuid/uuid.dart';
 
 import '../domain/models.dart';
 import '../sources/source_verification.dart';
+import 'source_sms_verification.dart';
 
 class SourceVerificationPage<T> extends StatefulWidget {
   const SourceVerificationPage({super.key, required this.challenge});
 
-  final SourceVerificationChallenge<T> challenge;
+  final SourceWebVerificationChallenge<T> challenge;
 
   static Future<T?> solve<T>(
     BuildContext context,
     SourceVerificationChallenge<T> challenge,
-  ) => Navigator.of(context).push<T>(
-    MaterialPageRoute(
-      builder: (_) => SourceVerificationPage<T>(challenge: challenge),
-    ),
-  );
+  ) async {
+    if (challenge is SourceSmsVerificationChallenge) {
+      final sms = challenge as SourceSmsVerificationChallenge;
+      return await Navigator.of(context).push<bool>(
+            MaterialPageRoute(
+              builder: (_) => SourceSmsVerificationPage(challenge: sms),
+            ),
+          )
+          as T?;
+    }
+    if (challenge is! SourceWebVerificationChallenge<T>) {
+      throw const SourceException('暂不支持此安全验证方式');
+    }
+    return Navigator.of(context).push<T>(
+      MaterialPageRoute(
+        builder: (_) => SourceVerificationPage<T>(challenge: challenge),
+      ),
+    );
+  }
 
   @override
   State<SourceVerificationPage<T>> createState() =>

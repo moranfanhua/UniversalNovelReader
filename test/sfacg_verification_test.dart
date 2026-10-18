@@ -102,7 +102,9 @@ void main() {
     };
     final outcome = await api.verifyAccess(<T>(challenge) async {
       expect(challenge, isA<SfacgVerificationChallenge>());
-      final document = challenge.createDocument('nonce');
+      final document = (challenge as SfacgVerificationChallenge).createDocument(
+        'nonce',
+      );
       expect(
         document.html,
         contains('https://turing.captcha.qcloud.com/TJCaptcha.js'),
