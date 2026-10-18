@@ -8,6 +8,7 @@ import 'package:uuid/uuid.dart';
 import '../../domain/models.dart';
 import '../../data/app_log.dart';
 import '../logged_request.dart';
+import '../session_validation.dart';
 import 'sfacg_signature.dart';
 
 class SfacgApi {
@@ -85,8 +86,29 @@ class SfacgApi {
     // APK AccountApi.getUserWithFields returns Account.accountId.
     final user = await get('user');
     final id = user is Map ? int.tryParse('${user['accountId']}') : null;
-    if (id == null || id <= 0 || !hasSession) {
-      throw const SourceException('菠萝包会话未登录或已失效，请重新登录');
+    if (id == 0 || !hasSession) {
+      throw const SessionExpiredException('菠萝包会话未登录或已失效，请重新登录');
+    }
+    if (id == null || id < 0) {
+      throw const SourceException('菠萝包账号检测返回的数据格式已变化');
+    }
+  }
+
+  Future<void> checkSession() async {
+    if (!hasSession) throw const SourceException('请先登录菠萝包');
+    // Isolate response Cookies: a probe must never overwrite a newer login or
+    // remove saved credentials when the server expires its session Cookies.
+    final probe =
+        SfacgApi(client: client, device: device, appUserAgent: appUserAgent)
+          ..clockOffset = clockOffset
+          ..cookies.addAll(cookies);
+    try {
+      await probe.validateSession();
+    } on SourceException catch (error) {
+      if (error.code == 401 && error.errorCode != 507) {
+        throw const SessionExpiredException('菠萝包会话已失效，请重新登录');
+      }
+      rethrow;
     }
   }
 

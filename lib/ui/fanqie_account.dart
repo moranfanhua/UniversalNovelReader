@@ -6,6 +6,7 @@ import '../domain/models.dart';
 import '../sources/fanqie/fanqie_api.dart';
 import '../sources/fanqie/fanqie_session.dart';
 import 'account_login_method.dart';
+import 'account_session_check.dart';
 
 class FanqieAccountPage extends StatefulWidget {
   const FanqieAccountPage({super.key, required this.api, this.method});
@@ -167,6 +168,14 @@ class _FanqieAccountPageState extends State<FanqieAccountPage> {
                   : '未登录 · 可阅读免费正文及公开段评',
             ),
             const SizedBox(height: 12),
+            if (widget.method == null)
+              AccountSessionCheck(
+                session: widget.api.hasSession ? widget.api.cookie : null,
+                currentSession: () =>
+                    widget.api.hasSession ? widget.api.cookie : null,
+                validate: widget.api.checkSession,
+                enabled: !busy,
+              ),
             if (widget.method == null)
               AccountLoginMethodList(
                 onSms: busy ? null : () => _openMethod(AccountLoginMethod.sms),

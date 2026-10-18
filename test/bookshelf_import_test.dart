@@ -657,6 +657,15 @@ void main() {
     final pending = <Completer<http.Response>>[];
     final api = SfacgApi(
       client: MockClient((request) async {
+        if (request.url.path == '/user') {
+          return http.Response(
+            jsonEncode({
+              'status': {'httpCode': 200},
+              'data': {'accountId': 42},
+            }),
+            200,
+          );
+        }
         if (request.url.path == '/user/Pockets') {
           return http.Response(
             jsonEncode({

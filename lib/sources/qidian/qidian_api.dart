@@ -9,6 +9,7 @@ import 'package:uuid/uuid.dart';
 import '../../domain/models.dart';
 import '../../data/app_log.dart';
 import '../logged_request.dart';
+import '../session_validation.dart';
 import 'qidian_crypto.dart';
 
 class QidianCredentials {
@@ -201,6 +202,38 @@ class QidianApi {
   Future<void> saveSession(QidianCredentials session) async {
     credentials = session;
     await onSessionChanged?.call();
+  }
+
+  Future<void> checkSession() async {
+    final session = credentials;
+    if (session == null) throw const SourceException('请先登录起点读书');
+    final probe = QidianApi(client: client, device: device, clock: clock)
+      ..credentials = session;
+    try {
+      // APK kb.m.l0 -> UserAccountItemBean.UserBasicInfo.UserId. Reading the
+      // account page checks the current cmfuToken without exchanging a new one.
+      final response = await probe.send(
+        '/argus/api/v3/user/getaccountpage',
+        {},
+      );
+      if (response.statusCode == 401) {
+        throw const SessionExpiredException('起点会话已失效，请重新登录');
+      }
+      final data = probe.responseData(response);
+      final user = data['UserBasicInfo'];
+      if (data.containsKey('UserBasicInfo') && user == null ||
+          user is Map && '${user['UserId']}' == '0') {
+        throw const SessionExpiredException('起点会话已失效，请重新登录');
+      }
+      if (user is! Map || '${user['UserId']}' != session.userId) {
+        throw const SourceException('起点账号检测返回的数据与当前账号不匹配');
+      }
+    } on SourceException catch (error) {
+      if (error.code == -2 || error.code == 401) {
+        throw const SessionExpiredException('起点会话已失效，请重新登录');
+      }
+      rethrow;
+    }
   }
 
   void close() => client.close();

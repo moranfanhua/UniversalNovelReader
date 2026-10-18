@@ -8,6 +8,7 @@ import 'package:crypto/crypto.dart';
 import '../../domain/models.dart';
 import '../../data/app_log.dart';
 import '../logged_request.dart';
+import '../session_validation.dart';
 import 'fanqie_crypto.dart';
 
 typedef FanqieChapterResult = ({
@@ -89,11 +90,20 @@ class FanqieAppApi {
       ),
     );
     final data = document['data'];
+    if (document['message'] != 'success') {
+      final name = data is Map ? data['name'] ?? data['error_name'] : null;
+      if ('$name'.toLowerCase() == 'session_expired') {
+        throw const SessionExpiredException('番茄会话已失效，请重新登录');
+      }
+      throw const SourceException('番茄账号检测暂未通过，请稍后重试或在官方 App 完成安全验证');
+    }
     final id = data is Map ? '${data['user_id'] ?? ''}' : '';
-    if (document['message'] != 'success' ||
-        !RegExp(r'^[1-9]\d{0,19}$').hasMatch(id) ||
+    if (id == '0') {
+      throw const SessionExpiredException('番茄会话未登录或已失效');
+    }
+    if (!RegExp(r'^[1-9]\d{0,19}$').hasMatch(id) ||
         BigInt.parse(id).bitLength > 64) {
-      throw const SourceException('番茄会话未登录或已失效');
+      throw const SourceException('番茄账号检测返回的数据格式已变化');
     }
     return id;
   }

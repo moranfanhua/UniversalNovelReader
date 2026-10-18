@@ -175,10 +175,15 @@ void main() {
   });
 
   testWidgets('选择手机号验证码登录，发送由点击触发，验证账号成功后才替换旧会话', (tester) async {
-    var calls = 0, saves = 0;
+    var calls = 0, saves = 0, checks = 0;
     var valid = false;
     final api = FanqieApi(
       client: MockClient((request) async {
+        if (request.url.path == '/passport/account/info/v2/' &&
+            request.headers['Cookie'] == 'sessionid=old-account') {
+          checks++;
+          return success(data: {'user_id': '10'});
+        }
         calls++;
         if (request.url.path.startsWith('/passport/mobile/')) {
           return request.url.path.contains('send_code')
@@ -205,6 +210,7 @@ void main() {
     await tester.pumpWidget(MaterialApp(home: FanqieAccountPage(api: api)));
     await tester.tap(find.text('手机号验证码登录'));
     await tester.pumpAndSettle();
+    expect(checks, 1);
     expect(calls, 0);
     await tester.enterText(
       find.widgetWithText(TextField, '手机号'),
