@@ -25,24 +25,39 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
           fetch-depth: 0
       - uses: ./.github/actions/setup-flutter
       - name: Check changed files or all tracked files for manual runs
+        id: format
         env:
           PYTHONUTF8: '1'
           FORMAT_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: python .github/scripts/check_format.py
+          FORMAT_PR_NUMBER: ${{ github.event.pull_request.number || 0 }}
+          FORMAT_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: python .github/scripts/check_format.py --report .local/ci/format-report.json
+      - name: Upload formatting diagnostics for PR feedback
+        if: ${{ !cancelled() && github.event_name == 'pull_request' && steps.format.outcome != 'skipped' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: formatting-report
+          path: .local/ci/format-report.json
+          include-hidden-files: true
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 3
 
   autoformat:
-    name: Format and commit to dev
+    name: Format and open a pull request to dev
     if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/dev')
     runs-on: windows-2025
     timeout-minutes: 30
     permissions:
       contents: write
+      pull-requests: write
     concurrency:
-      group: format-dev-write
+      group: format-dev-pr
       cancel-in-progress: false
     env:
       PYTHONUTF8: '1'
@@ -50,7 +65,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: dev
-          persist-credentials: true
+          persist-credentials: false
       - uses: ./.github/actions/setup-flutter
       - name: Verify setup did not change tracked files
         run: git diff --exit-code HEAD
@@ -71,15 +86,14 @@ jobs:
           } else {
             throw '读取格式差异失败'
           }
-      # GITHUB_TOKEN 推送不会触发普通 push CI，因此在本次任务中完成验证。
+      # 默认 GITHUB_TOKEN 创建的 PR 检查需要批准，因此在本次任务中先完成验证。
       - name: Analyze formatted sources
         if: steps.changes.outputs.changed == 'true'
         run: flutter analyze --no-pub --fatal-infos
       - name: Test formatted sources
         if: steps.changes.outputs.changed == 'true'
         run: flutter test --no-pub
-      - name: Commit and push formatting changes
-        if: steps.changes.outputs.changed == 'true'
+      - name: Verify only tracked Dart changes will be submitted
         shell: pwsh
         run: |
           git diff --exit-code
@@ -88,8 +102,24 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw '暂存区包含非 Dart 变更，停止提交' }
           git diff --cached --check
           if ($LASTEXITCODE -ne 0) { throw '暂存差异检查失败' }
-          git -c 'user.name=github-actions[bot]' -c 'user.email=41898282+github-actions[bot]@users.noreply.github.com' commit -m 'style(format): 每周自动格式化 Dart 代码'
-          if ($LASTEXITCODE -ne 0) { throw '格式提交失败' }
-          # dev 已前移或分支保护拒绝写入时正常失败，不强推、不重写其他提交。
-          git push origin HEAD:refs/heads/dev
-          if ($LASTEXITCODE -ne 0) { throw '推送失败，请检查 dev 分支状态和写入权限后重跑' }
+          $untrackedDart = git ls-files --others --exclude-standard -- '*.dart'
+          if ($LASTEXITCODE -ne 0) { throw '读取未跟踪 Dart 文件失败' }
+          if ($untrackedDart) { throw '存在未跟踪 Dart 文件，停止提交' }
+      # 仓库需允许 GitHub Actions 创建 PR。可配置 FORMAT_PR_TOKEN（GitHub App 或 PAT）
+      # 以自动触发后续 push / PR 检查；未配置时使用仓库的 GITHUB_TOKEN。
+      # 无格式变更时也运行，以清理已合并或已无差异的自动格式化分支。
+      - name: Create or update formatting pull request
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        with:
+          token: ${{ secrets.FORMAT_PR_TOKEN || github.token }}
+          base: dev
+          branch: automation/dart-format
+          delete-branch: true
+          add-paths: '*.dart'
+          commit-message: 'style(format): 自动格式化 Dart 代码'
+          title: 'style(format): 自动格式化 Dart 代码'
+          body: |
+            使用项目固定版本的 Dart 格式化已跟踪的 Dart 文件。
+
+            提交前已通过静态分析与完整 Flutter 测试，合并时仍遵循 dev 分支保护规则。
+            后续运行会更新此 PR；没有格式差异时不会新建 PR。
