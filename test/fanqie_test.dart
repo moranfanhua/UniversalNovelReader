@@ -233,6 +233,61 @@ void main() {
     );
   });
 
+  test('App 空段与空图片说明不要求编号，也不改变正文及插图的段评位置', () {
+    final api = FanqieApi();
+    addTearDown(api.close);
+    final source = FanqieSource(api);
+    final content = source.parseContent(
+      '<h1>章节标题</h1><p></p><p idx="0">插图前正文</p>'
+      '<div data-fanqie-type="image" idx="30001" p_idx="40000">'
+      '<p class="picture" group-id="2" idx="20001" p_idx="30001">'
+      '<img src="https://example.com/illustration.jpg"/></p>'
+      '<p class="pictureDesc" group-id="2" p_idx="30001"></p></div>'
+      '<p idx=""> <span>&nbsp;</span><br></p><p idx="-1"></p>'
+      '<p idx="1">插图后正文</p>',
+      itemVersion: 'version-1',
+    );
+    expect(content.paragraphs.map((p) => p.text), ['插图前正文', '', '插图后正文']);
+    expect(content.paragraphs.map((p) => p.image), [
+      null,
+      'https://example.com/illustration.jpg',
+      null,
+    ]);
+    expect(content.paragraphs.map((p) => p.remoteIndex), [0, 20001, 1]);
+    expect(
+      content.paragraphs.map((p) => p.remoteId),
+      everyElement('version-1'),
+    );
+  });
+
+  test('App 可见正文与插图仍须有有效编号，纯空段不能伪装为完整正文', () {
+    final api = FanqieApi();
+    addTearDown(api.close);
+    final source = FanqieSource(api);
+    for (final index in ['', ' idx="-1"', ' idx="invalid"']) {
+      for (final body in [
+        '无效编号正文',
+        '<br>换行后的正文',
+        '<img src="https://example.com/illustration.jpg"/>',
+      ]) {
+        expect(
+          () => source.parseContent(
+            '<p idx="0">有效正文</p><p$index>$body</p>',
+            itemVersion: 'version-1',
+          ),
+          throwsA(isA<SourceException>()),
+        );
+      }
+    }
+    expect(
+      () => source.parseContent(
+        '<p></p><p class="pictureDesc">&nbsp;<br></p>',
+        itemVersion: 'version-1',
+      ),
+      throwsA(isA<SourceException>()),
+    );
+  });
+
   test('搜索使用官方移动端参数，获取详情与完整目录并携带正确书源', () async {
     final api = FanqieApi(
       client: MockClient((request) async {
