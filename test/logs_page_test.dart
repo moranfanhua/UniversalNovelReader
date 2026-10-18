@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:unr/ui/top_dropdown_button.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:unr/data/app_log.dart';
@@ -232,7 +233,7 @@ void main() {
     await tester.pumpWidget(MaterialApp(home: LogsPage(log: log)));
     await tester.pumpAndSettle();
     tester
-        .widget<DropdownButton<String>>(
+        .widget<TopDropdownButton<String>>(
           find.byKey(const ValueKey('log-module-filter')),
         )
         .onChanged!('reader');
@@ -240,10 +241,10 @@ void main() {
     log.record(LogLevel.warning, 'storage.write_failed');
     await tester.pump(const Duration(milliseconds: 250));
     await tester.pumpAndSettle();
-    final dropdown = tester.widget<DropdownButton<String>>(
+    final dropdown = tester.widget<TopDropdownButton<String>>(
       find.byKey(const ValueKey('log-module-filter')),
     );
-    expect(dropdown.items!.any((item) => item.value == 'storage'), isTrue);
+    expect(dropdown.items.any((item) => item.value == 'storage'), isTrue);
     await log.clear();
     log.record(LogLevel.info, 'app.started');
     await tester.pump(const Duration(milliseconds: 250));
@@ -251,7 +252,7 @@ void main() {
     expect(find.text('应用启动完成'), findsOneWidget);
     expect(
       tester
-          .widget<DropdownButton<String>>(
+          .widget<TopDropdownButton<String>>(
             find.byKey(const ValueKey('log-module-filter')),
           )
           .value,

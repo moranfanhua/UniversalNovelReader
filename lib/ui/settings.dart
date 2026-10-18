@@ -5,6 +5,7 @@ import 'reading_settings.dart';
 import 'platform_order.dart';
 import 'logs.dart';
 import 'theme_settings.dart';
+import 'top_dropdown_button.dart';
 
 class SoftwareSettingsPage extends StatefulWidget {
   const SoftwareSettingsPage({
@@ -190,10 +191,9 @@ class _ShelfSettingsPage extends StatelessWidget {
         const SizedBox(height: 28),
         Text('书架排序', style: Theme.of(context).textTheme.titleLarge),
         const SizedBox(height: 12),
-        DropdownButton<ShelfSort>(
+        TopDropdownButton<ShelfSort>(
           key: const ValueKey('shelf-sort'),
           value: library.shelfSort,
-          isExpanded: true,
           items: [
             for (final sort in ShelfSort.values)
               DropdownMenuItem(value: sort, child: Text(sort.label)),

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:unr/ui/top_dropdown_button.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:unr/data/library.dart';
 import 'package:unr/data/download_mirror.dart';
@@ -302,7 +303,7 @@ void main() {
       );
       final dropdown = find.byKey(const ValueKey('reading-font'));
       for (final font in ReaderFonts.catalog.skip(2)) {
-        tester.widget<DropdownButton<String>>(dropdown).onChanged!(font.id);
+        tester.widget<TopDropdownButton<String>>(dropdown).onChanged!(font.id);
         await tester.pumpAndSettle();
         expect(
           find.textContaining('来源：${font.source} · SIL OFL 1.1'),
