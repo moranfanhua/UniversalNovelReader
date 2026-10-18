@@ -13,7 +13,7 @@ import 'qidian_crypto.dart';
 import 'qidian_fock.dart';
 
 class QidianSource extends QidianComments
-    implements SearchableNovelSource, ChapterBatchSource {
+    implements SearchableNovelSource, ChapterBatchSource, BookUpdateSource {
   QidianSource(super.api);
   @override
   String get id => 'qidian';
@@ -84,18 +84,30 @@ class QidianSource extends QidianComments
   }
 
   @override
-  Future<Book> getBook(String input) async {
+  Future<Book> getBookUpdate(String input) async {
     final bid = bookId(input);
+    final data = await _details(bid);
+    return _bookPreview(bid, data);
+  }
+
+  Future<Map<String, dynamic>> _details(String bid) async {
     final data = await api.request('/argus/api/v3/bookdetail/get', {
       'bookId': bid,
       'isOutBook': '0',
-    });
+    }, useSession: false);
     final info = data['BaseBookInfo'];
     if (info is! Map ||
         '${info['BookId']}' != bid ||
         '${info['BookName'] ?? ''}'.trim().isEmpty) {
       throw const SourceException('起点未返回对应作品详情，作品可能已下架');
     }
+    return data;
+  }
+
+  @override
+  Future<Book> getBook(String input) async {
+    final bid = bookId(input);
+    final data = await _details(bid);
     final directory = await api
         .request('/argus/api/v3/chapterlist/chapterlist', {
           'bookId': bid,
@@ -103,10 +115,23 @@ class QidianSource extends QidianComments
           'requestSource': '0',
           'md5Signature': '',
           'extendchapterIds': '',
-        });
+        }, useSession: false);
     if ('${directory['BookId']}' != bid) {
       throw const SourceException('起点目录作品编号不匹配');
     }
+    return _bookPreview(
+      bid,
+      data,
+      fallbackAuthor: '${directory['Author'] ?? ''}',
+    ).withChapters(parseDirectory(directory));
+  }
+
+  Book _bookPreview(
+    String bid,
+    Map<String, dynamic> data, {
+    String fallbackAuthor = '',
+  }) {
+    final info = data['BaseBookInfo'] as Map;
     final author = data['AuthorInfo'];
     final chapterInfo = info['ChapterInfo'];
     final updated = chapterInfo is Map
@@ -120,15 +145,15 @@ class QidianSource extends QidianComments
       source: id,
       title: '${info['BookName']}',
       author: author is Map
-          ? '${author['Author'] ?? directory['Author'] ?? ''}'
-          : '${directory['Author'] ?? ''}',
+          ? '${author['Author'] ?? fallbackAuthor}'
+          : fallbackAuthor,
       cover: _cover(bid),
       description: '${info['Description'] ?? ''}',
       wordCount: Book.parseWordCount(info['WordsCnt']),
       updatedAt: updated <= 0
           ? null
           : DateTime.fromMillisecondsSinceEpoch(updated, isUtc: true),
-      chapters: parseDirectory(directory),
+      chapters: const [],
     );
   }
 

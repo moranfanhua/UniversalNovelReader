@@ -171,7 +171,7 @@ void main() {
     final api = apiWith((_) async {
       count++;
       return ok({'book_info': info(id: '99')});
-    });
+    }, guest: true);
     addTearDown(api.close);
     await expectLater(
       CiweimaoSource(api).getBook('12'),

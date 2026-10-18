@@ -83,6 +83,7 @@ class CiweimaoApi {
   int _generation = 0;
   int get sessionGeneration => _generation;
   Future<CiweimaoCredentials>? _opening;
+  CiweimaoApi? _publicApi;
   String? sessionNotice;
   Future<void> Function()? onSessionChanged;
 
@@ -105,6 +106,31 @@ class CiweimaoApi {
   Future<CiweimaoCredentials> ensureSession() {
     if (_credentials != null) return Future.value(_credentials);
     return _opening ??= _openGuest().whenComplete(() => _opening = null);
+  }
+
+  /// Catalog reads use an isolated guest context. Never replace or persist over
+  /// the reader's login, even when guest registration or renewal fails.
+  Future<Map<String, dynamic>> requestPublic(
+    String path,
+    Map<String, String> params,
+  ) {
+    if (!{
+      'book/get_info_by_id',
+      'chapter/get_updated_chapter_by_division_new',
+    }.contains(path)) {
+      throw const SourceException('此接口不能使用公开目录请求');
+    }
+    final public = _publicApi ??= CiweimaoApi(
+      client: client,
+      installation: installation,
+      clock: clock,
+    );
+    if (public._credentials == null &&
+        public._generation == 0 &&
+        _credentials?.guest == true) {
+      public.restoreSession(_credentials);
+    }
+    return public.request(path, params);
   }
 
   Future<CiweimaoCredentials> _openGuest() async {

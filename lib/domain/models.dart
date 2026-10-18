@@ -48,6 +48,18 @@ class Book {
   final int? favoriteCount;
   final int? wordCount;
   final DateTime? updatedAt;
+  Book withChapters(List<Chapter> chapters) => Book(
+    id: id,
+    title: title,
+    author: author,
+    chapters: chapters,
+    source: source,
+    cover: cover,
+    description: description,
+    favoriteCount: favoriteCount,
+    updatedAt: updatedAt,
+    wordCount: wordCount,
+  );
   static int? parseFavoriteCount(Object? value) {
     final count = int.tryParse('$value');
     return count != null && count >= 0 ? count : null;

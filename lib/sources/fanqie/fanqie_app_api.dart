@@ -239,12 +239,14 @@ class FanqieAppApi {
     Map<String, String> query = const {},
     Map<String, dynamic>? body,
     String hostname = host,
+    bool useSession = true,
   }) async {
     final data = await _requestData(
       path,
       query: query,
       body: body,
       hostname: hostname,
+      useSession: useSession,
     );
     if (data is! Map) throw const SourceException('番茄 App 返回无效数据');
     return Map<String, dynamic>.from(data);
@@ -279,6 +281,7 @@ class FanqieAppApi {
     final data = await _requestData(
       '/reading/bookapi/multi-detail/v/',
       query: {'book_id': ids.join(',')},
+      useSession: false,
     );
     if (data is! List) throw const SourceException('番茄作品详情数据格式已变化');
     return data;
@@ -289,6 +292,7 @@ class FanqieAppApi {
     Map<String, String> query = const {},
     Map<String, dynamic>? body,
     String hostname = host,
+    bool useSession = true,
   }) async {
     if (!{host, 'reading.snssdk.com', 'novel.snssdk.com'}.contains(hostname) ||
         !path.startsWith('/') ||
@@ -299,6 +303,7 @@ class FanqieAppApi {
     final response = await _send(
       Uri.https(hostname, path, {..._params, ...query}),
       body: body == null ? null : utf8.encode(jsonEncode(body)),
+      session: useSession,
     );
     final doc = _document(response);
     final code = int.tryParse('${doc['code']}') ?? -1;

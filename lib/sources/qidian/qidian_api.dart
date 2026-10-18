@@ -63,6 +63,7 @@ class QidianApi {
     String path,
     Map<String, String> params, {
     bool post = false,
+    bool useSession = true,
   }) async {
     // Callers use only fixed paths from the official App, never arbitrary URLs.
     final uri = Uri.https('druidv6.if.qidian.com', path).replace(
@@ -78,15 +79,15 @@ class QidianApi {
     );
     final request = http.Request(post ? 'POST' : 'GET', uri)
       ..followRedirects = false;
+    final session = useSession ? credentials : null;
     request.headers.addAll(
       QidianCrypto.headers(
         params,
         device: device,
         timestamp: clock().millisecondsSinceEpoch,
-        userId: credentials?.userId ?? '0',
+        userId: session?.userId ?? '0',
       ),
     );
-    final session = credentials;
     if (session != null) {
       request.headers['Cookie'] =
           'cmfuToken=${session.token}; ywguid=${session.ywGuid}; ywkey=${session.ywKey}; appId=12; areaId=30';
@@ -126,7 +127,10 @@ class QidianApi {
     String path,
     Map<String, String> params, {
     bool post = false,
-  }) async => responseData(await send(path, params, post: post));
+    bool useSession = true,
+  }) async => responseData(
+    await send(path, params, post: post, useSession: useSession),
+  );
 
   Future<Uint8List> downloadArchive(String address, String digest) =>
       AppLog.instance.capture('qidian.download_failed', () async {
