@@ -5,6 +5,9 @@ import 'package:flutter/services.dart';
 import '../data/library.dart';
 import '../domain/models.dart';
 import '../sources/comment_source.dart';
+import '../sources/source_verification.dart';
+import 'account.dart';
+import 'source_verification_button.dart';
 import 'comments_sheet.dart';
 import 'image_bytes.dart';
 import 'paged_chapter.dart';
@@ -27,10 +30,12 @@ class ReaderPage extends StatefulWidget {
     required this.library,
     required this.book,
     this.initialChapter,
+    this.verificationSolver,
   });
   final Library library;
   final Book book;
   final int? initialChapter;
+  final SourceVerificationSolver? verificationSolver;
   @override
   State<ReaderPage> createState() => _ReaderPageState();
 }
@@ -981,6 +986,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                   child: Column(
                     children: [
                       Text('下一章加载失败：$scrollNextError'),
+                      _verificationAction(scrollNextError, nextChapter: true),
                       TextButton(
                         key: const ValueKey('retry-scroll-next'),
                         onPressed: _loadScrollNext,
@@ -1192,21 +1198,25 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       if (snapshot.hasError) {
         return _controlTapArea(
           Center(
-            child: Padding(
+            child: SingleChildScrollView(
               padding: const EdgeInsets.all(24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.cloud_off_outlined, size: 48),
-                  const SizedBox(height: 16),
-                  Text('${snapshot.error}', textAlign: TextAlign.center),
-                  ExcludeReadingTap(
-                    child: TextButton(
-                      onPressed: () => setState(_load),
-                      child: const Text('重试'),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 660),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.cloud_off_outlined, size: 48),
+                    const SizedBox(height: 16),
+                    Text('${snapshot.error}', textAlign: TextAlign.center),
+                    _verificationAction(snapshot.error),
+                    ExcludeReadingTap(
+                      child: TextButton(
+                        onPressed: () => setState(_load),
+                        child: const Text('重试'),
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
@@ -1276,6 +1286,41 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       return _controlTapArea(_scrollBody());
     },
   );
+
+  Widget _verificationAction(Object? error, {bool nextChapter = false}) {
+    final source = library.sourceFor(widget.book);
+    if (error is! SourceVerificationRequiredException ||
+        source is! VerifiableNovelSource) {
+      return const SizedBox.shrink();
+    }
+    return ExcludeReadingTap(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 660),
+        child: source.canVerifyAccess
+            ? SourceVerificationButton(
+                key: ValueKey((
+                  loadGeneration,
+                  nextChapter ? scrollChapters.last.index + 1 : chapter,
+                )),
+                source: source,
+                solver: widget.verificationSolver,
+                retryHint: nextChapter ? '请点击“重试下一章”继续阅读。' : '请点击“重试”加载本章。',
+              )
+            : OutlinedButton.icon(
+                onPressed: () async {
+                  await Navigator.of(context).push<void>(
+                    MaterialPageRoute(
+                      builder: (_) => AccountSettingsPage(library: library),
+                    ),
+                  );
+                  if (mounted) setState(() {});
+                },
+                icon: const Icon(Icons.manage_accounts_outlined),
+                label: const Text('前往账号设置处理验证'),
+              ),
+      ),
+    );
+  }
 
   Widget _bottomBar(BuildContext context) => SafeArea(
     top: false,

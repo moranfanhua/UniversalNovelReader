@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart';
 
 import '../../domain/models.dart';
+import '../session_validation.dart';
 import 'ciweimao_api.dart';
 import 'ciweimao_crypto.dart';
 
@@ -255,6 +256,21 @@ class CiweimaoAuth {
     if (bindings.every(reader.containsKey) &&
         bindings.every((k) => '${reader[k]}' == '0')) {
       throw const SourceException('当前是刺猬猫游客会话，请使用已注册账号登录');
+    }
+  }
+
+  Future<void> checkSession() async {
+    final session = api.credentials;
+    if (session == null || session.guest) {
+      throw const SourceException('请先登录刺猬猫');
+    }
+    try {
+      await validate(session);
+    } on SourceException catch (error) {
+      if (error.code == 200100 || error.code == 200001) {
+        throw const SessionExpiredException('刺猬猫会话已失效，请重新登录');
+      }
+      rethrow;
     }
   }
 }

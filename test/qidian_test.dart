@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:unr/domain/models.dart';
+import 'package:unr/sources/novel_search.dart';
 import 'package:unr/sources/qidian/qidian_api.dart';
 import 'package:unr/sources/qidian/qidian_crypto.dart';
 import 'package:unr/sources/qidian/qidian_source.dart';
@@ -227,7 +228,12 @@ void main() {
             });
           case '/argus/api/v3/bookdetail/get':
             return ok({
-              'BaseBookInfo': {'BookId': 12, 'BookName': '作品', 'WordsCnt': 600},
+              'BaseBookInfo': {
+                'BookId': 12,
+                'BookName': '作品',
+                'WordsCnt': 600,
+                'BssRecomTotal': 56534,
+              },
               'AuthorInfo': {'Author': '作者'},
             });
           case '/argus/api/v3/chapterlist/chapterlist':
@@ -243,12 +249,13 @@ void main() {
     );
     addTearDown(api.close);
     final source = QidianSource(api);
-    expect((await source.search('测试', page: 1)).map((b) => b.key), [
-      'qidian:12',
-    ]);
+    final found = await source.search('测试', page: 1);
+    expect(found.map((b) => b.key), ['qidian:12']);
+    expect(found.single.favoriteCount, 56534);
     final book = await source.getBook('12');
     expect(book.key, 'qidian:12');
     expect(book.wordCount, 600);
+    expect(book.favoriteCount, 56534);
     final content = await source.readChapter(book, book.chapters.first);
     expect(content.paragraphs.map((p) => p.text), ['第一段。', '第二段。']);
     final count = paths.length;
@@ -271,6 +278,131 @@ void main() {
     );
     expect(paths.length, count);
   });
+
+  test('搜索补查 BssRecomTotal 后按收藏排序，限制并发且单本失败不丢失结果', () async {
+    final lookups = <String>[];
+    var active = 0, peak = 0;
+    final counts = <Object?>[56534, '273332', 0, -1, 'invalid', null];
+    final api = QidianApi(
+      client: MockClient((request) async {
+        if (request.url.path == '/argus/api/v2/booksearch/searchbooks') {
+          Map<String, dynamic> hit(int id, {int type = 1, Object? count}) => {
+            'ItemData': {
+              'BookId': id,
+              'BookName': '魔女$id',
+              'BookType': type,
+              'BssRecomTotal': count,
+              'WordsCount': 1000,
+            },
+          };
+          return ok({
+            'CardList': [
+              {
+                'Body': [
+                  for (var i = 1; i <= 8; i++) hit(i),
+                  hit(1),
+                  hit(9, count: '100000'),
+                  hit(10, type: 2),
+                ],
+              },
+            ],
+          });
+        }
+        expect(request.url.path, '/argus/api/v3/bookdetail/get');
+        final bid = request.url.queryParameters['bookId']!;
+        lookups.add(bid);
+        active++;
+        if (active > peak) peak = active;
+        try {
+          await Future<void>.delayed(Duration.zero);
+          if (bid == '8') return http.Response('unavailable', 503);
+          return ok({
+            'BaseBookInfo': {
+              'BookId': bid == '7' ? '999' : bid,
+              'BookName': '魔女$bid',
+              'BssRecomTotal': bid == '7'
+                  ? 9999999
+                  : counts[int.parse(bid) - 1],
+              'RecommendAll': 9999999,
+              'FansInfo': {'TotalFansCount': 9999999},
+            },
+          });
+        } finally {
+          active--;
+        }
+      }),
+    );
+    addTearDown(api.close);
+    final result = await searchNovels([QidianSource(api)], '魔女');
+    expect(result.failedSources, isEmpty);
+    expect(result.books.map((b) => b.id), [
+      '2',
+      '9',
+      '1',
+      '3',
+      '4',
+      '5',
+      '6',
+      '7',
+      '8',
+    ]);
+    expect(result.books.map((b) => b.favoriteCount), [
+      273332,
+      100000,
+      56534,
+      0,
+      null,
+      null,
+      null,
+      null,
+      null,
+    ]);
+    expect(result.books.every((b) => b.source == 'qidian'), isTrue);
+    expect(result.books.every((b) => b.wordCount == 1000), isTrue);
+    expect(lookups, unorderedEquals(['1', '2', '3', '4', '5', '6', '7', '8']));
+    expect(peak, 4);
+  });
+
+  for (final value in <Object?>[0, '273332', -1, 'invalid', null]) {
+    test('详情收藏解析保留零并将无效值视为未知：$value', () async {
+      final api = QidianApi(
+        client: MockClient((request) async {
+          expect(request.headers['Cookie'], isNull);
+          if (request.url.path == '/argus/api/v3/chapterlist/chapterlist') {
+            return ok(directory());
+          }
+          return ok({
+            'BaseBookInfo': {
+              'BookId': 12,
+              'BookName': '作品',
+              'BssRecomTotal': value,
+              'RecommendAll': 9999999,
+            },
+          });
+        }),
+      );
+      addTearDown(api.close);
+      api.credentials = QidianCredentials(
+        userId: '1',
+        ywGuid: '2',
+        ywKey: 'synthetic',
+        token: 'synthetic',
+      );
+      final source = QidianSource(api);
+      final book = await source.getBook('12');
+      expect(
+        book.favoriteCount,
+        value == 0
+            ? 0
+            : value == '273332'
+            ? 273332
+            : null,
+      );
+      final update = await source.getBookUpdate('12');
+      expect(update.favoriteCount, book.favoriteCount);
+      expect(update.chapters, isEmpty);
+    });
+  }
 
   test('服务端失败、缺失正文和错误作品编号不会保存成功结果', () async {
     final client = MockClient(

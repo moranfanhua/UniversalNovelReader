@@ -43,6 +43,68 @@ void main() {
   tearDown(() async => root.delete(recursive: true));
   const id = 'noto-sans-sc';
   const license = 'Copyright test fixture\nSIL OPEN FONT LICENSE Version 1.1';
+  test('已加载字体复用注册结果，并发加载合并，文件变化后重新校验', () async {
+    final bytes = engineTestFont();
+    final file = File('${root.path}/$id.ttf');
+    final licenseFile = File('${root.path}/$id.ofl');
+    await file.writeAsBytes(bytes);
+    await licenseFile.writeAsString(license);
+    final registering = Completer<void>();
+    final release = Completer<void>();
+    var registrations = 0;
+    final fonts = ReaderFonts(
+      root,
+      register: (_, _) async {
+        registrations++;
+        if (registrations == 1) {
+          registering.complete();
+          await release.future;
+        }
+      },
+    );
+    final first = fonts.load(id);
+    final concurrent = fonts.load(id);
+    await registering.future;
+    expect(registrations, 1);
+    release.complete();
+    final family = await first;
+    expect(await concurrent, family);
+    expect(await fonts.load(id), family);
+    expect(registrations, 1);
+
+    // A valid replacement with different bytes must get a different family.
+    await file.writeAsBytes([...bytes, 0]);
+    final replacement = await fonts.load(id);
+    expect(replacement, isNot(family));
+    expect(registrations, 2);
+    await file.writeAsString('broken');
+    await expectLater(fonts.load(id), throwsA(isA<SourceException>()));
+    await file.writeAsBytes(bytes);
+    expect(await fonts.load(id), family);
+
+    await licenseFile.delete();
+    await expectLater(fonts.load(id), throwsA(isA<SourceException>()));
+    await licenseFile.writeAsString(license);
+    expect(await fonts.load(id), family);
+    await file.delete();
+    await expectLater(fonts.load(id), throwsA(isA<SourceException>()));
+  });
+
+  test('字体注册失败后可重试，不保留失败的加载任务', () async {
+    await File('${root.path}/$id.ttf').writeAsBytes(engineTestFont());
+    await File('${root.path}/$id.ofl').writeAsString(license);
+    var registrations = 0;
+    final fonts = ReaderFonts(
+      root,
+      register: (_, _) async {
+        if (++registrations == 1) throw StateError('注册失败');
+      },
+    );
+    await expectLater(fonts.load(id), throwsStateError);
+    expect(await fonts.load(id), startsWith('UNR_${id}_'));
+    expect(registrations, 2);
+  });
+
   for (final option in ReaderFonts.catalog) {
     test('${option.name} 下载加载后，离线重新打开可恢复阅读偏好', () async {
       final id = option.id;

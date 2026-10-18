@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -27,11 +28,24 @@ Book sample(String id, {String source = 'sfacg', bool updated = false}) => Book(
 class UpdateSource extends SfacgSource {
   UpdateSource() : super(SfacgApi());
   final calls = <String>[];
+  final updateCalls = <String>[];
   Future<Book> Function(String)? load;
+  Future<Book> Function(String)? update;
   @override
   Future<Book> getBook(String input) async {
     calls.add(input);
     return load == null ? sample(input, updated: true) : load!(input);
+  }
+
+  @override
+  Future<Book> getBookUpdate(String id) async {
+    if (update != null) {
+      updateCalls.add(id);
+      return update!(id);
+    }
+    final book = await getBook(id);
+    if (book.chapters.isEmpty) throw const SourceException('测试书源返回空目录');
+    return book;
   }
 }
 
@@ -56,9 +70,11 @@ class UpdateLibrary extends Library {
   UpdateLibrary(super.root, super.source, {super.clock, super.novelSources});
   bool failSave = false;
   int saves = 0;
+  Future<void> Function(int)? writing;
   @override
   Future<void> save() async {
     saves++;
+    if (writing != null) await writing!(saves);
     if (failSave) throw const FileSystemException('保存失败');
     notifyListeners();
   }
@@ -277,6 +293,230 @@ void main() {
     final remaining = await library.refreshShelfBooks(isCancelled: () => false);
     expect(remaining.checked, 2);
     expect(source.calls.length, 5);
+  });
+
+  test('连续更新三十本合并并发检查点，完整目录持续更新且不逐本通知界面', () async {
+    final library = memory();
+    library.books.addAll([for (var i = 0; i < 30; i++) sample('$i')]);
+    var notifications = 0;
+    library.addListener(() => notifications++);
+    final result = await library.refreshShelfBooks(isCancelled: () => false);
+    expect(result.checked, 30);
+    expect(result.failed, 0);
+    expect(source.calls.toSet(), hasLength(30));
+    expect(library.books.every((book) => book.chapters.length == 2), isTrue);
+    expect(library.saves, 20);
+    expect(notifications, 20);
+  });
+
+  test('未加载目录的作品只取新元数据，按更新时间排序即时生效并持久化', () async {
+    final root = await Directory.systemTemp.createTemp('unr-preview-sorting-');
+    addTearDown(() => root.delete(recursive: true));
+    final library = Library(root, source, clock: () => now);
+    addTearDown(library.dispose);
+    Book preview(String id, int day) => Book(
+      id: id,
+      title: '作品$id',
+      author: '',
+      chapters: const [],
+      updatedAt: DateTime.utc(2026, 10, day),
+    );
+    library.books.addAll([preview('1', 1), preview('2', 2)]);
+    library.shelfSort = ShelfSort.updated;
+    source.update = (id) async => preview(id, id == '1' ? 4 : 3);
+    final result = await library.refreshShelfBooks(isCancelled: () => false);
+    expect(result.failed, 0);
+    expect(source.updateCalls, ['1', '2']);
+    expect(source.calls, isEmpty);
+    expect(library.books.every((book) => book.chapters.isEmpty), isTrue);
+    expect(library.sortedBooks.map((book) => book.id), ['1', '2']);
+    final reopened = await Library.open(
+      source,
+      directory: root,
+      clock: () => now,
+    );
+    addTearDown(reopened.dispose);
+    expect(reopened.sortedBooks.map((book) => book.id), ['1', '2']);
+    expect(reopened.books.first.updatedAt, DateTime.utc(2026, 10, 4));
+    expect(
+      (await reopened.refreshShelfBooks(isCancelled: () => false)).checked,
+      0,
+    );
+  });
+
+  test('更新时间未变时复用既有目录并保留阅读进度和跨章记录', () async {
+    final library = memory();
+    final original = Book(
+      id: '1',
+      title: '作品',
+      author: '',
+      chapters: sample('1').chapters,
+      updatedAt: now,
+      wordCount: 1000,
+    );
+    library.books.add(original);
+    library.progress[original.key] = [0, 7];
+    library.pagedChapterEntries['${original.key}:0'] = [1, 0, 0];
+    source.update = (id) async => Book(
+      id: id,
+      title: '修改后的书名',
+      author: '',
+      chapters: const [],
+      updatedAt: now,
+      wordCount: 1000,
+    );
+    final result = await library.refreshShelfBooks(isCancelled: () => false);
+    expect(result.failed, 0);
+    expect(source.calls, isEmpty);
+    expect(library.books.single.title, '修改后的书名');
+    expect(library.books.single.chapters, same(original.chapters));
+    expect(library.progress[original.key], [0, 7]);
+    expect(library.pagedChapterEntries['${original.key}:0'], [1, 0, 0]);
+  });
+
+  for (final reason in ['time', 'unknown', 'words']) {
+    test('已有目录的作品按需刷新（变化依据=$reason）且按章节标识迁移进度', () async {
+      final library = memory();
+      library.books.add(
+        Book(
+          id: '1',
+          title: '作品',
+          author: '',
+          chapters: sample('1').chapters,
+          updatedAt: now,
+          wordCount: 1000,
+        ),
+      );
+      library.progress['sfacg:1'] = [0, 7];
+      source.update = (id) async => Book(
+        id: id,
+        title: '作品',
+        author: '',
+        chapters: const [],
+        updatedAt: reason == 'unknown'
+            ? null
+            : reason == 'time'
+            ? now.add(const Duration(hours: 1))
+            : now,
+        wordCount: reason == 'words' ? 2000 : 1000,
+      );
+      source.load = (id) async => Book(
+        id: id,
+        title: '作品',
+        author: '',
+        updatedAt: now,
+        chapters: [
+          const Chapter(id: 'preface', title: '序章'),
+          ...sample(id).chapters,
+        ],
+      );
+      final result = await library.refreshShelfBooks(isCancelled: () => false);
+      expect(result.failed, 0);
+      expect(source.calls, ['1']);
+      expect(library.books.single.chapters.length, 2);
+      expect(library.progress['sfacg:1'], [1, 7]);
+    });
+  }
+
+  test('轻量检查返回后已离开书架，不继续拉目录或应用过期元数据', () async {
+    final library = memory()..books.add(sample('1'));
+    final pending = Completer<Book>(), started = Completer<void>();
+    source.update = (id) {
+      started.complete();
+      return pending.future;
+    };
+    var cancelled = false;
+    final result = library.refreshShelfBooks(isCancelled: () => cancelled);
+    await started.future;
+    cancelled = true;
+    pending.complete(
+      const Book(id: '1', title: '迟到的更新', author: '', chapters: []),
+    );
+    await result;
+    expect(source.calls, isEmpty);
+    expect(library.books.single.title, '作品1');
+  });
+
+  test('合并检查点仍在请求前落盘各作品限频记录', () async {
+    final root = await Directory.systemTemp.createTemp('unr-checkpoints-');
+    addTearDown(() => root.delete(recursive: true));
+    final library = Library(root, source, clock: () => now);
+    addTearDown(library.dispose);
+    library.books.addAll([for (var i = 0; i < 3; i++) sample('$i')]);
+    source.load = (id) async {
+      final saved =
+          jsonDecode(await File('${root.path}/index.json').readAsString())
+              as Map;
+      expect(
+        saved['shelfUpdateTimes']['sfacg:$id'],
+        now.millisecondsSinceEpoch,
+      );
+      return sample(id, updated: true);
+    };
+    expect(
+      (await library.refreshShelfBooks(isCancelled: () => false)).failed,
+      0,
+    );
+  });
+
+  test('合并保存失败时不发送请求，目录保存失败回滚同批作品和进度', () async {
+    final library = memory();
+    final originals = [for (var i = 0; i < 3; i++) sample('$i')];
+    library.books.addAll(originals);
+    library.failSave = true;
+    final rejected = await library.refreshShelfBooks(isCancelled: () => false);
+    expect(rejected.failed, 3);
+    expect(source.calls, isEmpty);
+    expect(library.saves, 1);
+    library.failSave = false;
+    now = now.add(const Duration(minutes: 10));
+    library.progress['sfacg:0'] = [0, 7];
+    source.load = (id) async {
+      library.failSave = true;
+      return Book(
+        id: id,
+        title: '更新$id',
+        author: '',
+        chapters: [
+          const Chapter(id: 'preface', title: '新序章'),
+          ...sample(id).chapters,
+        ],
+      );
+    };
+    final failed = await library.refreshShelfBooks(isCancelled: () => false);
+    expect(failed.failed, 3);
+    expect(library.books, originals);
+    expect(library.progress['sfacg:0'], [0, 7]);
+  });
+
+  test('批次保存迟到失败不回滚后来手动更新的目录、更新时间和阅读进度', () async {
+    final library = memory()..books.add(sample('1'));
+    library.progress['sfacg:1'] = [0, 7];
+    final saving = Completer<void>(), started = Completer<void>();
+    library.writing = (count) async {
+      if (count == 2) {
+        started.complete();
+        await saving.future;
+      }
+    };
+    final updating = library.refreshShelfBooks(isCancelled: () => false);
+    await started.future;
+    final manual = Book(
+      id: '1',
+      title: '手动更新',
+      author: '',
+      updatedAt: now,
+      chapters: [
+        const Chapter(id: 'preface', title: '序章'),
+        ...sample('1').chapters,
+      ],
+    );
+    await library.updateBook(manual, preserveChapterPosition: true);
+    saving.completeError(const FileSystemException('批次保存失败'));
+    await updating;
+    expect(library.books.single, same(manual));
+    expect(library.updatedTimes['sfacg:1'], now.millisecondsSinceEpoch);
+    expect(library.progress['sfacg:1'], [1, 7]);
   });
 
   test('迟到的结果不覆盖已更新或已移除作品，保存失败回滚目录与进度', () async {

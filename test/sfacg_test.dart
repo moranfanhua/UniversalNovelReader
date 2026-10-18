@@ -331,13 +331,13 @@ void main() {
     api.close();
   });
 
-  test('嵌套插图与前后文字保持阅读顺序和原始段落编号', () {
-    final c = SfacgSource.parsePublicChapter(
-      '<div id="ChapterBody"><p>前文<span><img src="/image.jpg"></span>后文</p><p></p><p>第三段</p></div>',
+  test('App 行内插图与前后文字保持阅读顺序和原始段落编号', () {
+    final c = SfacgSource.parseAppContent(
+      '前文[img=https://rss.sfacg.com/image.jpg]后文\n\n第三段',
     );
     expect(c.paragraphs.map((p) => p.image ?? p.text), [
       '前文',
-      'https://book.sfacg.com/image.jpg',
+      'https://rss.sfacg.com/image.jpg',
       '后文',
       '第三段',
     ]);
@@ -379,9 +379,9 @@ void main() {
       throwsA(isA<SourceException>()),
     );
   });
-  test('免费正文保留空段和图片的原始 row', () {
-    final content = SfacgSource.parsePublicChapter(
-      '<div id="ChapterBody"><p>甲 &amp; 😀</p><p> </p><p><img src="https://rss.sfacg.com/图.jpg"></p><p>目标段落</p></div>',
+  test('App 正文保留空段和图片的原始 row', () {
+    final content = SfacgSource.parseAppContent(
+      '甲 & 😀\n \n[img=https://rss.sfacg.com/图.jpg]\n目标段落',
     );
     expect(content.paragraphs.map((p) => p.remoteIndex), [1, 3, 4]);
     expect(content.paragraphs.first.text, '甲 & 😀');
@@ -642,6 +642,8 @@ void main() {
       client: MockClient((request) async {
         requests++;
         expect(request.method, 'GET');
+        expect(request.url.host, 'api.sfacg.com');
+        expect(request.url.path, '/Chaps/2');
         expect(request.url.queryParameters['autoOrder'], 'false');
         return http.Response(
           jsonEncode({

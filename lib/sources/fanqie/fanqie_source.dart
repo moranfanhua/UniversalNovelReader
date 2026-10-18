@@ -8,7 +8,11 @@ import '../bookshelf_source.dart';
 import 'fanqie_comments.dart';
 
 class FanqieSource extends FanqieComments
-    implements PlatformRankedSearchSource, BookshelfSource, ChapterBatchSource {
+    implements
+        PlatformRankedSearchSource,
+        BookshelfSource,
+        ChapterBatchSource,
+        BookUpdateSource {
   FanqieSource(super.api, {Map<String, String>? cipher})
     : cipher = cipher ?? {};
   final Map<String, String> cipher;
@@ -116,6 +120,15 @@ class FanqieSource extends FanqieComments
 
   @override
   int get shelfBookBatchSize => 100;
+
+  @override
+  Future<Book> getBookUpdate(String input) async {
+    final bid = bookId(input);
+    final results = await getShelfBooks([bid]);
+    final result = results.single;
+    if (result.book == null) throw result.error!;
+    return result.book!;
+  }
 
   @override
   Future<List<ShelfBookResult>> getShelfBooks(List<String> ids) async {
@@ -291,6 +304,7 @@ class FanqieSource extends FanqieComments
     // ordered item_list / item_data_list. Request an uncached full snapshot.
     final directory = await api.app.request(
       '/reading/bookapi/directory/all_items/v/',
+      useSession: false,
       query: {
         'book_id': bid,
         'book_type': '0',
@@ -383,48 +397,6 @@ class FanqieSource extends FanqieComments
     return chapters;
   }
 
-  static List<Chapter> parseDirectory(Map<String, dynamic> data) {
-    final volumes = data['chapterListWithVolume'];
-    if (volumes is! List) throw const SourceException('番茄目录格式已变化');
-    final chapters = <Chapter>[];
-    final seen = <String>{};
-    for (var i = 0; i < volumes.length; i++) {
-      final volume = volumes[i];
-      if (volume is! List) throw const SourceException('番茄分卷格式已变化');
-      for (final raw in volume) {
-        if (raw is! Map) throw const SourceException('番茄章节格式已变化');
-        final cid = '${raw['itemId'] ?? ''}';
-        if (!_id.hasMatch(cid) || !seen.add(cid)) {
-          throw const SourceException('番茄目录包含无效或重复章节');
-        }
-        chapters.add(
-          Chapter(
-            id: cid,
-            title: '${raw['title'] ?? cid}',
-            wordCount: Book.parseWordCount(
-              raw['wordNumber'] ?? raw['word_number'],
-            ),
-            volume: '${raw['volume_name'] ?? '正文'}',
-            vip:
-                raw['isChapterLock'] == true ||
-                (num.tryParse('${raw['needPay']}') ?? 0) > 0,
-            url: 'https://fanqienovel.com/reader/$cid',
-          ),
-        );
-      }
-    }
-    final ids = data['allItemIds'];
-    if (chapters.isEmpty ||
-        ids is! List ||
-        ids.length != chapters.length ||
-        !Iterable<int>.generate(
-          ids.length,
-        ).every((i) => '${ids[i]}' == chapters[i].id)) {
-      throw const SourceException('番茄未返回完整章节目录');
-    }
-    return chapters;
-  }
-
   @override
   Future<ChapterContent> readChapter(Book book, Chapter chapter) async {
     if (book.source != id ||
@@ -482,33 +454,6 @@ class FanqieSource extends FanqieComments
       throw const SourceException('番茄 App 未返回完整章节正文');
     }
     return parseContent(markup, itemVersion: version);
-  }
-
-  Future<ChapterContent> readPublicChapter(Book book, Chapter chapter) async {
-    final response = await api.fetch(
-      Uri.https('fanqienovel.com', '/reader/${chapter.id}'),
-    );
-    final page = utf8.decode(response.bodyBytes);
-    final reader = initialState(page)['reader'];
-    final data = reader is Map ? reader['chapterData'] : null;
-    if (data is! Map ||
-        '${data['bookId']}' != book.id ||
-        '${data['itemId']}' != chapter.id) {
-      throw const SourceException('番茄未返回对应章节正文');
-    }
-    if (data['isChapterLock'] == true ||
-        (num.tryParse('${data['needPay']}') ?? 0) > 0) {
-      throw const SourceException('番茄章节尚未解锁，请在官方平台确认阅读权限');
-    }
-    if (data['isContentIncomplete'] == true || data['isPreview'] == true) {
-      throw const SourceException('番茄仅返回章节试读内容');
-    }
-    final raw = '${data['content'] ?? ''}';
-    if (RegExp(r'[\ue000-\uf8ff]').hasMatch(raw) &&
-        !page.contains('dc027189e0ba4cd')) {
-      throw const SourceException('番茄正文字体已变化，请更新阅读器后重试');
-    }
-    return parseContent(raw);
   }
 
   static Map<String, dynamic> initialState(String page) {

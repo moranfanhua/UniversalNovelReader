@@ -22,6 +22,58 @@ http.Response ok(Object? data, {String code = '100000'}) => http.Response(
 );
 
 void main() {
+  test('独立游客过期或创建失败不清除用户会话，不自动重发，下一次公开请求可重建', () async {
+    var registrations = 0, reads = 0, saved = 0;
+    var failRegistration = true;
+    final api = CiweimaoApi(
+      client: MockClient((request) async {
+        if (request.url.path == '/signup/auto_reg_v2') {
+          registrations++;
+          if (failRegistration) return ok({}, code: '320002');
+          return ok({
+            'login_token': 'synthetic-guest-token-1234',
+            'reader_info': {'account': 'synthetic-guest', 'reader_id': '101'},
+          });
+        }
+        expect(request.bodyFields['account'], 'synthetic-guest');
+        reads++;
+        return reads == 1 ? ok({}, code: '200100') : ok({'value': 1});
+      }),
+    )..restoreSession(session());
+    addTearDown(api.close);
+    final original = api.credentials;
+    final generation = api.sessionGeneration;
+    api.onSessionChanged = () async {
+      saved++;
+    };
+    await expectLater(
+      api.requestPublic('book/get_info_by_id', {'book_id': '12'}),
+      throwsA(isA<SourceException>()),
+    );
+    expect(registrations, 1);
+    expect(reads, 0);
+    expect(api.credentials, same(original));
+    failRegistration = false;
+    await expectLater(
+      api.requestPublic('book/get_info_by_id', {'book_id': '12'}),
+      throwsA(isA<SourceException>()),
+    );
+    expect(registrations, 2);
+    expect(reads, 1);
+    expect(await api.requestPublic('book/get_info_by_id', {'book_id': '12'}), {
+      'value': 1,
+    });
+    expect(registrations, 3);
+    expect(reads, 2);
+    expect(saved, 0);
+    expect(api.credentials, same(original));
+    expect(api.sessionGeneration, generation);
+    expect(
+      () => api.requestPublic('reader/get_my_info', {}),
+      throwsA(isA<SourceException>()),
+    );
+  });
+
   test('认证业务拒绝与解析失败写入脱敏日志，HTTP 200 保留业务错误码', () async {
     for (final malformed in [false, true]) {
       final api = CiweimaoApi(

@@ -20,6 +20,7 @@ import '../sources/novel_source.dart';
 import 'reader_fonts.dart';
 import 'download_mirror.dart';
 import 'app_log.dart';
+import 'library_snapshot.dart';
 
 enum ReadingMode { scroll, paged }
 
@@ -180,6 +181,7 @@ class Library extends ChangeNotifier {
   final downloadedFonts = <String>{};
   double horizontalMargin = 22, verticalMargin = 24, lineHeight = 1.9;
   Future<void> _writes = Future.value();
+  final _bookJson = Expando<String>();
   final Map<String, Future<ChapterContent>> _reads = {};
   final Map<String, Future<Uint8List>> _imageReads = {};
   final Map<String, Future<void>> _fileWrites = {};
@@ -376,12 +378,18 @@ class Library extends ChangeNotifier {
   }
 
   Future<void> save() {
-    final json = jsonEncode({
-      'books': books.map((b) => b.toJson()).toList(),
-      'recentBooks': recentBooks.map((b) => b.toJson()).toList(),
+    // Freeze mutable state when requested, before queued writes or background
+    // encoding can yield to reading, settings changes, or another update.
+    final savedBooks = books.toList();
+    final savedRecentBooks = recentBooks.toList();
+    final preferences = <String, Object?>{
       'pinnedBookKeys': _pinnedBookKeys.toList(),
-      'shelves': shelves.map((s) => s.toJson()).toList(),
-      'progress': progress,
+      'shelves': shelves
+          .map((s) => {...s.toJson(), 'bookKeys': s.bookKeys.toList()})
+          .toList(),
+      'progress': {
+        for (final entry in progress.entries) entry.key: entry.value.toList(),
+      },
       'fontSize': fontSize,
       'themeMode': themeMode.name,
       // Keep the explicit dark preference readable by older app versions.
@@ -393,26 +401,49 @@ class Library extends ChangeNotifier {
       'paragraphCommentPlacement': paragraphCommentPlacement.name,
       'disabledSearchSources': _disabledSearchSources.toList(),
       'downloadMirror': _downloadMirror.toJson(),
-      'pageOffsets': pageOffsets,
-      'pagedChapterEntries': pagedChapterEntries,
+      'pageOffsets': Map<String, int>.of(pageOffsets),
+      'pagedChapterEntries': {
+        for (final entry in pagedChapterEntries.entries)
+          entry.key: entry.value.toList(),
+      },
       'readingFontId': readingFontId,
       'horizontalMargin': horizontalMargin,
       'verticalMargin': verticalMargin,
       'lineHeight': lineHeight,
       'shelfSort': shelfSort.name,
       'shelfLayout': shelfLayout.name,
-      'updatedTimes': updatedTimes,
-      'lastActiveTimes': lastActiveTimes,
-      'shelfUpdateTimes': _shelfUpdateTimes,
+      'updatedTimes': Map<String, int>.of(updatedTimes),
+      'lastActiveTimes': Map<String, int>.of(lastActiveTimes),
+      'shelfUpdateTimes': Map<String, int>.of(_shelfUpdateTimes),
+    };
+    // Serialize encoding as well as replacement, so older snapshots cannot
+    // overwrite newer preferences and only one full index is built at a time.
+    final next = _writes.catchError((_) {}).then((_) async {
+      final missing = <Book>[];
+      Object cachedBook(Book book) {
+        final json = _bookJson[book];
+        if (json != null) return json;
+        missing.add(book);
+        return book;
+      }
+
+      final snapshot = (
+        preferences: preferences,
+        books: savedBooks.map(cachedBook).toList(),
+        recentBooks: savedRecentBooks.map(cachedBook).toList(),
+      );
+      final encoded = await compute(
+        encodeLibrarySnapshot,
+        snapshot,
+        debugLabel: 'library.encode',
+      );
+      for (var i = 0; i < missing.length; i++) {
+        _bookJson[missing[i]] = encoded.newBooks[i];
+      }
+      await _atomic(File('${root.path}/index.json'), encoded.bytes);
     });
-    // Serialize preferences writes so navigation and font changes cannot race.
-    final next = _writes
-        .catchError((_) {})
-        .then(
-          (_) => _atomic(File('${root.path}/index.json'), utf8.encode(json)),
-        );
     _writes = next;
-    notifyListeners();
+    if (!_disposed) notifyListeners();
     return next;
   }
 
@@ -541,9 +572,13 @@ class Library extends ChangeNotifier {
     }
   }
 
-  Future<void> updateBook(
+  Future<void> updateBook(Book book, {bool preserveChapterPosition = false}) =>
+      _updateBook(book, preserveChapterPosition: preserveChapterPosition);
+
+  Future<void> _updateBook(
     Book book, {
     bool preserveChapterPosition = false,
+    Future<void> Function()? persist,
   }) async {
     final shelfIndex = books.indexWhere((item) => item.key == book.key);
     final recentIndex = recentBooks.indexWhere((item) => item.key == book.key);
@@ -555,7 +590,9 @@ class Library extends ChangeNotifier {
     List<int>? nextProgress;
     final oldEntries = <String, List<int>>{};
     final nextEntries = <String, List<int>>{};
-    if (preserveChapterPosition && previous != null) {
+    if (preserveChapterPosition &&
+        previous != null &&
+        !identical(previous.chapters, book.chapters)) {
       final indices = {
         for (var i = 0; i < book.chapters.length; i++) book.chapters[i].id: i,
       };
@@ -619,8 +656,17 @@ class Library extends ChangeNotifier {
       updatedTimes[book.key] = book.updatedAt!.millisecondsSinceEpoch;
     }
     try {
-      await save();
+      await (persist ?? save)();
     } catch (_) {
+      final shelf = books.indexWhere((item) => item.key == book.key);
+      final recent = recentBooks.indexWhere((item) => item.key == book.key);
+      if ((oldShelf != null || oldRecent != null) &&
+          !(shelf >= 0 && identical(books[shelf], book)) &&
+          !(recent >= 0 && identical(recentBooks[recent], book))) {
+        // A manual refresh or removal may have won while a shared checkpoint
+        // was pending. Its metadata and migrated positions belong to that edit.
+        rethrow;
+      }
       if (nextProgress != null && identical(progress[book.key], nextProgress)) {
         progress[book.key] = oldProgress!;
       }
@@ -633,8 +679,6 @@ class Library extends ChangeNotifier {
           pagedChapterEntries[key] = old;
         }
       }
-      final shelf = books.indexWhere((item) => item.key == book.key);
-      final recent = recentBooks.indexWhere((item) => item.key == book.key);
       if (shelf >= 0 && oldShelf != null && identical(books[shelf], book)) {
         books[shelf] = oldShelf;
       }
@@ -648,7 +692,7 @@ class Library extends ChangeNotifier {
       } else {
         updatedTimes[book.key] = oldUpdated;
       }
-      notifyListeners();
+      if (!_disposed) notifyListeners();
       rethrow;
     }
   }
@@ -672,6 +716,13 @@ class Library extends ChangeNotifier {
           .where((book) => keys == null || keys.contains(book.key))
           .where((book) => book.source != 'local' && sourceFor(book) != null)
           .toList();
+      // Each of the three workers awaits its checkpoint. Sharing checkpoints
+      // batches their writes without allowing an unbounded queue or delaying
+      // persistence beyond 250 ms when a request is slow or fails.
+      final checkpoints = _ShelfCheckpoints(
+        save,
+        batchSize: candidates.length < 3 ? candidates.length : 3,
+      );
       var cursor = 0, checked = 0, failed = 0;
       Book? current(String key) =>
           (shelfId == recentShelfId ? recentBooks : books)
@@ -690,14 +741,50 @@ class Library extends ChangeNotifier {
           checked++;
           try {
             // Persist before sending, so reopening cannot bypass the cooldown.
-            await save();
+            await checkpoints.save();
             if (cancelled()) return;
-            final next = await sourceFor(book)!.getBook(book.id);
-            if (cancelled() || !identical(current(book.key), book)) continue;
-            if (next.key != book.key || next.chapters.isEmpty) {
-              throw const SourceException('书源未返回对应作品的完整目录，已保留本地内容');
+            final service = sourceFor(book)!;
+            Book next;
+            if (service is BookUpdateSource) {
+              final preview = await service.getBookUpdate(book.id);
+              if (cancelled() || !identical(current(book.key), book)) continue;
+              if (preview.key != book.key) {
+                throw const SourceException('书源未返回对应作品的信息，已保留本地内容');
+              }
+              final changed =
+                  preview.updatedAt == null ||
+                  book.updatedAt == null ||
+                  preview.updatedAt != book.updatedAt ||
+                  (preview.wordCount != null &&
+                      book.wordCount != null &&
+                      preview.wordCount != book.wordCount);
+              if (preview.chapters.isNotEmpty) {
+                next = preview;
+              } else if (book.chapters.isNotEmpty && changed) {
+                next = await service.getBook(book.id);
+                if (next.chapters.isEmpty) {
+                  throw const SourceException('书源未返回完整目录，已保留本地内容');
+                }
+              } else {
+                // Newly imported books stay lazy. Fresh timestamps still drive
+                // shelf sorting; an unchanged cached directory remains usable.
+                next = preview.withChapters(book.chapters);
+              }
+            } else {
+              next = await service.getBook(book.id);
+              if (next.chapters.isEmpty) {
+                throw const SourceException('书源未返回完整目录，已保留本地内容');
+              }
             }
-            await updateBook(next, preserveChapterPosition: true);
+            if (cancelled() || !identical(current(book.key), book)) continue;
+            if (next.key != book.key) {
+              throw const SourceException('书源未返回对应作品的信息，已保留本地内容');
+            }
+            await _updateBook(
+              next,
+              preserveChapterPosition: true,
+              persist: checkpoints.save,
+            );
           } catch (error, stack) {
             if (cancelled()) return;
             failed++;
@@ -1223,5 +1310,36 @@ class Library extends ChangeNotifier {
     progress[book.key] = [chapter, paragraph];
     lastActiveTimes[book.key] = clock().millisecondsSinceEpoch;
     await save();
+  }
+}
+
+class _ShelfCheckpoints {
+  _ShelfCheckpoints(this.persist, {required this.batchSize});
+
+  final Future<void> Function() persist;
+  final int batchSize;
+  Completer<void>? _pending;
+  Timer? _timer;
+  int _waiting = 0;
+
+  Future<void> save() {
+    final pending = _pending ??= Completer<void>();
+    _timer ??= Timer(const Duration(milliseconds: 250), _flush);
+    if (++_waiting >= batchSize) _flush();
+    return pending.future;
+  }
+
+  void _flush() {
+    final pending = _pending;
+    if (pending == null) return;
+    _timer?.cancel();
+    _timer = null;
+    _pending = null;
+    _waiting = 0;
+    Future<void>.sync(persist).then(
+      (_) => pending.complete(),
+      onError: (Object error, StackTrace stack) =>
+          pending.completeError(error, stack),
+    );
   }
 }

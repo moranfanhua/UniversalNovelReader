@@ -4,6 +4,7 @@ import '../data/library.dart';
 import '../data/reader_fonts.dart';
 import '../domain/reading_preferences.dart';
 import 'theme_settings.dart';
+import 'top_dropdown_button.dart';
 
 Future<void> showReadingSettings(BuildContext context, Library library) =>
     showModalBottomSheet<void>(
@@ -271,10 +272,9 @@ class _ReadingSettingsState extends State<ReadingSettings> {
               },
             ),
           const Text('阅读字体'),
-          DropdownButton<String>(
+          TopDropdownButton<String>(
             key: const ValueKey('reading-font'),
             value: selected,
-            isExpanded: true,
             items: [
               const DropdownMenuItem(value: '', child: Text('系统字体')),
               for (final font in ReaderFonts.catalog)

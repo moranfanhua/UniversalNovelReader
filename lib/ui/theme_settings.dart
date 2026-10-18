@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../data/library.dart';
+import 'top_dropdown_button.dart';
 
 class ThemeSettings extends StatefulWidget {
   const ThemeSettings({super.key, required this.library});
@@ -34,10 +35,9 @@ class _ThemeSettingsState extends State<ThemeSettings> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         const Text('显示模式'),
-        DropdownButton<AppThemeMode>(
+        TopDropdownButton<AppThemeMode>(
           key: const ValueKey('theme-mode'),
           value: widget.library.themeMode,
-          isExpanded: true,
           items: const [
             DropdownMenuItem(value: AppThemeMode.system, child: Text('跟随系统')),
             DropdownMenuItem(value: AppThemeMode.light, child: Text('日间模式')),

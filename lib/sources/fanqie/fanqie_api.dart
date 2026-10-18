@@ -104,14 +104,6 @@ class FanqieApi {
     throw const SourceException('番茄跳转次数过多');
   }
 
-  Future<Map<String, dynamic>> get(
-    String path, {
-    Map<String, String>? query,
-  }) async {
-    final response = await fetch(Uri.https('fanqienovel.com', path, query));
-    return _data(response);
-  }
-
   Future<Map<String, dynamic>> search(String keyword, {int page = 0}) async {
     final response = await fetch(
       Uri.https(
@@ -147,6 +139,13 @@ class FanqieApi {
   Future<void> validateSession() async {
     if (!hasSession) throw const SourceException('请先登录或导入番茄 App 会话');
     await app.accountId();
+  }
+
+  Future<void> checkSession() async {
+    if (!hasSession) throw const SourceException('请先登录番茄小说');
+    final probe = FanqieApi(client: client)..setCookie(cookie);
+    if (app.deviceId.isNotEmpty) probe.app.restore(app.toJson());
+    await probe.validateSession();
   }
 
   void close() => client.close();

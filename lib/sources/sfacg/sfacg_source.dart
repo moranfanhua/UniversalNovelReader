@@ -4,11 +4,10 @@ import 'dart:async';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
-import 'package:html/dom.dart';
-import 'package:html/parser.dart' as html;
 
 import '../../domain/models.dart';
 import '../novel_source.dart';
+import '../source_verification.dart';
 import '../chapter_batch_source.dart';
 import '../bookshelf_source.dart';
 import 'sfacg_api.dart';
@@ -18,7 +17,12 @@ import '../comment_source.dart';
 export '../comment_source.dart' show CommentSort;
 
 class SfacgSource extends CommentSource
-    implements SearchableNovelSource, BookshelfSource, ChapterBatchSource {
+    implements
+        SearchableNovelSource,
+        BookshelfSource,
+        ChapterBatchSource,
+        VerifiableNovelSource,
+        BookUpdateSource {
   SfacgSource(this.api, {Map<String, String>? cipher}) : cipher = cipher ?? {};
   final SfacgApi api;
   final Map<String, String> cipher;
@@ -34,6 +38,12 @@ class SfacgSource extends CommentSource
   String get id => 'sfacg';
   @override
   String get name => '菠萝包轻小说';
+  @override
+  bool get canVerifyAccess => api.hasSession;
+  @override
+  Future<SourceVerificationOutcome> verifyAccess(
+    SourceVerificationSolver solve,
+  ) => api.verifyAccess(solve);
   @override
   Future<List<RemoteBookshelf>> getShelves() async {
     _shelfPreviews.clear();
@@ -86,6 +96,22 @@ class SfacgSource extends CommentSource
   int get shelfBookBatchSize => 4;
 
   @override
+  Future<Book> getBookUpdate(String input) async {
+    final id = bookId(input);
+    final info = await api.get(
+      'novels/$id',
+      query: {'expand': 'bigNovelCover,intro'},
+      useSession: false,
+    );
+    if (info is! Map ||
+        '${info['novelName'] ?? ''}'.trim().isEmpty ||
+        (info['novelId'] != null && '${info['novelId']}' != id)) {
+      throw const SourceException('菠萝包未返回对应作品详情，作品可能已下架');
+    }
+    return _bookPreview(id, info);
+  }
+
+  @override
   Future<List<ShelfBookResult>> getShelfBooks(List<String> ids) async {
     if (ids.length > shelfBookBatchSize) {
       throw const SourceException('菠萝包单次获取的作品过多');
@@ -96,16 +122,7 @@ class SfacgSource extends CommentSource
           final id = bookId(input);
           final preview = _shelfPreviews[id];
           if (preview != null) return ShelfBookResult.success(input, preview);
-          final info = await api.get(
-            'novels/$id',
-            query: {'expand': 'bigNovelCover,intro'},
-          );
-          if (info is! Map ||
-              '${info['novelName'] ?? ''}'.trim().isEmpty ||
-              (info['novelId'] != null && '${info['novelId']}' != id)) {
-            throw const SourceException('菠萝包未返回对应作品详情，作品可能已下架');
-          }
-          return ShelfBookResult.success(input, _bookPreview(id, info));
+          return ShelfBookResult.success(input, await getBookUpdate(id));
         } catch (error) {
           return ShelfBookResult.failure(input, error);
         }
@@ -205,12 +222,17 @@ class SfacgSource extends CommentSource
   Future<Book> getBook(String input) async {
     final id = bookId(input);
     final info =
-        await api.get('novels/$id', query: {'expand': 'bigNovelCover,intro'})
+        await api.get(
+              'novels/$id',
+              query: {'expand': 'bigNovelCover,intro'},
+              useSession: false,
+            )
             as Map;
     final dirs =
         await api.get(
               'novels/$id/dirs',
               query: {'expand': 'originNeedFireMoney'},
+              useSession: false,
             )
             as Map;
     final chapters = <Chapter>[];
@@ -347,69 +369,6 @@ class SfacgSource extends CommentSource
     final s = String.fromCharCode(r);
     return cipher[s] ?? s;
   }).join();
-
-  static ChapterContent parsePublicChapter(String value) {
-    final body = html.parse(value).querySelector('#ChapterBody');
-    if (body == null) throw const SourceException('官网未返回完整正文');
-    final paragraphs = <Paragraph>[];
-    var row = 0;
-    final text = StringBuffer();
-    void flush(int? currentRow) {
-      final value = text.toString().trim();
-      text.clear();
-      if (value.isNotEmpty) {
-        paragraphs.add(Paragraph(value, remoteIndex: currentRow));
-      }
-    }
-
-    void visit(Node node, int? currentRow) {
-      if (node is Text) {
-        text.write(node.text);
-        return;
-      }
-      if (node is! Element || ['script', 'style'].contains(node.localName)) {
-        return;
-      }
-      if (node.localName == 'p') {
-        flush(currentRow);
-        // Empty paragraphs still occupy a row in the official App.
-        final paragraphRow = ++row;
-        for (final child in node.nodes) {
-          visit(child, paragraphRow);
-        }
-        flush(paragraphRow);
-        return;
-      }
-      if (node.localName == 'img') {
-        flush(currentRow);
-        final src = node.attributes['data-src'] ?? node.attributes['src'];
-        if (src != null && src.trim().isNotEmpty) {
-          paragraphs.add(
-            Paragraph(
-              '',
-              image: Uri.parse(
-                'https://book.sfacg.com/',
-              ).resolve(src.trim()).toString(),
-              remoteIndex: currentRow,
-            ),
-          );
-        }
-        return;
-      }
-      if (node.localName == 'br') {
-        flush(currentRow);
-        return;
-      }
-      for (final child in node.nodes) {
-        visit(child, currentRow);
-      }
-    }
-
-    visit(body, null);
-    flush(null);
-    if (paragraphs.isEmpty) throw const SourceException('官网未返回可阅读正文');
-    return ChapterContent(paragraphs);
-  }
 
   static ChapterContent parseAppContent(String value) {
     final paragraphs = <Paragraph>[];

@@ -1,5 +1,24 @@
 # 更新日志
 
+## v1.0.1
+
+### 新增 | New
+
+* 新增菠萝包、番茄、起点与刺猬猫的 App 会话检测，进入账号页时自动检查，也可手动重试；启动后检测到会话明确失效时提示重新登录。检测保留已有登录存储，不阻断书架与缓存阅读，网络异常或平台安全限制不会直接判为会话失效。[#43](https://github.com/moranfanhua/UniversalNovelReader/pull/43)
+* 新增菠萝包安全验证入口，已登录账号可在账号设置或阅读加载失败时处理平台要求的人机验证；验证通过后可手动重试本章或滚动阅读的下一章。仅支持平台允许通过人机验证解除的限制，其他账号限制提示前往官方 App 处理。[#45](https://github.com/moranfanhua/UniversalNovelReader/pull/45)
+
+### 改进 | Improved
+
+* 优化菠萝包、番茄、起点与刺猬猫的书架更新检查，优先获取作品基本信息，仅在已有目录的作品发生更新时重新加载目录；新导入作品继续在首次打开时加载目录，保留已有缓存与阅读位置。[#41](https://github.com/moranfanhua/UniversalNovelReader/pull/41)
+* 合并书架更新过程中的保存操作，并将书库索引编码移到后台、复用未变化的作品数据，减少大书库保存时的界面卡顿。[#41](https://github.com/moranfanhua/UniversalNovelReader/pull/41)
+* 起点搜索结果与作品详情补充用于收藏人数排序的热度数据，以平台返回的推荐总数作为排序依据；补充查询失败时仍保留搜索结果。[#42](https://github.com/moranfanhua/UniversalNovelReader/pull/42)
+* 书架切换、书架排序、阅读字体、显示模式和日志筛选等下拉选项统一从列表顶部展开，便于从头查找选项。[#40](https://github.com/moranfanhua/UniversalNovelReader/pull/40)
+
+### 修复 | Fix
+
+* 改善阅读字体加载与切换时的卡顿，复用已加载字体、合并重复加载，并在后台完成字体解压与校验；字体文件变化后重新校验，加载失败后可重试。[#40](https://github.com/moranfanhua/UniversalNovelReader/pull/40)
+* 修复登录会话异常影响作品详情与目录获取的问题：菠萝包、番茄和起点使用不携带账号会话的 App 请求，刺猬猫使用独立游客会话，避免目录请求覆盖已有登录状态。[#41](https://github.com/moranfanhua/UniversalNovelReader/pull/41)
+
 ## v1.0.0
 
 ### 亮点

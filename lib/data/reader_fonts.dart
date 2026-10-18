@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'package:archive/archive.dart';
 import 'package:crypto/crypto.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
@@ -108,6 +109,12 @@ class ReaderFonts {
   final http.Client Function() clientFactory;
   final Future<void> Function(String, Uint8List) register;
   final _loaded = <String>{};
+  final _loading = <String, Future<String>>{};
+  final _cached =
+      <
+        String,
+        ({int size, DateTime modified, DateTime changed, String family})
+      >{};
   http.Client? _client;
   bool _cancelled = false;
   bool _busy = false;
@@ -185,10 +192,17 @@ class ReaderFonts {
     return found;
   }
 
-  Future<String> _loadBytes(String id, Uint8List bytes) async {
+  static String _family((String, Uint8List) input) {
+    final (id, bytes) = input;
     validate(bytes);
-    final family =
-        'UNR_${id}_${sha256.convert(bytes).toString().substring(0, 12)}';
+    return 'UNR_${id}_${sha256.convert(bytes).toString().substring(0, 12)}';
+  }
+
+  Future<String> _loadBytes(String id, Uint8List bytes) async {
+    final family = await compute(_family, (
+      id,
+      bytes,
+    ), debugLabel: 'font.prepare');
     if (!_loaded.contains(family)) {
       await register(family, bytes);
       _loaded.add(family);
@@ -196,11 +210,48 @@ class ReaderFonts {
     return family;
   }
 
-  Future<String> load(String id) async {
-    if (!await _file(id).exists() || !await _license(id).exists()) {
+  Future<String> load(String id) => _loading.putIfAbsent(id, () async {
+    try {
+      return await _load(id);
+    } finally {
+      _loading.remove(id);
+    }
+  });
+
+  void _remember(String id, String family, FileStat stat) {
+    _cached[id] = (
+      size: stat.size,
+      modified: stat.modified,
+      changed: stat.changed,
+      family: family,
+    );
+  }
+
+  Future<String> _load(String id) async {
+    final file = _file(id);
+    final stat = await file.stat();
+    if (stat.type != FileSystemEntityType.file ||
+        !await _license(id).exists()) {
+      _cached.remove(id);
       throw const SourceException('阅读字体未下载，请先下载字体');
     }
-    return _loadBytes(id, await _file(id).readAsBytes());
+    final cached = _cached[id];
+    if (cached != null &&
+        cached.size == stat.size &&
+        cached.modified == stat.modified &&
+        cached.changed == stat.changed) {
+      return cached.family;
+    }
+    _cached.remove(id);
+    final family = await _loadBytes(id, await file.readAsBytes());
+    _remember(id, family, stat);
+    return family;
+  }
+
+  static Uint8List _prepareDownload((CloudFont, Uint8List) input) {
+    final bytes = _unpack(input.$1, input.$2);
+    validate(bytes);
+    return bytes;
   }
 
   Future<String> licenseText(String id) => _license(id).readAsString();
@@ -272,16 +323,16 @@ class ReaderFonts {
         // Missing or damaged cache can be downloaded again.
       }
       client = _client = clientFactory();
-      final bytes = _unpack(
-        option,
-        await _fetch(
-          client,
-          mirror.resolve(option.download),
-          maxSize,
-          onProgress,
-        ),
+      final downloaded = await _fetch(
+        client,
+        mirror.resolve(option.download),
+        maxSize,
+        onProgress,
       );
-      validate(bytes);
+      final bytes = await compute(_prepareDownload, (
+        option,
+        downloaded,
+      ), debugLabel: 'font.unpack');
       final license = await _fetch(
         client,
         mirror.resolve(option.license),
@@ -297,6 +348,7 @@ class ReaderFonts {
       await _write(_license(id), license);
       await _write(_file(id), bytes);
       if (_cancelled) throw const SourceException('字体下载已取消');
+      _remember(id, family, await _file(id).stat());
       return family;
     } catch (e) {
       if (_cancelled) throw const SourceException('字体下载已取消');

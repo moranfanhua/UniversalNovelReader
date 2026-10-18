@@ -5,6 +5,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:unr/domain/models.dart';
 import 'package:unr/sources/qidian/qidian_captcha.dart';
 import 'package:unr/ui/qidian_captcha.dart';
+import 'package:unr/sources/sfacg/sfacg_verification.dart';
+import 'package:unr/ui/source_verification.dart';
 
 class _WebViewPlatform extends InAppWebViewPlatform {
   final views = <_WebView>[];
@@ -50,7 +52,7 @@ class _WebView extends PlatformInAppWebViewWidget {
     String? origin,
   }) {
     final url = params.initialUrlRequest!.url!;
-    controller.handlers['qidianCaptcha']!(
+    controller.handlers.values.single(
       JavaScriptHandlerFunctionData(
         args: [nonce ?? url.pathSegments.last, kind, value],
         isMainFrame: mainFrame,
@@ -80,6 +82,94 @@ class _WebView extends PlatformInAppWebViewWidget {
 }
 
 void main() {
+  testWidgets('菠萝包复用验证容器，拒绝错误来源并只返回一次结果', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    final platform = _WebViewPlatform();
+    InAppWebViewPlatform.instance = platform;
+    SfacgVerificationResult? result;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => TextButton(
+            onPressed: () async => result = await SourceVerificationPage.solve(
+              context,
+              SfacgVerificationChallenge(
+                aid: 'aid',
+                expiresAt: DateTime.now().add(const Duration(minutes: 5)),
+              ),
+            ),
+            child: const Text('打开验证'),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('打开验证'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    final view = platform.views.last;
+    expect(view.controller.handlers.keys.single, 'sfacgVerification');
+    expect(find.text('菠萝包安全验证'), findsOneWidget);
+    final response = await view.params.shouldInterceptRequest!(
+      view.publicController,
+      WebResourceRequest(url: view.params.initialUrlRequest!.url!),
+    );
+    expect(response!.statusCode, 200);
+    expect(
+      view.params.initialUrlRequest!.headers ?? {},
+      isNot(contains('Cookie')),
+    );
+    expect(view.params.initialSettings!.allowFileAccess, isFalse);
+    expect(
+      await view.params.shouldOverrideUrlLoading!(
+        view.publicController,
+        NavigationAction(
+          request: URLRequest(url: WebUri('https://example.com')),
+          isForMainFrame: true,
+        ),
+      ),
+      NavigationActionPolicy.CANCEL,
+    );
+    final ticket = {'ret': 0, 'ticket': 'ticket', 'randstr': 'random'};
+    view.result('result', ticket, origin: 'https://example.com');
+    view.result('result', ticket, nonce: 'stale');
+    view.result('result', ticket, mainFrame: false);
+    await tester.pump();
+    expect(result, isNull);
+    view.result('ready', null);
+    await tester.pump();
+    expect(find.byType(LinearProgressIndicator), findsNothing);
+    view.result('result', ticket);
+    view.result('result', ticket);
+    await tester.pumpAndSettle();
+    expect(result!.ticket, 'ticket');
+    expect(find.text('打开验证'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+    debugDefaultTargetPlatformOverride = null;
+  });
+
+  testWidgets('已过期的验证不能接受结果或重试', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.android;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    InAppWebViewPlatform.instance = _WebViewPlatform();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SourceVerificationPage(
+          challenge: SfacgVerificationChallenge(
+            aid: 'aid',
+            expiresAt: DateTime.now().subtract(const Duration(seconds: 1)),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(find.text('本次安全验证已过期，请返回后重新发起验证'), findsOneWidget);
+    expect(find.text('重新加载验证'), findsNothing);
+    await tester.pumpWidget(const SizedBox());
+    debugDefaultTargetPlatformOverride = null;
+  });
+
   test('只接受验证成功且完整的腾讯票据；用户关闭验证返回取消', () {
     final result = QidianCaptchaResult.fromCallback({
       'ret': 0,

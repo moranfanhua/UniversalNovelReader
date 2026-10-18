@@ -16,6 +16,7 @@ import 'sources/ciweimao/ciweimao_session.dart';
 import 'ui/home.dart';
 import 'ui/logs.dart';
 import 'ui/app_theme.dart';
+import 'ui/startup_session_check.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -100,7 +101,10 @@ class UnrApp extends StatelessWidget {
         AppThemeMode.dark => ThemeMode.dark,
       },
       builder: AppTheme.wrapSystemUi,
-      home: HomePage(library: library),
+      home: StartupSessionCheck(
+        library: library,
+        child: HomePage(library: library),
+      ),
     ),
   );
 }
