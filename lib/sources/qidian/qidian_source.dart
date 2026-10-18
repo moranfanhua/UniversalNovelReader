@@ -58,7 +58,7 @@ class QidianSource extends QidianComments
     final cards = data['CardList'];
     if (cards == null && '${data['TotalCount']}' == '0') return [];
     if (cards is! List) throw const SourceException('起点搜索结果格式已变化');
-    final books = <String, Book>{};
+    final items = <String, Map>{};
     for (final card in cards.whereType<Map>()) {
       final body = card['Body'];
       if (body is! List) continue;
@@ -68,19 +68,45 @@ class QidianSource extends QidianComments
         final bid = bookId('${item['BookId']}');
         final title = '${item['BookName'] ?? ''}'.trim();
         if (title.isEmpty) continue;
-        books[bid] = Book(
-          id: bid,
-          source: id,
-          title: title,
-          author: '${item['AuthorName'] ?? ''}',
-          cover: _cover(bid),
-          description: '${item['Description'] ?? ''}',
-          wordCount: Book.parseWordCount(item['WordsCount']),
-          chapters: [],
-        );
+        items[bid] = item;
       }
     }
-    return books.values.toList();
+    // UNR uses BssRecomTotal as the Qidian favorite/sort count.
+    final favorites = {
+      for (final entry in items.entries)
+        entry.key: Book.parseFavoriteCount(entry.value['BssRecomTotal']),
+    };
+    final missing = items.keys.where((bid) => favorites[bid] == null).toList();
+    // Search currently omits the counter. Fetch details without chapter lists,
+    // limiting concurrency and keeping successful search hits on lookup failure.
+    for (var offset = 0; offset < missing.length; offset += 4) {
+      await Future.wait(
+        missing.skip(offset).take(4).map((bid) async {
+          try {
+            final data = await _details(bid);
+            favorites[bid] = Book.parseFavoriteCount(
+              (data['BaseBookInfo'] as Map)['BssRecomTotal'],
+            );
+          } on Exception {
+            // Unknown popularity must not discard a successful search result.
+          }
+        }),
+      );
+    }
+    return [
+      for (final entry in items.entries)
+        Book(
+          id: entry.key,
+          source: id,
+          title: '${entry.value['BookName']}'.trim(),
+          author: '${entry.value['AuthorName'] ?? ''}',
+          cover: _cover(entry.key),
+          description: '${entry.value['Description'] ?? ''}',
+          favoriteCount: favorites[entry.key],
+          wordCount: Book.parseWordCount(entry.value['WordsCount']),
+          chapters: [],
+        ),
+    ];
   }
 
   @override
@@ -149,6 +175,7 @@ class QidianSource extends QidianComments
           : fallbackAuthor,
       cover: _cover(bid),
       description: '${info['Description'] ?? ''}',
+      favoriteCount: Book.parseFavoriteCount(info['BssRecomTotal']),
       wordCount: Book.parseWordCount(info['WordsCnt']),
       updatedAt: updated <= 0
           ? null
