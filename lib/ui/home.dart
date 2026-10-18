@@ -719,19 +719,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       titleTextStyle: Theme.of(context).textTheme.titleMedium,
       title: tab == 1 ? null : Text(tab == 0 ? '我的书库' : '我的'),
       actions: [
-        IconButton(
-          tooltip: '开源许可',
-          onPressed: () => showLicensePage(
-            context: context,
-            applicationName: 'UNR 阅读器',
-            applicationVersion: const String.fromEnvironment(
-              'APP_VERSION',
-              defaultValue: '开发版',
-            ),
-            applicationLegalese: 'AGPL-3.0\n非官方阅读器，作品与段评归相应权利人所有。',
-          ),
-          icon: const Icon(Icons.info_outline),
-        ),
         if (tab == 0)
           IconButton(
             tooltip: '导入',

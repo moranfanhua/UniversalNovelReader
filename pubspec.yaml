@@ -24,6 +24,9 @@ dependencies:
   flutter_svg: ^2.3.0
   pointycastle: ^4.0.0
   pinyin: ^3.3.0
+  package_info_plus: ^10.2.2
+  url_launcher: ^6.3.3
+  pub_semver: ^2.2.1
 dev_dependencies:
   flutter_test:
     sdk: flutter
