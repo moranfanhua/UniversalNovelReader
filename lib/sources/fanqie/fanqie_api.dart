@@ -104,14 +104,6 @@ class FanqieApi {
     throw const SourceException('番茄跳转次数过多');
   }
 
-  Future<Map<String, dynamic>> get(
-    String path, {
-    Map<String, String>? query,
-  }) async {
-    final response = await fetch(Uri.https('fanqienovel.com', path, query));
-    return _data(response);
-  }
-
   Future<Map<String, dynamic>> search(String keyword, {int page = 0}) async {
     final response = await fetch(
       Uri.https(

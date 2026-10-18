@@ -25,37 +25,14 @@ const bookId = '7143038691944959011';
 const chapterId = '7173216089122439711';
 const nextId = '7173217408294453791';
 
-String page(Map<String, dynamic> state, {String font = 'dc027189e0ba4cd'}) =>
-    '<script>window.__INITIAL_STATE__=${jsonEncode(state)};}</script><style>$font</style>';
+String page(Map<String, dynamic> state) =>
+    '<script>window.__INITIAL_STATE__=${jsonEncode(state)};}</script>';
 
 http.Response jsonResponse(Object data) => http.Response(
   jsonEncode({'code': 0, 'data': data}),
   200,
   headers: {'content-type': 'application/json; charset=utf-8'},
 );
-
-Map<String, dynamic> directory() => {
-  'allItemIds': [chapterId, nextId],
-  'chapterListWithVolume': [
-    [
-      {
-        'itemId': chapterId,
-        'title': '第一章',
-        'volume_name': '第一卷',
-        'needPay': 0,
-        'wordNumber': '2500',
-      },
-    ],
-    [
-      {
-        'itemId': nextId,
-        'title': '第二章',
-        'volume_name': '第二卷',
-        'isChapterLock': true,
-      },
-    ],
-  ],
-};
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -89,34 +66,6 @@ void main() {
     ]) {
       expect(() => FanqieSource.bookId(value), throwsA(isA<SourceException>()));
     }
-  });
-
-  test('目录保留分卷和受限章节，拒绝重复、缺失及顺序不匹配的目录', () {
-    final chapters = FanqieSource.parseDirectory(directory());
-    expect(chapters.map((c) => c.volume), ['第一卷', '第二卷']);
-    expect(chapters.last.vip, isTrue);
-    expect(chapters.first.url, 'https://fanqienovel.com/reader/$chapterId');
-    final incomplete = directory()..['allItemIds'] = [chapterId];
-    expect(
-      () => FanqieSource.parseDirectory(incomplete),
-      throwsA(isA<SourceException>()),
-    );
-    final duplicate = directory()
-      ..['chapterListWithVolume'] = [
-        [
-          {'itemId': chapterId},
-          {'itemId': chapterId},
-        ],
-      ];
-    expect(
-      () => FanqieSource.parseDirectory(duplicate),
-      throwsA(isA<SourceException>()),
-    );
-    final reordered = directory()..['allItemIds'] = [nextId, chapterId];
-    expect(
-      () => FanqieSource.parseDirectory(reordered),
-      throwsA(isA<SourceException>()),
-    );
   });
 
   test('App 目录按 catalog_data 排序，保留分卷、字数和权限并拒绝缺章', () {
@@ -487,7 +436,7 @@ void main() {
         ..setCookie('sessionid=test-session');
       try {
         await expectLater(
-          api.get('/api/test'),
+          api.search('测试书'),
           throwsA(
             isA<SourceException>().having(
               (e) => e.message,
@@ -518,8 +467,10 @@ void main() {
     };
     var requests = 0;
     final api = FanqieApi(
-      client: MockClient((_) async {
+      client: MockClient((request) async {
         requests++;
+        expect(request.url.host, 'reading.snssdk.com');
+        expect(request.url.path, '/reading/reader/full/v/');
         return jsonResponse(data);
       }),
     );

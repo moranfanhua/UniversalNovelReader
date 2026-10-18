@@ -4,8 +4,6 @@ import 'dart:async';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
-import 'package:html/dom.dart';
-import 'package:html/parser.dart' as html;
 
 import '../../domain/models.dart';
 import '../novel_source.dart';
@@ -363,69 +361,6 @@ class SfacgSource extends CommentSource
     final s = String.fromCharCode(r);
     return cipher[s] ?? s;
   }).join();
-
-  static ChapterContent parsePublicChapter(String value) {
-    final body = html.parse(value).querySelector('#ChapterBody');
-    if (body == null) throw const SourceException('官网未返回完整正文');
-    final paragraphs = <Paragraph>[];
-    var row = 0;
-    final text = StringBuffer();
-    void flush(int? currentRow) {
-      final value = text.toString().trim();
-      text.clear();
-      if (value.isNotEmpty) {
-        paragraphs.add(Paragraph(value, remoteIndex: currentRow));
-      }
-    }
-
-    void visit(Node node, int? currentRow) {
-      if (node is Text) {
-        text.write(node.text);
-        return;
-      }
-      if (node is! Element || ['script', 'style'].contains(node.localName)) {
-        return;
-      }
-      if (node.localName == 'p') {
-        flush(currentRow);
-        // Empty paragraphs still occupy a row in the official App.
-        final paragraphRow = ++row;
-        for (final child in node.nodes) {
-          visit(child, paragraphRow);
-        }
-        flush(paragraphRow);
-        return;
-      }
-      if (node.localName == 'img') {
-        flush(currentRow);
-        final src = node.attributes['data-src'] ?? node.attributes['src'];
-        if (src != null && src.trim().isNotEmpty) {
-          paragraphs.add(
-            Paragraph(
-              '',
-              image: Uri.parse(
-                'https://book.sfacg.com/',
-              ).resolve(src.trim()).toString(),
-              remoteIndex: currentRow,
-            ),
-          );
-        }
-        return;
-      }
-      if (node.localName == 'br') {
-        flush(currentRow);
-        return;
-      }
-      for (final child in node.nodes) {
-        visit(child, currentRow);
-      }
-    }
-
-    visit(body, null);
-    flush(null);
-    if (paragraphs.isEmpty) throw const SourceException('官网未返回可阅读正文');
-    return ChapterContent(paragraphs);
-  }
 
   static ChapterContent parseAppContent(String value) {
     final paragraphs = <Paragraph>[];
