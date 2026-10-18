@@ -90,8 +90,11 @@ class SfacgApi {
     }
   }
 
-  Future<dynamic> get(String path, {Map<String, String>? query}) =>
-      request(path, query: query);
+  Future<dynamic> get(
+    String path, {
+    Map<String, String>? query,
+    bool useSession = true,
+  }) => request(path, query: query, useSession: useSession);
 
   Future<dynamic> request(
     String path, {
@@ -100,6 +103,7 @@ class SfacgApi {
     bool head = false,
     bool retry = true,
     String? method,
+    bool useSession = true,
   }) async {
     if (websiteSession &&
         (body != null ||
@@ -131,7 +135,7 @@ class SfacgApi {
             'boluobao/5.2.16(android;35)/OPPO/${device.toLowerCase()}/OPPO',
         'sfsecurity':
             'nonce=$nonce&timestamp=$timestamp&devicetoken=$device&sign=${sfacgSign(nonce, timestamp, device)}',
-        if (hasSession && !websiteSession)
+        if (useSession && hasSession && !websiteSession)
           'Cookie': cookies.entries
               .map((e) => '${e.key}=${e.value}')
               .join('; '),
@@ -167,7 +171,7 @@ class SfacgApi {
           response.statusCode >= 200 &&
           response.statusCode < 300) {
         final setCookie = response.headers['set-cookie'];
-        if (setCookie != null && !websiteSession) {
+        if (useSession && setCookie != null && !websiteSession) {
           for (final m in RegExp(
             r'(?:^|,\s*)(\.SFCommunity|session_APP)=([^;,]*)',
           ).allMatches(setCookie)) {

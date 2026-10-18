@@ -7,6 +7,12 @@ abstract interface class NovelSource {
   Future<ChapterContent> readChapter(Book book, Chapter chapter);
 }
 
+/// Fresh App metadata used by automatic shelf checks. Unlike import previews,
+/// this must bypass any preview cached when the remote shelf was first read.
+abstract interface class BookUpdateSource implements NovelSource {
+  Future<Book> getBookUpdate(String id);
+}
+
 abstract interface class SearchableNovelSource implements NovelSource {
   Future<List<Book>> search(String keyword, {int page = 0});
 }

@@ -8,7 +8,11 @@ import '../bookshelf_source.dart';
 import 'fanqie_comments.dart';
 
 class FanqieSource extends FanqieComments
-    implements PlatformRankedSearchSource, BookshelfSource, ChapterBatchSource {
+    implements
+        PlatformRankedSearchSource,
+        BookshelfSource,
+        ChapterBatchSource,
+        BookUpdateSource {
   FanqieSource(super.api, {Map<String, String>? cipher})
     : cipher = cipher ?? {};
   final Map<String, String> cipher;
@@ -116,6 +120,15 @@ class FanqieSource extends FanqieComments
 
   @override
   int get shelfBookBatchSize => 100;
+
+  @override
+  Future<Book> getBookUpdate(String input) async {
+    final bid = bookId(input);
+    final results = await getShelfBooks([bid]);
+    final result = results.single;
+    if (result.book == null) throw result.error!;
+    return result.book!;
+  }
 
   @override
   Future<List<ShelfBookResult>> getShelfBooks(List<String> ids) async {
@@ -291,6 +304,7 @@ class FanqieSource extends FanqieComments
     // ordered item_list / item_data_list. Request an uncached full snapshot.
     final directory = await api.app.request(
       '/reading/bookapi/directory/all_items/v/',
+      useSession: false,
       query: {
         'book_id': bid,
         'book_type': '0',

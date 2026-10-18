@@ -11,7 +11,7 @@ import 'ciweimao_parser.dart';
 
 class CiweimaoSource extends CiweimaoComments
     with CiweimaoBookshelf
-    implements SearchableNovelSource, ChapterBatchSource {
+    implements SearchableNovelSource, ChapterBatchSource, BookUpdateSource {
   CiweimaoSource(super.api);
   @override
   String get id => 'ciweimao';
@@ -47,11 +47,9 @@ class CiweimaoSource extends CiweimaoComments
   }
 
   @override
-  Future<Book> getBook(String input) async {
+  Future<Book> getBookUpdate(String input) async {
     final bid = bookId(input);
-    await api.ensureSession();
-    final generation = api.sessionGeneration;
-    final details = await api.request('book/get_info_by_id', {
+    final details = await api.requestPublic('book/get_info_by_id', {
       'book_id': bid,
       'use_daguan': '0',
     });
@@ -59,17 +57,17 @@ class CiweimaoSource extends CiweimaoComments
     if ('${info['book_id']}' != bid) {
       throw const SourceException('刺猬猫未返回对应作品详情，作品可能已下架');
     }
-    // Reject other media before requesting a novel directory.
-    CiweimaoParser.book(info);
-    final directory = await api.request(
+    return CiweimaoParser.book(info);
+  }
+
+  @override
+  Future<Book> getBook(String input) async {
+    final preview = await getBookUpdate(input);
+    final directory = await api.requestPublic(
       'chapter/get_updated_chapter_by_division_new',
-      {'book_id': bid, 'division_id': '0'},
+      {'book_id': preview.id, 'division_id': '0'},
     );
-    api.checkSession(generation);
-    return CiweimaoParser.book(
-      info,
-      chapters: CiweimaoParser.directory(directory),
-    );
+    return preview.withChapters(CiweimaoParser.directory(directory));
   }
 
   void _validate(Book book, List<Chapter> chapters) {

@@ -18,7 +18,11 @@ import '../comment_source.dart';
 export '../comment_source.dart' show CommentSort;
 
 class SfacgSource extends CommentSource
-    implements SearchableNovelSource, BookshelfSource, ChapterBatchSource {
+    implements
+        SearchableNovelSource,
+        BookshelfSource,
+        ChapterBatchSource,
+        BookUpdateSource {
   SfacgSource(this.api, {Map<String, String>? cipher}) : cipher = cipher ?? {};
   final SfacgApi api;
   final Map<String, String> cipher;
@@ -86,6 +90,22 @@ class SfacgSource extends CommentSource
   int get shelfBookBatchSize => 4;
 
   @override
+  Future<Book> getBookUpdate(String input) async {
+    final id = bookId(input);
+    final info = await api.get(
+      'novels/$id',
+      query: {'expand': 'bigNovelCover,intro'},
+      useSession: false,
+    );
+    if (info is! Map ||
+        '${info['novelName'] ?? ''}'.trim().isEmpty ||
+        (info['novelId'] != null && '${info['novelId']}' != id)) {
+      throw const SourceException('菠萝包未返回对应作品详情，作品可能已下架');
+    }
+    return _bookPreview(id, info);
+  }
+
+  @override
   Future<List<ShelfBookResult>> getShelfBooks(List<String> ids) async {
     if (ids.length > shelfBookBatchSize) {
       throw const SourceException('菠萝包单次获取的作品过多');
@@ -96,16 +116,7 @@ class SfacgSource extends CommentSource
           final id = bookId(input);
           final preview = _shelfPreviews[id];
           if (preview != null) return ShelfBookResult.success(input, preview);
-          final info = await api.get(
-            'novels/$id',
-            query: {'expand': 'bigNovelCover,intro'},
-          );
-          if (info is! Map ||
-              '${info['novelName'] ?? ''}'.trim().isEmpty ||
-              (info['novelId'] != null && '${info['novelId']}' != id)) {
-            throw const SourceException('菠萝包未返回对应作品详情，作品可能已下架');
-          }
-          return ShelfBookResult.success(input, _bookPreview(id, info));
+          return ShelfBookResult.success(input, await getBookUpdate(id));
         } catch (error) {
           return ShelfBookResult.failure(input, error);
         }
@@ -205,12 +216,17 @@ class SfacgSource extends CommentSource
   Future<Book> getBook(String input) async {
     final id = bookId(input);
     final info =
-        await api.get('novels/$id', query: {'expand': 'bigNovelCover,intro'})
+        await api.get(
+              'novels/$id',
+              query: {'expand': 'bigNovelCover,intro'},
+              useSession: false,
+            )
             as Map;
     final dirs =
         await api.get(
               'novels/$id/dirs',
               query: {'expand': 'originNeedFireMoney'},
+              useSession: false,
             )
             as Map;
     final chapters = <Chapter>[];

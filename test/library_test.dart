@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -9,6 +10,23 @@ import 'package:unr/domain/models.dart';
 import 'package:unr/formats/ebook.dart';
 import 'package:unr/sources/sfacg/sfacg_api.dart';
 import 'package:unr/sources/sfacg/sfacg_source.dart';
+
+class EncodingBook extends Book {
+  const EncodingBook(this.events, {required super.title})
+    : super(
+        id: 'encoded',
+        author: '作者',
+        chapters: const [Chapter(id: '1', title: '第一章')],
+      );
+
+  final SendPort events;
+
+  @override
+  Map<String, dynamic> toJson() {
+    events.send((title, Isolate.current.debugName));
+    return super.toJson();
+  }
+}
 
 void main() {
   SfacgSource source(SfacgApi api) =>
@@ -208,5 +226,97 @@ void main() {
       [0, 3],
     );
     api.close();
+  });
+
+  test('目录在后台编码，进度和偏好保存复用未变化作品，替换作品后更新缓存', () async {
+    final api = SfacgApi();
+    addTearDown(api.close);
+    final library = Library(root, SfacgSource(api));
+    addTearDown(library.dispose);
+    final port = ReceivePort();
+    addTearDown(port.close);
+    final encodings = <(String, String?)>[];
+    final delivered = Completer<void>();
+    port.listen((event) {
+      if (event == null) {
+        delivered.complete();
+      } else {
+        encodings.add(event as (String, String?));
+      }
+    });
+    final original = EncodingBook(port.sendPort, title: '原书名');
+    await library.add(original);
+    await library.remember(original, 0, 7);
+    await library.setThemeMode(AppThemeMode.dark);
+    await library.updateBook(EncodingBook(port.sendPort, title: '新书名'));
+    await library.save();
+    port.sendPort.send(null);
+    await delivered.future;
+    expect(encodings, [('原书名', 'library.encode'), ('新书名', 'library.encode')]);
+    final reopened = await Library.open(SfacgSource(api), directory: root);
+    addTearDown(reopened.dispose);
+    expect(reopened.books.single.title, '新书名');
+    expect(reopened.books.single.chapters.single.id, '1');
+    expect(reopened.progress[original.key], [0, 7]);
+    expect(reopened.themeMode, AppThemeMode.dark);
+  });
+
+  test('后台保存冻结调用时的可变进度，排队的新快照最终覆盖旧快照', () async {
+    final api = SfacgApi();
+    addTearDown(api.close);
+    final library = Library(root, SfacgSource(api));
+    addTearDown(library.dispose);
+    library.books.add(book);
+    library.progress[book.key] = [0, 1];
+    library.pagedChapterEntries['${book.key}:0'] = [0];
+    final first = library.save();
+    library.progress[book.key]![1] = 9;
+    library.pagedChapterEntries['${book.key}:0']![0] = 1;
+    await first;
+    final index = File('${root.path}/index.json');
+    final original = jsonDecode(await index.readAsString()) as Map;
+    expect(original['progress'][book.key], [0, 1]);
+    expect(original['pagedChapterEntries']['${book.key}:0'], [0]);
+
+    final second = library.save();
+    library.fontSize = 28;
+    final third = library.save();
+    await Future.wait([second, third]);
+    final latest = jsonDecode(await index.readAsString()) as Map;
+    expect(latest['progress'][book.key], [0, 9]);
+    expect(latest['pagedChapterEntries']['${book.key}:0'], [1]);
+    expect(latest['fontSize'], 28);
+  });
+
+  test('失败保存保留原索引，恢复存储后仍可保存新快照', () async {
+    final api = SfacgApi();
+    addTearDown(api.close);
+    final library = Library(root, SfacgSource(api));
+    addTearDown(library.dispose);
+    await library.add(book);
+    final index = File('${root.path}/index.json');
+    final backup = File('${root.path}/index.backup');
+    await index.rename(backup.path);
+    await Directory(index.path).create();
+    await expectLater(
+      library.setThemeMode(AppThemeMode.dark),
+      throwsA(isA<FileSystemException>()),
+    );
+    expect(library.themeMode, AppThemeMode.system);
+    expect(
+      (jsonDecode(await backup.readAsString()) as Map)['books'],
+      hasLength(1),
+    );
+    await Directory(index.path).delete();
+    await backup.rename(index.path);
+    await library.setThemeMode(AppThemeMode.light);
+    expect(
+      (jsonDecode(await index.readAsString()) as Map)['themeMode'],
+      'light',
+    );
+    expect(
+      (await root.list().toList()).where((file) => file.path.endsWith('.tmp')),
+      isEmpty,
+    );
   });
 }
