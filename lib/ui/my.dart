@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../data/library.dart';
+import 'about.dart';
 import 'account.dart';
 import 'settings.dart';
 
@@ -51,6 +52,18 @@ class MyPage extends StatelessWidget {
                         gbk: gbk,
                         onEncodingChanged: onEncodingChanged,
                       ),
+                    ),
+                  ),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.info_outline),
+                  title: const Text('关于'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => Navigator.push<void>(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => AboutPage(library: library),
                     ),
                   ),
                 ),

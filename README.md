@@ -64,6 +64,8 @@ UniversalNovelReader是一个非官方第三方阅读工具，与任何小说平
 - [flutter_svg](https://pub.dev/packages/flutter_svg) — MIT
 - [uuid](https://pub.dev/packages/uuid)、[file_picker](https://pub.dev/packages/file_picker) — MIT
 - [path_provider](https://pub.dev/packages/path_provider) — BSD-3-Clause
+- [package_info_plus](https://pub.dev/packages/package_info_plus)、[package_info_plus_platform_interface](https://pub.dev/packages/package_info_plus_platform_interface) — BSD-3-Clause；读取已安装应用的版本与构建号。
+- [url_launcher](https://pub.dev/packages/url_launcher) 及其 Android、iOS、Linux、macOS、Web、Windows 和平台接口包 — BSD-3-Clause；使用系统浏览器下载更新包。
 - [flutter_secure_storage](https://pub.dev/packages/flutter_secure_storage) — BSD-3-Clause
 - [enough_convert](https://pub.dev/packages/enough_convert) — MPL-2.0
 - [flutter_lints](https://pub.dev/packages/flutter_lints)、[lints](https://pub.dev/packages/lints) — BSD-3-Clause

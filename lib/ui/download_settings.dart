@@ -63,7 +63,7 @@ class _DownloadSettingsState extends State<DownloadSettings> {
           key: const ValueKey('download-mirror-enabled'),
           contentPadding: EdgeInsets.zero,
           title: const Text('使用下载镜像'),
-          subtitle: const Text('目前用于字体及其许可证下载，关闭后直接连接原始地址。'),
+          subtitle: const Text('用于应用更新包、字体及其许可证下载，关闭后直连原始地址。检查更新始终直连。'),
           value: widget.library.downloadMirror.enabled,
           onChanged: saving ? null : (value) => _save(enabled: value),
         ),
