@@ -5,8 +5,6 @@ import '../sources/fanqie/fanqie_auth.dart';
 import '../domain/models.dart';
 import '../sources/fanqie/fanqie_api.dart';
 import '../sources/fanqie/fanqie_session.dart';
-import '../sources/session_helper.dart';
-import 'session_helper_page.dart';
 import 'account_login_method.dart';
 
 class FanqieAccountPage extends StatefulWidget {
@@ -148,19 +146,6 @@ class _FanqieAccountPageState extends State<FanqieAccountPage> {
     }
   }
 
-  Future<void> _appLogin() async {
-    if (busy) return;
-    final value = await Navigator.push<String>(
-      context,
-      MaterialPageRoute(
-        builder: (_) => const SessionHelperPage(source: 'fanqie', name: '番茄小说'),
-      ),
-    );
-    if (!mounted || value == null) return;
-    cookie.text = value;
-    await _import();
-  }
-
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
@@ -185,7 +170,6 @@ class _FanqieAccountPageState extends State<FanqieAccountPage> {
             if (widget.method == null)
               AccountLoginMethodList(
                 onSms: busy ? null : () => _openMethod(AccountLoginMethod.sms),
-                onVpn: !SessionHelper.supported || busy ? null : _appLogin,
                 onImport: busy
                     ? null
                     : () => _openMethod(AccountLoginMethod.manual),
@@ -243,9 +227,7 @@ class _FanqieAccountPageState extends State<FanqieAccountPage> {
                   onPressed: busy ? null : _import,
                   child: const Text('重新验证登录会话'),
                 ),
-              const Text(
-                '如提示访问频繁，请稍后重试；如需安全验证，请在官方 App 完成后使用 VPN 辅助或导入 App 会话。',
-              ),
+              const Text('如提示访问频繁，请稍后重试；如需安全验证，请在官方 App 完成后导入 App 会话。'),
               const SizedBox(height: 12),
             ],
             if (widget.method == AccountLoginMethod.manual) ...[

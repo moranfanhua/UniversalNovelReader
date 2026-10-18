@@ -76,8 +76,3 @@ kotlin {
 flutter {
     source = "../.."
 }
-
-dependencies {
-    implementation(project(":netbare"))
-    testImplementation("junit:junit:4.13.2")
-}

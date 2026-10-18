@@ -95,15 +95,12 @@ UniversalNovelReader是一个非官方第三方阅读工具，与任何小说平
 - [Pointy Castle](https://pub.dev/packages/pointycastle) — MIT；番茄接口签名与阅读密钥注册使用的 AES、SM3 实现，起点 App 协议使用的 AES、DES 与 3DES 实现，以及刺猬猫 App 协议使用的 AES 与 RSA 实现。
 - [pinyin](https://pub.dev/packages/pinyin) — BSD-2-Clause；书名排序使用的汉字转拼音实现。
 - [Bugaoshan（不高山上）](https://github.com/moranfanhua/Bugaoshan) — AGPL-3.0；运行日志页的筛选、分级列表与堆栈折叠交互参考来源。
-- [MaaAssistantArknights](https://github.com/moranfanhua/MaaAssistantArknights) — AGPL-3.0；项目 `maa-issue-log-analysis` skill 的证据时间线、版本对照与诉求评估方法为 UNR issue 分析 skill 的参考来源；GitHub Actions 的快速测试、构建、冒烟测试、依赖更新、PR 规范与格式检查流程为 UNR CI 的设计参考。
+- [MaaAssistantArknights](https://github.com/moranfanhua/MaaAssistantArknights) — AGPL-3.0；项目 `maa-issue-log-analysis` skill 的证据时间线、版本对照与诉求评估方法为 UNR issue 分析 skill 的参考来源；GitHub Actions 的快速测试、构建、依赖更新、PR 规范与格式检查流程为 UNR CI 的设计参考。
 - [convert](https://pub.dev/packages/convert) — BSD-3-Clause；Pointy Castle 的传递依赖。
 - [fqapp](https://github.com/ch6vip/fqapp) — GPL-3.0；番茄签名、密钥注册与接口参数参考来源，原作者 ch6vip。
-- [NetBare-Android](https://github.com/MegatronKing/NetBare-Android/tree/df5b417ea663763932cabf1ef52f15b09ddc2e16) — 本地 VPN 与 HTTPS 拦截核心；源码头标注 GPL-3.0-or-later，上游仓库 LICENSE 为 MIT，均保留在 Android 模块中。
-- [Bouncy Castle](https://www.bouncycastle.org/licence.html) — MIT；本机抓包证书生成使用的 bcpkix、bcprov、bcutil。
-- [Guava](https://github.com/google/guava) — Apache-2.0；NetBare 的缓存与集合依赖，包含 failureaccess、listenablefuture。
-- [AndroidX Core](https://android.googlesource.com/platform/frameworks/support/)、[AndroidX Annotation](https://android.googlesource.com/platform/frameworks/support/) — Apache-2.0；VPN 前台服务与 AndroidX 适配。WebView 插件还使用 Apache-2.0 的 AndroidX WebKit、Browser、AppCompat 与 SwipeRefreshLayout。
-- [Error Prone annotations](https://github.com/google/error-prone)、[J2ObjC annotations](https://github.com/google/j2objc)、[JSpecify](https://github.com/jspecify/jspecify) — Apache-2.0；Guava 的传递依赖。
-- [JUnit 4](https://github.com/junit-team/junit4) — EPL-1.0；Android 会话过滤测试。[Hamcrest](https://github.com/hamcrest/JavaHamcrest) — BSD-3-Clause；JUnit 的测试依赖。
+- [Guava](https://github.com/google/guava) — Apache-2.0；AndroidX 仍使用其 listenablefuture 接口包。
+- [AndroidX Core](https://android.googlesource.com/platform/frameworks/support/)、[AndroidX Annotation](https://android.googlesource.com/platform/frameworks/support/) — Apache-2.0；Flutter Android 插件的平台适配。WebView 插件还使用 Apache-2.0 的 AndroidX WebKit、Browser、AppCompat 与 SwipeRefreshLayout。
+- [Error Prone annotations](https://github.com/google/error-prone)、[JSpecify](https://github.com/jspecify/jspecify) — Apache-2.0；Flutter Android 插件的传递依赖。
 
 ## 协议参考来源
 

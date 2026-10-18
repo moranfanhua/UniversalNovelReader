@@ -23,7 +23,6 @@
 | `http.fanqie.auth`、`fanqie.auth_rejected`、`fanqie.auth_response_invalid` | `lib/sources/fanqie/fanqie_auth.dart` | 认证请求完成就认定登录态可用 |
 | `http.fanqie` 或旧版网页会话提示 | 按用户版本检查 `lib/sources/fanqie/fanqie_api.dart` 与实际调用方 | 看到旧路径仍存在就建议网页认证回退 |
 | `session.*.restore_failed`、`session.*.save_failed`、`session.fanqie.device_restore_failed` | 各书源 `*_session.dart` 与 `lib/data/library.dart` | 会话恢复失败就清空整个本地书库 |
-| `session_helper.*` | `lib/sources/session_helper.dart`、`lib/ui/session_helper_page.dart`、Android `SessionCapture.kt` / `SessionVpnService.kt` / `SessionCookies.kt` / `MainActivity.kt` | 辅助状态为运行中就认定真实认证或会话校验成功 |
 | `storage.write_failed`、`reader.chapter_failed`、`reader.image_failed` | `lib/data/library.dart`、实际书源和格式适配 | 只看顶层事件，忽略平台、缓存命中、文件与图片来源 |
 | `search.*`、`book.*`、`import.failed`、`export.failed` | `lib/sources/novel_search.dart`、相关 UI、`lib/formats/ebook.dart` | 所有失败都归到同一个平台接口 |
 
@@ -39,8 +38,8 @@ Android 原生入口位于 `android/app/src/main/kotlin/io/github/moranfanhua/un
 ## 相关现有验证入口
 
 * 日志：`test/app_log_test.dart`、`test/logged_request_test.dart`、`test/logs_page_test.dart`。
-* 书源 / 认证：`test/sfacg_test.dart`、`test/fanqie_test.dart`、`test/fanqie_auth_test.dart`、`test/session_test.dart`、`test/session_helper_test.dart`。
+* 书源 / 认证：`test/sfacg_test.dart`、`test/fanqie_test.dart`、`test/fanqie_auth_test.dart`、`test/session_test.dart`、`test/account_session_test.dart`。
 * 阅读器 / 数据：`test/reader_test.dart`、`test/chapter_transition_test.dart`、`test/continuous_scroll_test.dart`、`test/wide_reading_test.dart`、`test/library_test.dart`。
-* 格式：`test/ebook_test.dart`；Android 会话处理：`android/app/src/test/kotlin/io/github/moranfanhua/unr/SessionCookiesTest.kt`。
+* 格式：`test/ebook_test.dart`。
 
 这些仅用于定位相关检查，实际阅读测试内容后再选择；不替代根目录 `AGENTS.md` 的验证要求，不因测试文件存在就声称问题已覆盖。
