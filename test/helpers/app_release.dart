@@ -11,6 +11,8 @@ Map<String, dynamic> releaseJson({String version = '0.4.0'}) => {
       'windows-x64.zip',
       'android-universal.apk',
       'android-arm64-v8a.apk',
+      'android-armeabi-v7a.apk',
+      'android-x86_64.apk',
     ])
       {
         'name': 'unr-$version-$suffix',

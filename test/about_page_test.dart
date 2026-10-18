@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ffi' show Abi;
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -69,6 +70,7 @@ void main() {
         home: AboutPage(
           library: library,
           updates: AppUpdates(
+            runtimeAbi: Abi.androidArm64,
             clientFactory: () => MockClient((request) {
               expect(request.url, AppUpdates.latestRelease);
               return respond?.call(request) ??
@@ -163,7 +165,7 @@ void main() {
       await tester.pumpAndSettle();
       final suffix = defaultTargetPlatform == TargetPlatform.windows
           ? 'windows-x64.zip'
-          : 'android-universal.apk';
+          : 'android-arm64-v8a.apk';
       final original = Uri.parse(
         'https://github.com/moranfanhua/UniversalNovelReader/releases/download/v0.4.0/unr-0.4.0-$suffix',
       );
@@ -191,6 +193,34 @@ void main() {
     expect(find.textContaining('暂未提供'), findsOneWidget);
     expect(find.text('下载更新'), findsNothing);
   });
+
+  testWidgets(
+    'Android 缺少同架构包时提示等待，不下载通用包或其他架构包',
+    (tester) async {
+      final opened = <Uri>[];
+      final json = releaseJson();
+      (json['assets'] as List).removeWhere(
+        (asset) => asset['name'] == 'unr-0.4.0-android-arm64-v8a.apk',
+      );
+      await showPage(
+        tester,
+        respond: (_) async => jsonResponse(json),
+        openUrl: (uri) async {
+          opened.add(uri);
+          return true;
+        },
+      );
+      await tester.tap(find.text('检查更新'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('当前应用架构匹配'), findsOneWidget);
+      expect(find.text('下载更新'), findsNothing);
+      expect(opened, isEmpty);
+      await tester.tap(find.text('稍后'));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.android),
+  );
 
   testWidgets('打开下载失败留在弹窗并可重试，重复点击不会重复打开', (tester) async {
     var calls = 0;
