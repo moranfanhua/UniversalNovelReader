@@ -128,52 +128,56 @@ void main() {
   });
 
   for (final mode in ReadingMode.values) {
-    testWidgets('四个方向键操控阅读，跨章保持正确位置（${mode.name}）', (tester) async {
-      final library = TransitionLibrary()..readingMode = mode;
-      if (mode == ReadingMode.scroll) {
-        for (final id in ['2', '3']) {
-          library.contents[id] = ChapterContent([
-            Paragraph(id == '2' ? '第二章正文' : '第三章正文'),
-            for (var i = 0; i < 40; i++) Paragraph('章节$id段落$i'),
-          ]);
+    testWidgets(
+      '四个方向键操控阅读，跨章保持正确位置（${mode.name}）',
+      (tester) async {
+        final library = TransitionLibrary()..readingMode = mode;
+        if (mode == ReadingMode.scroll) {
+          for (final id in ['2', '3']) {
+            library.contents[id] = ChapterContent([
+              Paragraph(id == '2' ? '第二章正文' : '第三章正文'),
+              for (var i = 0; i < 40; i++) Paragraph('章节$id段落$i'),
+            ]);
+          }
         }
-      }
-      await open(tester, library, chapter: 1);
-      if (mode == ReadingMode.scroll) {
-        final view = tester.widget<SingleChildScrollView>(
-          find.byType(SingleChildScrollView),
-        );
-        view.controller!.jumpTo(0);
+        await open(tester, library, chapter: 1);
+        if (mode == ReadingMode.scroll) {
+          final view = tester.widget<SingleChildScrollView>(
+            find.byType(SingleChildScrollView),
+          );
+          view.controller!.jumpTo(0);
+          await settle(tester);
+        }
+        expect(enabledCalls.where((enabled) => enabled), isEmpty);
+        for (final key in [
+          LogicalKeyboardKey.arrowLeft,
+          LogicalKeyboardKey.arrowUp,
+        ]) {
+          await tester.sendKeyEvent(key);
+          await settle(tester);
+          expect(readingChapter(tester), 0);
+          expect(find.textContaining('上一章结尾标记').hitTestable(), findsOneWidget);
+          await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+          await settle(tester);
+          expect(readingChapter(tester), 1);
+        }
+        if (mode == ReadingMode.scroll) {
+          final view = tester.widget<SingleChildScrollView>(
+            find.byType(SingleChildScrollView),
+          );
+          view.controller!.jumpTo(view.controller!.position.maxScrollExtent);
+        } else {
+          await tester.tap(find.text('　　第二章正文'));
+        }
         await settle(tester);
-      }
-      expect(enabledCalls.where((enabled) => enabled), isEmpty);
-      for (final key in [
-        LogicalKeyboardKey.arrowLeft,
-        LogicalKeyboardKey.arrowUp,
-      ]) {
-        await tester.sendKeyEvent(key);
+        await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
         await settle(tester);
-        expect(readingChapter(tester), 0);
-        expect(find.textContaining('上一章结尾标记').hitTestable(), findsOneWidget);
-        await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
-        await settle(tester);
-        expect(readingChapter(tester), 1);
-      }
-      if (mode == ReadingMode.scroll) {
-        final view = tester.widget<SingleChildScrollView>(
-          find.byType(SingleChildScrollView),
-        );
-        view.controller!.jumpTo(view.controller!.position.maxScrollExtent);
-      } else {
-        await tester.tap(find.text('　　第二章正文'));
-      }
-      await settle(tester);
-      await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
-      await settle(tester);
-      expect(readingChapter(tester), 2);
-      await tester.pumpWidget(const SizedBox.shrink());
-      expect(tester.takeException(), isNull);
-    }, variant: TargetPlatformVariant.only(TargetPlatform.windows));
+        expect(readingChapter(tester), 2);
+        await tester.pumpWidget(const SizedBox.shrink());
+        expect(tester.takeException(), isNull);
+      },
+      variant: TargetPlatformVariant.only(TargetPlatform.windows),
+    );
   }
 
   testWidgets('目录、设置和后台暂停音量键，返回阅读后恢复', (tester) async {
