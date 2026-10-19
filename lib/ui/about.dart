@@ -241,7 +241,9 @@ class _UpdateDialogState extends State<_UpdateDialog> {
           ],
           Text(
             download == null
-                ? '此版本暂未提供适用于当前平台的安装包，请稍后重试。'
+                ? platform == UpdatePlatform.android
+                      ? '此版本暂未提供与当前应用架构匹配的 Android 安装包，请稍后重试。'
+                      : '此版本暂未提供适用于当前平台的安装包，请稍后重试。'
                 : platform == UpdatePlatform.windows
                 ? '将在浏览器中下载 Windows 压缩包，解压后运行新版本。'
                 : '将在浏览器中下载 Android 安装包，下载后打开以更新应用。',

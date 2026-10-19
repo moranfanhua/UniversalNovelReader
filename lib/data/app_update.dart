@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:ffi' show Abi;
 import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
@@ -24,7 +25,7 @@ class AppRelease {
   final String notes;
   final Map<UpdatePlatform, Uri> downloads;
 
-  factory AppRelease.fromJson(Map<String, dynamic> json) {
+  factory AppRelease.fromJson(Map<String, dynamic> json, {Abi? runtimeAbi}) {
     final tag = json['tag_name'] as String;
     final version = Version.parse(tag.startsWith('v') ? tag.substring(1) : tag);
     if (json['draft'] != false ||
@@ -32,13 +33,24 @@ class AppRelease {
         version.isPreRelease) {
       throw const FormatException('不是已发布的正式版本');
     }
+    // Match the installed app's ABI, including a 32-bit app on a 64-bit device.
+    // Flutter's split APK version codes include an ABI offset; switching to a
+    // universal APK can therefore be rejected by Android as a downgrade.
+    final androidArchitecture = switch (runtimeAbi ?? Abi.current()) {
+      Abi.androidArm => 'armeabi-v7a',
+      Abi.androidArm64 => 'arm64-v8a',
+      Abi.androidX64 => 'x86_64',
+      _ => null,
+    };
     final downloads = <UpdatePlatform, Uri>{};
     for (final asset in json['assets'] as List) {
       if (asset is! Map || asset['state'] != 'uploaded') continue;
       final platform = switch (asset['name']) {
         final String name when name == 'unr-$version-windows-x64.zip' =>
           UpdatePlatform.windows,
-        final String name when name == 'unr-$version-android-universal.apk' =>
+        final String name
+            when androidArchitecture != null &&
+                name == 'unr-$version-android-$androidArchitecture.apk' =>
           UpdatePlatform.android,
         _ => null,
       };
@@ -72,14 +84,16 @@ class AppRelease {
 }
 
 class AppUpdates {
-  AppUpdates({http.Client Function()? clientFactory})
-    : _clientFactory = clientFactory ?? _directClient;
+  AppUpdates({http.Client Function()? clientFactory, Abi? runtimeAbi})
+    : _clientFactory = clientFactory ?? _directClient,
+      _runtimeAbi = runtimeAbi ?? Abi.current();
 
   static final latestRelease = Uri.https(
     'api.github.com',
     '/repos/moranfanhua/UniversalNovelReader/releases/latest',
   );
   final http.Client Function() _clientFactory;
+  final Abi _runtimeAbi;
   http.Client? _client;
 
   static http.Client _directClient() =>
@@ -119,6 +133,7 @@ class AppUpdates {
       }
       final release = AppRelease.fromJson(
         jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>,
+        runtimeAbi: _runtimeAbi,
       );
       // Build metadata does not change semantic version precedence.
       return release.version > current ? release : null;
