@@ -299,8 +299,12 @@ class SfacgSource extends CommentSource
     try {
       return await _readAppChapter(chapter);
     } on SourceException catch (error) {
-      if (error is! SourceVerificationRequiredException &&
-          error.errorCode == 402) {
+      // Official pe.I6 / r7.t treat 401/403 + 643/644 as unpaid chapters.
+      final unpaid =
+          error.errorCode == 402 ||
+          [401, 403].contains(error.code) &&
+              [643, 644].contains(error.errorCode);
+      if (error is! SourceVerificationRequiredException && unpaid) {
         throw SubscriptionRequiredException(
           '尚未订阅本章，可订阅后续章节',
           code: error.code,

@@ -1,8 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:unr/data/library.dart';
 import 'package:unr/domain/models.dart';
 import 'package:unr/sources/chapter_subscription_source.dart';
@@ -238,4 +241,43 @@ void main() {
     expect(find.textContaining('正文2段落'), findsWidgets);
     expect(library.progress[book.key], before);
   });
+  for (final mode in ReadingMode.values) {
+    testWidgets('实际菠萝包 403/643 响应在 ${mode.name} 阅读页显示订阅按钮', (tester) async {
+      var requests = 0;
+      final api = SfacgApi(
+        client: MockClient((request) async {
+          requests++;
+          expect(request.method, 'GET');
+          expect(request.url.path, '/Chaps/1');
+          return http.Response(
+            jsonEncode({
+              'status': {
+                'httpCode': 403,
+                'errorCode': 643,
+                'msg': '请支持作者的辛勤写作,VIP章节必须购买后才可阅读',
+              },
+            }),
+            403,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }),
+      )..setCookie('.SFCommunity=test; session_APP=test');
+      addTearDown(api.close);
+      final realLibrary = _Library(SfacgSource(api))..readingMode = mode;
+      addTearDown(realLibrary.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: ReaderPage(library: realLibrary, book: book),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tap(tester, '订阅后续章节');
+      for (final option in ['20章', '100章', '全部', '自定义']) {
+        expect(find.text(option), findsOneWidget);
+      }
+      expect(requests, 1);
+      await tap(tester, '取消');
+      expect(requests, 1);
+    });
+  }
 }

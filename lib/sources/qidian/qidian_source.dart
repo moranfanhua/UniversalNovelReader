@@ -398,7 +398,8 @@ class QidianSource extends QidianComments
       } else if (selected.vip && !owned.contains(selected.id)) {
         results[selected.id] = ChapterBatchResult.failure(
           selected.id,
-          ownershipError ?? const SourceException('此章节尚未购买，请先在起点官方 App 购买后重试'),
+          ownershipError ??
+              const SubscriptionRequiredException('此章节尚未购买，可订阅后续章节'),
         );
       } else {
         bookId(selected.id);

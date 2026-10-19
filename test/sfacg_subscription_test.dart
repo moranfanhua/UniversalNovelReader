@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:unr/domain/models.dart';
 import 'package:unr/sources/chapter_subscription_source.dart';
+import 'package:unr/sources/source_verification.dart';
 import 'package:unr/sources/sfacg/sfacg_api.dart';
 import 'package:unr/sources/sfacg/sfacg_source.dart';
 
@@ -180,4 +181,78 @@ void main() {
       throwsA(isA<SubscriptionRequiredException>()),
     );
   });
+  for (final status in [401, 403]) {
+    for (final code in [643, 644]) {
+      test('官方 App 未订阅错误 $status/$code 同时暴露阅读和下载订阅入口', () async {
+        var requests = 0;
+        final api = SfacgApi(
+          client: MockClient((request) async {
+            requests++;
+            expect(request.method, 'GET');
+            expect(request.url.path, '/Chaps/3');
+            expect(request.url.queryParameters['autoOrder'], 'false');
+            return http.Response(
+              jsonEncode({
+                'status': {
+                  'httpCode': status,
+                  'errorCode': code,
+                  'msg': '请支持作者的辛勤写作,VIP章节必须购买后才可阅读',
+                },
+                'data': null,
+              }),
+              status,
+              headers: {'content-type': 'application/json; charset=utf-8'},
+            );
+          }),
+        )..setCookie('.SFCommunity=test; session_APP=test');
+        addTearDown(api.close);
+        final realSource = SfacgSource(api);
+        await expectLater(
+          realSource.readChapter(book, book.chapters[2]),
+          throwsA(
+            isA<SubscriptionRequiredException>()
+                .having((e) => e.code, '保留状态码', status)
+                .having((e) => e.errorCode, '保留平台错误码', code),
+          ),
+        );
+        final batch = await realSource.readChapterBatch(book, [
+          book.chapters[2],
+        ]);
+        expect(batch.single.error, isA<SubscriptionRequiredException>());
+        expect(requests, 2);
+      });
+    }
+  }
+  for (final (code, message) in [(507, '没有访问接口的权限'), (643, '触发风控，请完成安全验证')]) {
+    test('权限配置或风控错误 $code 不误判为订阅', () async {
+      final api = SfacgApi(
+        client: MockClient(
+          (request) async => http.Response(
+            jsonEncode({
+              'status': {'httpCode': 403, 'errorCode': code, 'msg': message},
+            }),
+            403,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          ),
+        ),
+      )..setCookie('.SFCommunity=test; session_APP=test');
+      addTearDown(api.close);
+      await expectLater(
+        SfacgSource(api).readChapter(book, book.chapters[2]),
+        throwsA(
+          isA<SourceException>()
+              .having(
+                (e) => e is SubscriptionRequiredException,
+                '不显示订阅入口',
+                false,
+              )
+              .having(
+                (e) => e is SourceVerificationRequiredException,
+                '保留风控类型',
+                code == 643,
+              ),
+        ),
+      );
+    });
+  }
 }
