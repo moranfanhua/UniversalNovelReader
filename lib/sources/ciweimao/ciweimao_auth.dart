@@ -188,18 +188,23 @@ class CiweimaoAuth {
       extra['ver_code'] = code.trim();
       extra['to_code'] = verification.toCode!;
     }
-    return _login('signup/login', {
-      'login_name': name,
-      'passwd': CiweimaoCrypto.encryptPassword(secret),
-      'sign': CiweimaoCrypto.encryptPassword('${name}_$secret'),
-      ...extra,
-    });
+    return _login(
+      'signup/login',
+      {
+        'login_name': name,
+        'passwd': CiweimaoCrypto.encryptPassword(secret),
+        'sign': CiweimaoCrypto.encryptPassword('${name}_$secret'),
+        ...extra,
+      },
+      secrets: [secret],
+    );
   }
 
   Future<CiweimaoCredentials> _login(
     String path,
-    Map<String, String> params,
-  ) async {
+    Map<String, String> params, {
+    Iterable<String> secrets = const [],
+  }) async {
     final generation = _generation;
     final session = await api.ensureSession();
     if (!identical(session, api.credentials)) {
@@ -207,7 +212,13 @@ class CiweimaoAuth {
     }
     final sessionGeneration = api.sessionGeneration;
     _check(generation, sessionGeneration);
-    final data = await api.request(path, params, session: session, write: true);
+    final data = await api.request(
+      path,
+      params,
+      session: session,
+      write: true,
+      secrets: secrets,
+    );
     _check(generation, sessionGeneration);
     final candidate = CiweimaoCredentials.fromApp(data);
     await validate(candidate);

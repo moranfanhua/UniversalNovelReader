@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
 
 import '../../domain/models.dart';
+import '../../domain/server_error_message.dart';
 import '../../data/app_log.dart';
 import '../logged_request.dart';
 import '../session_validation.dart';
@@ -103,10 +104,34 @@ class QidianApi {
       if (doc is! Map) throw const FormatException();
       final code = int.tryParse('${doc['Result']}');
       if (response.statusCode != 200 || code != 0) {
+        final request = response.request;
+        final serverMessage = ServerErrorMessage.parse(
+          doc['Message'] ?? doc['Msg'],
+          responseData: doc,
+          secrets: [
+            credentials?.toJson(),
+            device,
+            request?.url.queryParameters,
+            if (request is http.Request &&
+                request.headers['content-type']?.startsWith(
+                      'application/x-www-form-urlencoded',
+                    ) ==
+                    true)
+              request.bodyFields,
+          ],
+        );
+        AppLog.instance.record(
+          LogLevel.warning,
+          'qidian.request_rejected',
+          error: SourceException('', code: code ?? response.statusCode),
+          httpStatus: response.statusCode,
+          serverMessage: serverMessage,
+        );
+        final message = code == -2 || response.statusCode == 401
+            ? '起点会话已失效，请重新登录'
+            : '起点请求失败，请稍后重试（${code ?? response.statusCode}）';
         throw SourceException(
-          code == -2 || response.statusCode == 401
-              ? '起点会话已失效，请重新登录'
-              : '起点请求失败，请稍后重试（${code ?? response.statusCode}）',
+          serverMessage?.appendTo(message) ?? message,
           code: code ?? response.statusCode,
         );
       }

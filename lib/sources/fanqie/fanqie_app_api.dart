@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
 import 'package:crypto/crypto.dart';
 import '../../domain/models.dart';
+import '../../domain/server_error_message.dart';
 import '../../data/app_log.dart';
 import '../logged_request.dart';
 import '../session_validation.dart';
@@ -318,12 +319,29 @@ class FanqieAppApi {
     final doc = _document(response);
     final code = int.tryParse('${doc['code']}') ?? -1;
     if (code != 0) {
+      final serverMessage = ServerErrorMessage.parse(
+        doc['message'] ?? doc['msg'],
+        responseData: doc,
+        secrets: [
+          cookie().split(RegExp(r'[=;]')),
+          deviceId,
+          installId,
+          query,
+          body,
+        ],
+      );
       AppLog.instance.record(
         LogLevel.warning,
         'fanqie.request_rejected',
         error: SourceException('', code: code),
+        httpStatus: response.statusCode,
+        serverMessage: serverMessage,
       );
-      throw SourceException('番茄 App 请求失败（状态 $code），请检查会话或阅读权限', code: code);
+      final message = '番茄 App 请求失败（状态 $code），请检查会话或阅读权限';
+      throw SourceException(
+        serverMessage?.appendTo(message) ?? message,
+        code: code,
+      );
     }
     return doc['data'];
   }
