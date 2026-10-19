@@ -185,6 +185,54 @@ void main() {
     );
   });
 
+  test('带空图片说明的 App 正文可单章读取和批量下载，保留原始段落编号', () async {
+    final chapter = chapters.first;
+    final paths = <String>[];
+    final data = {
+      ...item(chapter.id),
+      'paragraphs_num': 4,
+      'content':
+          '<p idx="0">插图前正文</p>'
+          '<div data-fanqie-type="image" idx="30001" p_idx="40000">'
+          '<p class="picture" group-id="2" idx="20001" p_idx="30001">'
+          '<img src="https://example.com/illustration.jpg"/></p>'
+          '<p class="pictureDesc" group-id="2" p_idx="30001"></p></div>'
+          '<p idx="1">插图后正文</p>',
+    };
+    final api = FanqieApi(
+      client: MockClient((request) async {
+        paths.add(request.url.path);
+        switch (request.url.path) {
+          case '/reading/reader/full/v/':
+            return ok(data);
+          case '/reading/reader/batch_full/v/':
+            return ok({chapter.id: data});
+          default:
+            throw StateError('不应调用其他接口');
+        }
+      }),
+    );
+    restore(api);
+    addTearDown(api.close);
+    final source = FanqieSource(api);
+    final single = await source.readChapter(book, chapter);
+    final batch = await source.readChapterBatch(book, [chapter]);
+    expect(batch.single.error, isNull);
+    for (final content in [single, batch.single.content!]) {
+      expect(content.paragraphs.map((p) => p.text), ['插图前正文', '', '插图后正文']);
+      expect(
+        content.paragraphs[1].image,
+        'https://example.com/illustration.jpg',
+      );
+      expect(content.paragraphs.map((p) => p.remoteIndex), [0, 20001, 1]);
+      expect(
+        content.paragraphs.map((p) => p.remoteId),
+        everyElement('version-1'),
+      );
+    }
+    expect(paths, ['/reading/reader/full/v/', '/reading/reader/batch_full/v/']);
+  });
+
   test('批量请求过程中切换账号时拒绝缓存返回结果', () async {
     late FanqieApi api;
     api = FanqieApi(

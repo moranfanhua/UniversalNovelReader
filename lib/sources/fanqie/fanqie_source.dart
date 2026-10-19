@@ -508,10 +508,18 @@ class FanqieSource extends FanqieComments
     final paragraphs = <Paragraph>[];
     final text = StringBuffer();
     int? remoteIndex;
+    void validateRemoteIndex() {
+      // Empty image captions can omit idx; only emitted content needs an index.
+      if (itemVersion != null && (remoteIndex == null || remoteIndex! < 0)) {
+        throw const SourceException('番茄 App 段落编号无效');
+      }
+    }
+
     void flush() {
       final value = _decode(text.toString()).trim();
       text.clear();
       if (value.isNotEmpty) {
+        validateRemoteIndex();
         paragraphs.add(
           Paragraph(value, remoteIndex: remoteIndex, remoteId: itemVersion),
         );
@@ -532,12 +540,10 @@ class FanqieSource extends FanqieComments
         remoteIndex = itemVersion == null
             ? null
             : int.tryParse(node.attributes['idx'] ?? '');
-        if (itemVersion != null && (remoteIndex == null || remoteIndex! < 0)) {
-          throw const SourceException('番茄 App 段落编号无效');
-        }
       }
       if (node.localName == 'img') {
         flush();
+        validateRemoteIndex();
         var address = node.attributes['src'] ?? '';
         if (address.startsWith('{{image_domain}}')) {
           try {
