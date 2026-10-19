@@ -35,6 +35,18 @@ class ShelfUpdateResult {
   final int checked, failed;
 }
 
+class DownloadedBook {
+  const DownloadedBook({required this.book, required this.chapterIds});
+  final Book book;
+  final Set<String> chapterIds;
+}
+
+class DownloadedBooksSnapshot {
+  const DownloadedBooksSnapshot({required this.books, this.unreadable = 0});
+  final List<DownloadedBook> books;
+  final int unreadable;
+}
+
 extension ShelfSortLabel on ShelfSort {
   String get label => switch (this) {
     ShelfSort.updated => '按更新时间',
@@ -185,6 +197,7 @@ class Library extends ChangeNotifier {
   final Map<String, Future<ChapterContent>> _reads = {};
   final Map<String, Future<Uint8List>> _imageReads = {};
   final Map<String, Future<void>> _fileWrites = {};
+  final _cachedBookMetadata = <String, ({Book book, Future<void> write})>{};
   static String safeKey(String value) =>
       sha256.convert(utf8.encode(value)).toString();
 
@@ -1020,11 +1033,91 @@ class Library extends ChangeNotifier {
     }
   }
 
-  Future<void> store(Book book, Chapter chapter, ChapterContent content) =>
-      _atomic(
-        _chapterFile(book, chapter),
-        utf8.encode(jsonEncode(content.toJson())),
-      );
+  Future<void> _storeCachedBook(Book book) {
+    final previous = _cachedBookMetadata[book.key];
+    if (identical(previous?.book, book)) return previous!.write;
+    final write = _atomic(
+      File('${root.path}/${safeKey(book.key)}/book.json'),
+      utf8.encode(jsonEncode(book.toJson())),
+    );
+    _cachedBookMetadata[book.key] = (book: book, write: write);
+    unawaited(
+      write.then<void>(
+        (_) {},
+        onError: (Object _) {
+          if (identical(_cachedBookMetadata[book.key]?.write, write)) {
+            _cachedBookMetadata.remove(book.key);
+          }
+        },
+      ),
+    );
+    return write;
+  }
+
+  Future<void> store(Book book, Chapter chapter, ChapterContent content) async {
+    // Keep metadata with the cache so downloads survive removal from shelves
+    // and eviction from the bounded reading history, without adding shelf books.
+    await _storeCachedBook(book);
+    await _atomic(
+      _chapterFile(book, chapter),
+      utf8.encode(jsonEncode(content.toJson())),
+    );
+  }
+
+  Future<DownloadedBooksSnapshot> downloadedBooks() async {
+    final candidates = {
+      for (final book in [...recentBooks, ...books]) book.key: book,
+    };
+    final metadata = <String, Book>{};
+    var unreadable = 0;
+    if (await root.exists()) {
+      await for (final entity in root.list(followLinks: false)) {
+        if (entity is! Directory) continue;
+        final file = File('${entity.path}/book.json');
+        try {
+          if (!await file.exists()) continue;
+          final book = Book.fromJson(jsonDecode(await file.readAsString()));
+          if (file.parent.uri !=
+              Directory('${root.path}/${safeKey(book.key)}').uri) {
+            throw const FormatException('下载记录与缓存目录不匹配');
+          }
+          metadata[book.key] = book;
+          final current = candidates[book.key];
+          // A shelf preview can lack a directory; retain the cached full one.
+          if (current == null || current.chapters.isEmpty) {
+            candidates[book.key] = book;
+          }
+        } catch (_) {
+          unreadable++;
+        }
+      }
+    }
+    final downloaded = <DownloadedBook>[];
+    for (final book in candidates.values) {
+      try {
+        final directory = Directory('${root.path}/${safeKey(book.key)}');
+        if (!await directory.exists()) continue;
+        final files = <String>{};
+        await for (final entity in directory.list(followLinks: false)) {
+          if (entity is File) files.add(entity.uri.pathSegments.last);
+        }
+        final ids = {
+          for (final chapter in book.chapters)
+            if (files.contains('${safeKey(chapter.id)}.json')) chapter.id,
+        };
+        if (ids.isEmpty) continue;
+        downloaded.add(DownloadedBook(book: book, chapterIds: ids));
+        // Older caches have only shelf/history metadata. Migrate it in place.
+        if (!identical(metadata[book.key], book)) {
+          await _storeCachedBook(book);
+        }
+      } catch (_) {
+        unreadable++;
+      }
+    }
+    return DownloadedBooksSnapshot(books: downloaded, unreadable: unreadable);
+  }
+
   Future<ChapterContent?> cached(Book book, Chapter chapter) async {
     final file = _chapterFile(book, chapter);
     if (!await file.exists()) return null;
