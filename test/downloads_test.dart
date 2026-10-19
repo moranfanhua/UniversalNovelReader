@@ -35,6 +35,50 @@ class DownloadsLibrary extends Library {
   bool fail = false;
   int loads = 0;
   final reads = <String>[];
+  final deleted = <String>[];
+  final deleteFailures = <String>{};
+  final downloadCalls = <String>[];
+  final downloadFailures = <String>{};
+  Completer<void>? pendingDelete, pendingDownload;
+  bool failChapter = false;
+
+  @override
+  Future<void> deleteDownloadedBook(Book book) async {
+    deleted.add(book.key);
+    await pendingDelete?.future;
+    if (deleteFailures.contains(book.key)) {
+      throw const FileSystemException('删除失败');
+    }
+    snapshot = DownloadedBooksSnapshot(
+      books: snapshot.books
+          .where((entry) => entry.book.key != book.key)
+          .toList(),
+    );
+  }
+
+  @override
+  Future<void> downloadChapters(
+    Book book,
+    List<Chapter> chapters, {
+    required void Function(Chapter chapter, Object? error) onProgress,
+    bool Function()? isCancelled,
+    bool refreshCached = false,
+  }) async {
+    downloadCalls.add(book.key);
+    await pendingDownload?.future;
+    if (downloadFailures.contains(book.key)) {
+      throw const SourceException('下载任务失败');
+    }
+    for (final chapter in chapters) {
+      if (isCancelled?.call() == true) break;
+      onProgress(
+        chapter,
+        failChapter && chapter.id == '2'
+            ? const SourceException('章节无权限')
+            : null,
+      );
+    }
+  }
 
   @override
   Future<DownloadedBooksSnapshot> downloadedBooks() async {
@@ -279,6 +323,236 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('长按进入多选，点击仅切换勾选，可全选及退出选择', (tester) async {
+    final library = memoryLibrary();
+    library.snapshot = DownloadedBooksSnapshot(
+      books: [
+        for (final id in ['1', '2'])
+          DownloadedBook(book: sample(id), chapterIds: {'1'}),
+      ],
+    );
+    await tester.pumpWidget(MaterialApp(home: DownloadsPage(library: library)));
+    await tester.pumpAndSettle();
+    final first = find.byKey(const ValueKey('downloaded-book-sfacg:1'));
+    final second = find.byKey(const ValueKey('downloaded-book-sfacg:2'));
+    expect(find.byType(Checkbox), findsNothing);
+    await tester.longPress(first);
+    await tester.pumpAndSettle();
+    expect(find.byType(Checkbox), findsNWidgets(2));
+    expect(find.text('已选 1 本'), findsOneWidget);
+    await tester.tap(second);
+    await tester.pumpAndSettle();
+    expect(find.text('已选 2 本'), findsOneWidget);
+    expect(find.byType(ReaderPage), findsNothing);
+    await tester.tap(find.text('取消全选'));
+    await tester.pumpAndSettle();
+    expect(find.text('已选 0 本'), findsOneWidget);
+    expect(
+      tester
+          .widget<FilledButton>(find.byKey(const ValueKey('download-selected')))
+          .onPressed,
+      isNull,
+    );
+    await tester.tap(find.text('全选'));
+    await tester.pumpAndSettle();
+    expect(find.text('已选 2 本'), findsOneWidget);
+    await tester.tap(find.byTooltip('取消选择'));
+    await tester.pumpAndSettle();
+    expect(find.byType(Checkbox), findsNothing);
+    await tester.longPress(first);
+    await tester.pumpAndSettle();
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.byType(Checkbox), findsNothing);
+    expect(find.byType(DownloadsPage), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('页面销毁后不继续删除其他书籍或更新界面', (tester) async {
+    final library = memoryLibrary();
+    library.snapshot = DownloadedBooksSnapshot(
+      books: [
+        for (final id in ['1', '2'])
+          DownloadedBook(book: sample(id), chapterIds: {'1'}),
+      ],
+    );
+    await tester.pumpWidget(MaterialApp(home: DownloadsPage(library: library)));
+    await tester.pumpAndSettle();
+    await tester.longPress(
+      find.byKey(const ValueKey('downloaded-book-sfacg:1')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('全选'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('delete-selected')));
+    await tester.pumpAndSettle();
+    library.pendingDelete = Completer<void>();
+    await tester.tap(find.text('删除下载'));
+    await tester.pumpAndSettle();
+    await tester.pumpWidget(const SizedBox.shrink());
+    library.pendingDelete!.complete();
+    await tester.pumpAndSettle();
+    expect(library.deleted, ['sfacg:1']);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('页面销毁后批量下载停止安排后续书籍', (tester) async {
+    final library = memoryLibrary();
+    library.snapshot = DownloadedBooksSnapshot(
+      books: [
+        for (final id in ['1', '2'])
+          DownloadedBook(book: sample(id), chapterIds: {'1'}),
+      ],
+    );
+    await tester.pumpWidget(MaterialApp(home: DownloadsPage(library: library)));
+    await tester.pumpAndSettle();
+    await tester.longPress(
+      find.byKey(const ValueKey('downloaded-book-sfacg:1')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('全选'));
+    await tester.pumpAndSettle();
+    library.pendingDownload = Completer<void>();
+    await tester.tap(find.byKey(const ValueKey('download-selected')));
+    await tester.pumpAndSettle();
+    await tester.pumpWidget(const SizedBox.shrink());
+    library.pendingDownload!.complete();
+    await tester.pumpAndSettle();
+    expect(library.downloadCalls, ['sfacg:1']);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('批量删除需确认，提示本地书籍，失败项保留勾选并可重试', (tester) async {
+    final library = memoryLibrary();
+    final first = sample('1'), local = sample('1', source: 'local');
+    library.snapshot = DownloadedBooksSnapshot(
+      books: [
+        DownloadedBook(book: first, chapterIds: {'1'}),
+        DownloadedBook(book: local, chapterIds: {'1'}),
+      ],
+    );
+    library.deleteFailures.add(local.key);
+    await tester.pumpWidget(MaterialApp(home: DownloadsPage(library: library)));
+    await tester.pumpAndSettle();
+    await tester.longPress(
+      find.byKey(ValueKey('downloaded-book-${first.key}')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(ValueKey('downloaded-book-${local.key}')));
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<FilledButton>(find.byKey(const ValueKey('download-selected')))
+          .onPressed,
+      isNull,
+    );
+    await tester.tap(find.byKey(const ValueKey('delete-selected')));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('需重新导入原文件'), findsOneWidget);
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+    expect(library.deleted, isEmpty);
+    await tester.tap(find.byKey(const ValueKey('delete-selected')));
+    await tester.pumpAndSettle();
+    library.pendingDelete = Completer<void>();
+    await tester.tap(find.text('删除下载'));
+    await tester.pumpAndSettle();
+    expect(find.text('正在删除本地下载…'), findsOneWidget);
+    expect(
+      tester
+          .widget<OutlinedButton>(find.byKey(const ValueKey('delete-selected')))
+          .onPressed,
+      isNull,
+    );
+    library.pendingDelete!.complete();
+    library.pendingDelete = null;
+    await tester.pumpAndSettle();
+    expect(find.text('已删除 1 本，1 本删除失败'), findsOneWidget);
+    await tester.tap(find.text('关闭'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(ValueKey('downloaded-book-${first.key}')), findsNothing);
+    expect(find.text('已选 1 本'), findsOneWidget);
+    library.deleteFailures.clear();
+    await tester.tap(find.byKey(const ValueKey('delete-selected')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('删除下载'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('暂无已下载的书籍'), findsOneWidget);
+    expect(find.byType(Checkbox), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('批量下载仅处理勾选书籍，支持停止并保留逐章失败结果', (tester) async {
+    final library = memoryLibrary();
+    library.snapshot = DownloadedBooksSnapshot(
+      books: [
+        for (final id in ['1', '2', '3'])
+          DownloadedBook(book: sample(id), chapterIds: {'1'}),
+      ],
+    );
+    await tester.pumpWidget(MaterialApp(home: DownloadsPage(library: library)));
+    await tester.pumpAndSettle();
+    Future<void> select() async {
+      await tester.longPress(
+        find.byKey(const ValueKey('downloaded-book-sfacg:1')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('downloaded-book-sfacg:2')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('download-selected')));
+      await tester.pumpAndSettle();
+    }
+
+    library.pendingDownload = Completer<void>();
+    await select();
+    expect(library.downloadCalls, ['sfacg:1']);
+    await tester.tap(find.text('停止下载'));
+    await tester.pumpAndSettle();
+    library.pendingDownload!.complete();
+    library.pendingDownload = null;
+    await tester.pumpAndSettle();
+    expect(find.text('已停止 · 成功 0 章，失败 0 章'), findsOneWidget);
+    expect(library.downloadCalls, ['sfacg:1']);
+    await tester.tap(find.text('关闭'));
+    await tester.pumpAndSettle();
+    library.downloadCalls.clear();
+    library.failChapter = true;
+    await select();
+    expect(library.downloadCalls, ['sfacg:1', 'sfacg:2']);
+    expect(find.text('下载完成 · 成功 4 章，失败 2 章'), findsOneWidget);
+    expect(find.textContaining('章节无权限'), findsNWidgets(2));
+    await tester.tap(find.text('关闭'));
+    await tester.pumpAndSettle();
+    expect(find.byType(Checkbox), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('单本下载任务失败后继续其他勾选书籍，不自动重发失败任务', (tester) async {
+    final library = memoryLibrary();
+    library.snapshot = DownloadedBooksSnapshot(
+      books: [
+        for (final id in ['1', '2'])
+          DownloadedBook(book: sample(id), chapterIds: {'1'}),
+      ],
+    );
+    library.downloadFailures.add('sfacg:1');
+    await tester.pumpWidget(MaterialApp(home: DownloadsPage(library: library)));
+    await tester.pumpAndSettle();
+    await tester.longPress(
+      find.byKey(const ValueKey('downloaded-book-sfacg:1')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('全选'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('download-selected')));
+    await tester.pumpAndSettle();
+    expect(library.downloadCalls, ['sfacg:1', 'sfacg:2']);
+    expect(find.text('下载完成 · 成功 3 章，失败 3 章'), findsOneWidget);
+    expect(find.textContaining('下载任务失败'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   for (final width in [320.0, 1400.0]) {
     for (final scale in [1.0, 2.0]) {
       testWidgets('下载列表长书名布局（宽$width，缩放$scale）', (tester) async {
@@ -311,6 +585,12 @@ void main() {
           find.byKey(const ValueKey('downloaded-book-sfacg:1')),
           findsOneWidget,
         );
+        await tester.longPress(
+          find.byKey(const ValueKey('downloaded-book-sfacg:1')),
+        );
+        await tester.pumpAndSettle();
+        expect(find.byType(Checkbox), findsOneWidget);
+        expect(find.byKey(const ValueKey('download-selected')), findsOneWidget);
         expect(tester.takeException(), isNull);
       });
     }

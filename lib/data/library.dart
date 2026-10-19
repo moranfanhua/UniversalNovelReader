@@ -198,6 +198,8 @@ class Library extends ChangeNotifier {
   final Map<String, Future<Uint8List>> _imageReads = {};
   final Map<String, Future<void>> _fileWrites = {};
   final _cachedBookMetadata = <String, ({Book book, Future<void> write})>{};
+  final _deletingBooks = <String>{};
+  final _cacheRevisions = <String, int>{};
   static String safeKey(String value) =>
       sha256.convert(utf8.encode(value)).toString();
 
@@ -1034,6 +1036,7 @@ class Library extends ChangeNotifier {
   }
 
   Future<void> _storeCachedBook(Book book) {
+    _checkCacheAvailable(book);
     final previous = _cachedBookMetadata[book.key];
     if (identical(previous?.book, book)) return previous!.write;
     final write = _atomic(
@@ -1058,6 +1061,7 @@ class Library extends ChangeNotifier {
     // Keep metadata with the cache so downloads survive removal from shelves
     // and eviction from the bounded reading history, without adding shelf books.
     await _storeCachedBook(book);
+    _checkCacheAvailable(book);
     await _atomic(
       _chapterFile(book, chapter),
       utf8.encode(jsonEncode(content.toJson())),
@@ -1125,12 +1129,18 @@ class Library extends ChangeNotifier {
   }
 
   Future<ChapterContent> read(Book book, Chapter chapter) async {
+    _checkCacheAvailable(book);
+    final revision = _cacheRevisions[book.key] ?? 0;
     // An explicit cache refresh must not block reading the existing chapter,
     // or make a failed refresh prevent offline reading.
     final saved = await AppLog.instance.capture(
       'reader.chapter_failed',
       () => cached(book, chapter),
     );
+    _checkCacheAvailable(book);
+    if (revision != (_cacheRevisions[book.key] ?? 0)) {
+      throw const SourceException('本书缓存已变化，请重新打开阅读');
+    }
     if (saved != null) return saved;
     final key = '${book.key}/${chapter.id}';
     return _reads.putIfAbsent(key, () {
@@ -1157,6 +1167,52 @@ class Library extends ChangeNotifier {
 
   final _downloads = <String>{};
 
+  void _checkCacheAvailable(Book book) {
+    if (_deletingBooks.contains(book.key)) {
+      throw const SourceException('本书缓存正在删除，请稍后重试');
+    }
+  }
+
+  Future<void> deleteDownloadedBook(Book book) async {
+    if (!_deletingBooks.add(book.key)) {
+      throw const SourceException('本书缓存正在删除，请稍后重试');
+    }
+    try {
+      final directory = Directory('${root.path}/${safeKey(book.key)}');
+      final prefix = directory.absolute.uri.toString();
+      if (_downloads.contains(book.key) ||
+          _reads.keys.any((key) => key.startsWith('${book.key}/')) ||
+          _imageReads.keys.any((key) => key.startsWith('${book.key}/')) ||
+          _fileWrites.keys.any(
+            (path) => File(path).absolute.uri.toString().startsWith(prefix),
+          )) {
+        throw const SourceException('本书正在读取或下载，请等待完成后重试删除');
+      }
+      _cacheRevisions[book.key] = (_cacheRevisions[book.key] ?? 0) + 1;
+      final type = await FileSystemEntity.type(
+        directory.path,
+        followLinks: false,
+      );
+      if (type == FileSystemEntityType.notFound) return;
+      if (type != FileSystemEntityType.directory) {
+        throw const SourceException('缓存目录类型异常，未执行删除');
+      }
+      final resolvedRoot = Directory(await root.resolveSymbolicLinks());
+      final resolvedDirectory = Directory(
+        await directory.resolveSymbolicLinks(),
+      );
+      if (resolvedDirectory.parent.uri != resolvedRoot.uri) {
+        throw const SourceException('缓存目录位置异常，未执行删除');
+      }
+      await directory.delete(recursive: true);
+    } finally {
+      // Even a partial filesystem failure must allow later downloads to rebuild
+      // metadata. Shelf membership, reading history and progress stay untouched.
+      _cachedBookMetadata.remove(book.key);
+      _deletingBooks.remove(book.key);
+    }
+  }
+
   Future<void> downloadChapters(
     Book book,
     List<Chapter> chapters, {
@@ -1164,6 +1220,7 @@ class Library extends ChangeNotifier {
     bool Function()? isCancelled,
     bool refreshCached = false,
   }) async {
+    _checkCacheAvailable(book);
     if (!_downloads.add(book.key)) {
       throw const SourceException('本书已有下载任务，请等待完成或停止后重试');
     }
@@ -1338,9 +1395,15 @@ class Library extends ChangeNotifier {
     return await file.exists() ? file.readAsBytes() : null;
   }
 
-  Future<void> saveImage(Book book, String key, Uint8List bytes) =>
-      _atomic(imageFile(book, key), bytes);
+  Future<void> saveImage(Book book, String key, Uint8List bytes) async {
+    _checkCacheAvailable(book);
+    await _atomic(imageFile(book, key), bytes);
+  }
+
   Future<Uint8List> loadImage(Book book, String key) {
+    if (_deletingBooks.contains(book.key)) {
+      return Future.error(const SourceException('本书缓存正在删除，请稍后重试'));
+    }
     final requestKey = '${book.key}/$key';
     return _imageReads.putIfAbsent(requestKey, () {
       return _loadImage(book, key).whenComplete(() {
