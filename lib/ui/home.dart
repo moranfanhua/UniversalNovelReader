@@ -211,7 +211,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (busy) return;
     final text = query.text.trim();
     if (text.isEmpty) return;
-    if (RegExp(r'^\d+$').hasMatch(text) ||
+    if (RegExp(r'^[1-9]\d{14,19}$').hasMatch(text) ||
         text.startsWith('ciweimao:') ||
         text.contains(RegExp(r'https?://'))) {
       await _open(text);
