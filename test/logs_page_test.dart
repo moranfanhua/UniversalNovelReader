@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:unr/data/app_log.dart';
 import 'package:unr/domain/models.dart';
+import 'package:unr/domain/server_error_message.dart';
 import 'package:unr/ui/log_entry.dart';
 import 'package:unr/ui/logs.dart';
 
@@ -68,7 +69,15 @@ void main() {
   for (final width in [390.0, 1200.0]) {
     testWidgets('日志在宽度 $width 和双倍文字下逐条显示、自动更新、导出和清空', (tester) async {
       configure(tester, size: Size(width, 1000));
-      final log = AppLog()..record(LogLevel.error, 'test.first');
+      final log = AppLog()
+        ..record(
+          LogLevel.error,
+          'test.first',
+          serverMessage: ServerErrorMessage.parse(
+            '${'权限不足，请稍后重试；' * 20}private-token',
+            secrets: ['private-token'],
+          ),
+        );
       String? exported;
       await tester.pumpWidget(
         MaterialApp(
@@ -91,6 +100,7 @@ void main() {
       expect(find.text('运行日志'), findsOneWidget);
       expect(find.byType(LogEntryTile), findsOneWidget);
       expect(find.text('test.first'), findsOneWidget);
+      expect(find.textContaining('服务端：权限不足'), findsOneWidget);
       expect(find.textContaining('日志存储不可用'), findsOneWidget);
       log.record(LogLevel.info, 'test.second');
       await tester.pump(const Duration(milliseconds: 250));
@@ -105,6 +115,9 @@ void main() {
       );
       await action(tester, '导出日志');
       expect(exported, contains('test.second'));
+      expect(exported, contains('serverMessage'));
+      expect(exported, contains('权限不足'));
+      expect(exported, isNot(contains('private-token')));
       expect(find.text('日志已导出'), findsOneWidget);
       await action(tester, '清空日志');
       await tester.tap(find.text('取消'));
@@ -136,10 +149,12 @@ void main() {
         ),
         httpStatus: 200,
         elapsedMilliseconds: 25,
+        serverMessage: ServerErrorMessage.parse('没有访问接口的权限'),
       );
     await tester.pumpWidget(MaterialApp(home: LogsPage(log: log)));
     await tester.pumpAndSettle();
     expect(find.text('章节读取失败'), findsOneWidget);
+    expect(find.text('服务端：没有访问接口的权限'), findsOneWidget);
     expect(find.text('异常：SourceException'), findsOneWidget);
     expect(find.text('HTTP 200'), findsOneWidget);
     expect(find.text('状态码 401'), findsOneWidget);
@@ -200,7 +215,11 @@ void main() {
     );
     final log = AppLog()
       ..record(LogLevel.info, 'app.started')
-      ..record(LogLevel.error, 'reader.chapter_failed');
+      ..record(
+        LogLevel.error,
+        'reader.chapter_failed',
+        serverMessage: ServerErrorMessage.parse('接口权限不足'),
+      );
     await tester.pumpWidget(
       MaterialApp(
         home: LogsPage(
@@ -218,6 +237,7 @@ void main() {
     await tester.longPress(find.text('章节读取失败'));
     await tester.pumpAndSettle();
     expect(clipboard, contains('reader.chapter_failed'));
+    expect(clipboard, contains('接口权限不足'));
     expect(clipboard, isNot(contains('app.started')));
     await action(tester, '复制全部');
     expect(clipboard, contains('app.started'));
@@ -225,6 +245,7 @@ void main() {
     await action(tester, '导出日志');
     expect(exported, contains('app.started'));
     expect(exported, contains('reader.chapter_failed'));
+    expect(exported, contains('接口权限不足'));
   });
 
   testWidgets('模块条数实时更新，清空后失效的模块筛选自动重置', (tester) async {

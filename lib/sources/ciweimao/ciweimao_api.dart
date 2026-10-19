@@ -6,6 +6,7 @@ import 'package:uuid/uuid.dart';
 
 import '../../data/app_log.dart';
 import '../../domain/models.dart';
+import '../../domain/server_error_message.dart';
 import '../logged_request.dart';
 import 'ciweimao_crypto.dart';
 
@@ -154,6 +155,7 @@ class CiweimaoApi {
     Map<String, String> params, {
     CiweimaoCredentials? session,
     bool write = false,
+    Iterable<String> secrets = const [],
   }) async {
     final current = session ?? await ensureSession();
     if (session == null && !identical(current, _credentials)) {
@@ -161,7 +163,13 @@ class CiweimaoApi {
     }
     final generation = _generation;
     try {
-      final result = await _send(path, params, session: current, write: write);
+      final result = await _send(
+        path,
+        params,
+        session: current,
+        write: write,
+        secrets: secrets,
+      );
       checkSession(generation);
       return result;
     } on SourceException catch (error) {
@@ -182,6 +190,7 @@ class CiweimaoApi {
     Map<String, String> params, {
     CiweimaoCredentials? session,
     bool write = false,
+    Iterable<String> secrets = const [],
   }) async {
     if (!RegExp(r'^[a-z][a-z0-9_]*/[a-z][a-z0-9_]*$').hasMatch(path) ||
         params.keys.any((key) => !RegExp(r'^[a-z][a-z0-9_]*$').hasMatch(key)) ||
@@ -249,6 +258,17 @@ class CiweimaoApi {
       }
       final code = int.tryParse('${doc['code']}');
       if (code != 100000) {
+        final serverMessage = ServerErrorMessage.parse(
+          doc['tip'] ?? doc['message'] ?? doc['msg'],
+          responseData: doc,
+          secrets: [
+            secrets,
+            params,
+            session?.toJson(),
+            credentials?.toJson(),
+            installation,
+          ],
+        );
         AppLog.instance.record(
           LogLevel.warning,
           path.startsWith('signup/')
@@ -256,6 +276,7 @@ class CiweimaoApi {
               : 'ciweimao.request_rejected',
           error: SourceException('', code: code ?? -1),
           httpStatus: response.statusCode,
+          serverMessage: serverMessage,
         );
         final message = switch (code) {
           200100 || 200001 => '刺猬猫会话已失效，请重新登录',
@@ -264,7 +285,10 @@ class CiweimaoApi {
           320002 => '刺猬猫请求校验失败，请重试或重新登录',
           _ => '刺猬猫请求失败（${code ?? -1}），请检查账号或稍后重试',
         };
-        throw SourceException(message, code: code ?? -1);
+        throw SourceException(
+          serverMessage?.appendTo(message) ?? message,
+          code: code ?? -1,
+        );
       }
       final data = doc['data'];
       if (write && (data == null || data is List && data.isEmpty)) return {};

@@ -185,7 +185,7 @@ class _LogsPageState extends State<LogsPage> {
       content: const SingleChildScrollView(
         child: Text(
           '日志仅保存在本机，自动轮换，最多约 1.5 MB。\n\n'
-          '记录事件、状态码、耗时和代码位置，不记录账号、密码、会话、请求内容或小说正文。\n\n'
+          '记录事件、状态码、耗时、代码位置及脱敏后的服务端说明；不记录完整请求、响应或异常原文。\n\n'
           '新记录显示在最上方。长按可复制单条日志；复制全部和导出始终包含全部保留记录。',
         ),
       ),

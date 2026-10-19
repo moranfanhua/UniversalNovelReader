@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../domain/models.dart';
+import '../domain/server_error_message.dart';
 
 enum LogLevel { info, warning, error }
 
@@ -16,8 +17,8 @@ class LogSnapshot {
   final bool storageUnavailable;
 }
 
-/// Local diagnostics use fixed event names and numeric metadata only. Never pass
-/// account data, URLs, book contents or exception messages to the log.
+/// Local diagnostics use fixed events, numeric metadata and explicitly sanitized
+/// server descriptions. Arbitrary exception messages are never recorded.
 class AppLog {
   AppLog({this.maxFileBytes = 512 * 1024, this.maxFiles = 3})
     : assert(maxFileBytes >= 1024),
@@ -72,6 +73,7 @@ class AppLog {
     StackTrace? stackTrace,
     int? httpStatus,
     int? elapsedMilliseconds,
+    ServerErrorMessage? serverMessage,
   }) {
     // Refuse arbitrary text instead of trying to redact every possible secret.
     if (!RegExp(r'^[a-z][a-z0-9_.-]{0,95}$').hasMatch(event)) return;
@@ -95,11 +97,23 @@ class AppLog {
         'errorCode': error.errorCode!,
       'httpStatus': ?httpStatus,
       'elapsedMs': ?elapsedMilliseconds,
+      'serverMessage': ?serverMessage?.text,
       if (locations.isNotEmpty) 'stack': locations,
     };
     var line = '${jsonEncode(data)}\n';
     while (utf8.encode(line).length > maxFileBytes && locations.isNotEmpty) {
       locations.removeLast();
+      line = '${jsonEncode(data)}\n';
+    }
+    while (utf8.encode(line).length > maxFileBytes &&
+        data['serverMessage'] is String) {
+      final message = (data['serverMessage'] as String).runes.toList();
+      if (message.length <= 16) {
+        data.remove('serverMessage');
+      } else {
+        data['serverMessage'] =
+            '${String.fromCharCodes(message.take(message.length ~/ 2))}…';
+      }
       line = '${jsonEncode(data)}\n';
     }
     _recent.add((id: ++_sequence, line: line));
@@ -190,7 +204,7 @@ class AppLog {
           : kProfileMode
           ? 'profile'
           : 'debug'}\n'
-      '仅含固定事件、状态码、耗时、异常类型与代码位置。\n'
+      '包含固定事件、状态码、耗时、异常类型、代码位置及脱敏后的服务端说明。\n'
       '${_storageUnavailable ? '日志存储不可用，以下仅为本次运行的最近记录。\n' : ''}'
       '${_dropped > 0 ? '写入繁忙，$_dropped 条记录未写入文件。\n' : ''}'
       '\n$contents',

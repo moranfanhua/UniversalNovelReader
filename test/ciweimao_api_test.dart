@@ -84,7 +84,7 @@ void main() {
                 : CiweimaoCrypto.encrypt(
                     jsonEncode({
                       'code': '210000',
-                      'tip': 'synthetic-private-tip',
+                      'tip': '验证码已过期；passwd=synthetic-private-password',
                       'data': {'account': 'synthetic-private-account'},
                     }),
                   ),
@@ -109,7 +109,10 @@ void main() {
           .map((line) => jsonDecode(line) as Map<String, dynamic>)
           .lastWhere((entry) => entry['event'] == event);
       expect(entry['httpStatus'], 200);
-      if (!malformed) expect(entry['code'], 210000);
+      if (!malformed) {
+        expect(entry['code'], 210000);
+        expect(entry['serverMessage'], contains('验证码已过期'));
+      }
       expect(snapshot.text, isNot(contains('synthetic-private')));
       expect(snapshot.text, isNot(contains('synthetic-invalid-response')));
     }

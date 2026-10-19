@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../../domain/models.dart';
+import '../../domain/server_error_message.dart';
 import '../../data/app_log.dart';
 import '../logged_request.dart';
 import 'fanqie_app_api.dart';
@@ -113,19 +114,29 @@ class FanqieAuth {
             '${data['error_code'] ?? document['error_code'] ?? -1}',
           ) ??
           -1;
+      final serverMessage = ServerErrorMessage.parse(
+        data['description'] ?? data['message'] ?? document['message'],
+        responseData: document,
+        secrets: [
+          fields,
+          _cookies,
+          app.cookie().split(RegExp(r'[=;]')),
+          app.deviceId,
+          app.installId,
+        ],
+      );
       AppLog.instance.record(
         LogLevel.warning,
         'fanqie.auth_rejected',
         error: SourceException('', code: code),
+        httpStatus: response.statusCode,
+        serverMessage: serverMessage,
       );
-      if (code == 7) {
-        throw const SourceException(
-          '番茄认证限制了本次请求（错误码 7：访问太频繁），请稍后重试或导入 App 会话',
-          code: 7,
-        );
-      }
+      final message = code == 7
+          ? '番茄认证限制了本次请求（错误码 7：访问太频繁），请稍后重试或导入 App 会话'
+          : '番茄认证未通过（错误码 $code），请检查输入；如需安全验证请在官方 App 完成登录后导入 App 会话';
       throw SourceException(
-        '番茄认证未通过（错误码 $code），请检查输入；如需安全验证请在官方 App 完成登录后导入 App 会话',
+        serverMessage?.appendTo(message) ?? message,
         code: code,
       );
     }

@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../../domain/models.dart';
+import '../../domain/server_error_message.dart';
+import '../../data/app_log.dart';
 import '../logged_request.dart';
 import 'qidian_api.dart';
 import 'qidian_captcha.dart';
@@ -55,8 +57,9 @@ class QidianAuth {
 
   Future<Map<String, dynamic>> _request(
     String path,
-    Map<String, String> fields,
-  ) async {
+    Map<String, String> fields, {
+    Iterable<String> secrets = const [],
+  }) async {
     final request =
         http.Request('POST', Uri.https('ptlogin.yuewen.com', '/sdk/$path'))
           ..followRedirects = false
@@ -75,8 +78,28 @@ class QidianAuth {
     }
     final code = int.tryParse('${doc['code']}');
     if (response.statusCode != 200 || code != 0) {
+      final serverMessage = ServerErrorMessage.parse(
+        doc['msg'] ?? doc['message'],
+        responseData: doc,
+        secrets: [
+          secrets,
+          request.bodyFields,
+          api.credentials?.toJson(),
+          api.device,
+          _phone,
+          _phoneKey,
+        ],
+      );
+      AppLog.instance.record(
+        LogLevel.warning,
+        'qidian.auth_rejected',
+        error: SourceException('', code: code ?? response.statusCode),
+        httpStatus: response.statusCode,
+        serverMessage: serverMessage,
+      );
+      final message = '起点登录请求失败，请检查登录信息或稍后重试（${code ?? response.statusCode}）';
       throw SourceException(
-        '起点登录请求失败，请检查登录信息或稍后重试（${code ?? response.statusCode}）',
+        serverMessage?.appendTo(message) ?? message,
         code: code ?? response.statusCode,
       );
     }
@@ -220,10 +243,11 @@ class QidianAuth {
     _busy = true;
     final generation = ++_generation;
     try {
-      final data = await _request('staticlogin', {
-        'username': account.trim(),
-        'password': encrypted,
-      });
+      final data = await _request(
+        'staticlogin',
+        {'username': account.trim(), 'password': encrypted},
+        secrets: [password],
+      );
       _checkActive(generation);
       if (_nextAction(data) != 0) {
         throw const SourceException('起点要求额外安全验证，请在官方 App 完成后导入会话，或使用手机号验证码登录');
