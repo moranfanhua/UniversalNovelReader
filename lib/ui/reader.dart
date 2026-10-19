@@ -6,6 +6,8 @@ import '../data/library.dart';
 import '../domain/models.dart';
 import '../sources/comment_source.dart';
 import '../sources/source_verification.dart';
+import '../sources/chapter_subscription_source.dart';
+import 'chapter_subscription_dialog.dart';
 import 'account.dart';
 import 'source_verification_button.dart';
 import 'comments_sheet.dart';
@@ -987,6 +989,11 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                     children: [
                       Text('下一章加载失败：$scrollNextError'),
                       _verificationAction(scrollNextError, nextChapter: true),
+                      _subscriptionAction(
+                        scrollNextError,
+                        chapterIndex: scrollChapters.last.index + 1,
+                        onSubscribed: _loadScrollNext,
+                      ),
                       TextButton(
                         key: const ValueKey('retry-scroll-next'),
                         onPressed: _loadScrollNext,
@@ -1209,6 +1216,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                     const SizedBox(height: 16),
                     Text('${snapshot.error}', textAlign: TextAlign.center),
                     _verificationAction(snapshot.error),
+                    _subscriptionAction(snapshot.error),
                     ExcludeReadingTap(
                       child: TextButton(
                         onPressed: () => setState(_load),
@@ -1258,6 +1266,11 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
             previewRows = rows;
             _scheduleCounts();
           },
+          nextChapterErrorBuilder: (error, retry) => _subscriptionAction(
+            error,
+            chapterIndex: chapter + 1,
+            onSubscribed: retry,
+          ),
           onPreviousChapter: chapter > 0 ? _previousPaged : null,
           onNextChapter: chapter + 1 < widget.book.chapters.length
               ? _advancePaged
@@ -1286,6 +1299,60 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       return _controlTapArea(_scrollBody());
     },
   );
+
+  bool subscriptionOpen = false;
+
+  Widget _subscriptionAction(
+    Object? error, {
+    int? chapterIndex,
+    VoidCallback? onSubscribed,
+  }) {
+    final source = library.sourceFor(widget.book);
+    if (error is! SubscriptionRequiredException ||
+        source is! ChapterSubscriptionSource) {
+      return const SizedBox.shrink();
+    }
+    return ExcludeReadingTap(
+      child: FilledButton.icon(
+        icon: const Icon(Icons.shopping_cart_outlined),
+        label: Text(source.canSubscribe ? '订阅后续章节' : '登录后订阅'),
+        onPressed: subscriptionOpen
+            ? null
+            : () async {
+                if (subscriptionOpen) return;
+                if (!source.canSubscribe) {
+                  await Navigator.of(context).push<void>(
+                    MaterialPageRoute(
+                      builder: (_) => AccountSettingsPage(library: library),
+                    ),
+                  );
+                  if (mounted) setState(() {});
+                  return;
+                }
+                final generation = loadGeneration;
+                final index = chapterIndex ?? chapter;
+                setState(() => subscriptionOpen = true);
+                final success = await showDialog<bool>(
+                  context: context,
+                  barrierDismissible: false,
+                  builder: (_) => ChapterSubscriptionDialog(
+                    source: source,
+                    book: widget.book,
+                    first: widget.book.chapters[index],
+                  ),
+                );
+                if (!mounted) return;
+                setState(() => subscriptionOpen = false);
+                if (success != true || generation != loadGeneration) return;
+                if (onSubscribed != null) {
+                  onSubscribed();
+                } else {
+                  setState(_load);
+                }
+              },
+      ),
+    );
+  }
 
   Widget _verificationAction(Object? error, {bool nextChapter = false}) {
     final source = library.sourceFor(widget.book);

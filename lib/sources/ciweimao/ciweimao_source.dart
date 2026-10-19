@@ -2,15 +2,17 @@ import 'dart:convert';
 
 import '../../domain/models.dart';
 import '../chapter_batch_source.dart';
+import '../chapter_subscription_source.dart';
 import '../novel_source.dart';
 import 'ciweimao_bookshelf.dart';
 import 'ciweimao_comments.dart';
 import 'ciweimao_content.dart';
 import 'ciweimao_crypto.dart';
 import 'ciweimao_parser.dart';
+import 'ciweimao_subscriptions.dart';
 
 class CiweimaoSource extends CiweimaoComments
-    with CiweimaoBookshelf
+    with CiweimaoBookshelf, CiweimaoSubscriptions
     implements SearchableNovelSource, ChapterBatchSource, BookUpdateSource {
   CiweimaoSource(super.api);
   @override
@@ -106,9 +108,9 @@ class CiweimaoSource extends CiweimaoComments
     return free;
   }
 
-  SourceException _noAccess() => SourceException(
+  SourceException _noAccess() => SubscriptionRequiredException(
     api.hasSession
-        ? '此章节暂无阅读权限，请先在刺猬猫官方 App 确认可读状态或购买后重试'
+        ? '此章节暂无阅读权限，可订阅后续章节或在刺猬猫官方 App 确认可读状态'
         : '请先在“我的 → 账号设置”登录刺猬猫，仅可读取已有权限章节',
   );
 

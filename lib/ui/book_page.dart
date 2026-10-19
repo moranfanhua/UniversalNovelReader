@@ -4,6 +4,9 @@ import '../data/library.dart';
 import '../data/app_log.dart';
 import '../domain/models.dart';
 import '../formats/ebook.dart';
+import '../sources/chapter_subscription_source.dart';
+import 'account.dart';
+import 'chapter_subscription_dialog.dart';
 import 'reader.dart';
 import 'home.dart';
 import 'chapter_directory.dart';
@@ -328,9 +331,11 @@ class _DownloadDialogState extends State<DownloadDialog> {
     text: '${widget.book.chapters.length}',
   );
   bool running = false, cancelled = false, refreshCached = false;
+  bool subscriptionOpen = false;
   int done = 0, total = 0, success = 0;
   String status = '选择需要保存到本机的章节范围';
   final failures = <String>[];
+  final subscriptionFailures = <String>{};
   @override
   void dispose() {
     cancelled = true;
@@ -340,6 +345,7 @@ class _DownloadDialogState extends State<DownloadDialog> {
   }
 
   Future<void> _run() async {
+    if (running || subscriptionOpen) return;
     final from = int.tryParse(start.text), to = int.tryParse(end.text);
     if (from == null ||
         to == null ||
@@ -356,6 +362,7 @@ class _DownloadDialogState extends State<DownloadDialog> {
       success = 0;
       total = to - from + 1;
       failures.clear();
+      subscriptionFailures.clear();
       status = '正在准备下载…';
     });
     try {
@@ -373,6 +380,9 @@ class _DownloadDialogState extends State<DownloadDialog> {
               success++;
             } else {
               failures.add('${chapter.title}：$error');
+              if (error is SubscriptionRequiredException) {
+                subscriptionFailures.add(chapter.id);
+              }
             }
           });
         },
@@ -394,9 +404,53 @@ class _DownloadDialogState extends State<DownloadDialog> {
     }
   }
 
+  Future<void> _subscribe(ChapterSubscriptionSource source) async {
+    if (running || subscriptionOpen) return;
+    final from = int.tryParse(start.text), to = int.tryParse(end.text);
+    if (from == null ||
+        to == null ||
+        from < 1 ||
+        to < from ||
+        to > widget.book.chapters.length) {
+      setState(() => status = '请输入有效的起止章序号');
+      return;
+    }
+    final range = widget.book.chapters.sublist(from - 1, to);
+    final first =
+        range.where((c) => subscriptionFailures.contains(c.id)).firstOrNull ??
+        range.first;
+    setState(() => subscriptionOpen = true);
+    try {
+      if (!source.canSubscribe) {
+        await Navigator.of(context).push<void>(
+          MaterialPageRoute(
+            builder: (_) => AccountSettingsPage(library: widget.library),
+          ),
+        );
+        return;
+      }
+      final subscribed = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => ChapterSubscriptionDialog(
+          source: source,
+          book: widget.book,
+          first: first,
+        ),
+      );
+      if (!mounted || subscribed != true) return;
+      setState(() {
+        subscriptionFailures.clear();
+        status = '订阅成功，请点击下载按钮继续保存章节。';
+      });
+    } finally {
+      if (mounted) setState(() => subscriptionOpen = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) => PopScope(
-    canPop: !running,
+    canPop: !running && !subscriptionOpen,
     child: AlertDialog(
       title: const Text('下载章节'),
       content: SizedBox(
@@ -411,7 +465,7 @@ class _DownloadDialogState extends State<DownloadDialog> {
                   Expanded(
                     child: TextField(
                       controller: start,
-                      enabled: !running,
+                      enabled: !running && !subscriptionOpen,
                       keyboardType: TextInputType.number,
                       decoration: const InputDecoration(labelText: '起始章'),
                     ),
@@ -420,7 +474,7 @@ class _DownloadDialogState extends State<DownloadDialog> {
                   Expanded(
                     child: TextField(
                       controller: end,
-                      enabled: !running,
+                      enabled: !running && !subscriptionOpen,
                       keyboardType: TextInputType.number,
                       decoration: const InputDecoration(labelText: '结束章'),
                     ),
@@ -441,7 +495,7 @@ class _DownloadDialogState extends State<DownloadDialog> {
                 controlAffinity: ListTileControlAffinity.leading,
                 title: const Text('重新获取已缓存章节'),
                 value: refreshCached,
-                onChanged: running
+                onChanged: running || subscriptionOpen
                     ? null
                     : (value) => setState(() => refreshCached = value ?? false),
               ),
@@ -450,6 +504,14 @@ class _DownloadDialogState extends State<DownloadDialog> {
                 '获取失败会保留原正文和阅读进度。付费章节需要已有权限。',
                 style: TextStyle(fontSize: 12),
               ),
+              if (widget.library.sourceFor(widget.book)
+                  case ChapterSubscriptionSource()) ...[
+                const SizedBox(height: 12),
+                const Text(
+                  '可先订阅再下载；确认费用后才会订阅，下载不会自动购买章节。',
+                  style: TextStyle(fontSize: 12),
+                ),
+              ],
               for (final f in failures)
                 Padding(
                   padding: const EdgeInsets.only(top: 8),
@@ -469,11 +531,21 @@ class _DownloadDialogState extends State<DownloadDialog> {
           )
         else
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: subscriptionOpen ? null : () => Navigator.pop(context),
             child: const Text('关闭'),
           ),
+        if (widget.library.sourceFor(widget.book)
+            case final ChapterSubscriptionSource source)
+          OutlinedButton.icon(
+            key: const ValueKey('download-subscribe'),
+            onPressed: running || subscriptionOpen
+                ? null
+                : () => _subscribe(source),
+            icon: const Icon(Icons.shopping_cart_outlined),
+            label: Text(source.canSubscribe ? '订阅后续章节' : '登录后订阅'),
+          ),
         FilledButton(
-          onPressed: running ? null : _run,
+          onPressed: running || subscriptionOpen ? null : _run,
           child: Text(done == 0 ? '开始下载' : '重新下载'),
         ),
       ],
