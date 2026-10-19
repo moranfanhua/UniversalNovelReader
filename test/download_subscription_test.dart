@@ -9,7 +9,7 @@ import 'package:unr/sources/chapter_subscription_source.dart';
 import 'package:unr/sources/novel_source.dart';
 import 'package:unr/sources/sfacg/sfacg_api.dart';
 import 'package:unr/sources/sfacg/sfacg_source.dart';
-import 'package:unr/ui/book_page.dart';
+import 'package:unr/ui/chapter_download_dialog.dart';
 
 class _SubscriptionSource implements ChapterSubscriptionSource {
   _SubscriptionSource(this.id);

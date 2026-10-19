@@ -14,7 +14,7 @@ import 'package:unr/sources/qidian/qidian_api.dart';
 import 'package:unr/sources/qidian/qidian_source.dart';
 import 'package:unr/sources/sfacg/sfacg_api.dart';
 import 'package:unr/sources/sfacg/sfacg_source.dart';
-import 'package:unr/ui/book_page.dart';
+import 'package:unr/ui/chapter_download_dialog.dart';
 import 'package:unr/ui/reader.dart';
 
 const chapter = Chapter(id: '12345', title: '第一章');
