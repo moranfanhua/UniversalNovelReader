@@ -19,6 +19,7 @@ import '../sources/comment_source.dart';
 import '../sources/novel_source.dart';
 import 'reader_fonts.dart';
 import 'download_mirror.dart';
+import 'download_queue.dart';
 import 'app_log.dart';
 import 'library_snapshot.dart';
 
@@ -200,6 +201,15 @@ class Library extends ChangeNotifier {
   final _cachedBookMetadata = <String, ({Book book, Future<void> write})>{};
   final _deletingBooks = <String>{};
   final _cacheRevisions = <String, int>{};
+  DownloadQueue? _downloadQueue;
+  DownloadQueue get downloadQueue => _downloadQueue ??= DownloadQueue(
+    execute: downloadChapters,
+    validate: (book) {
+      if (_disposed) throw const SourceException('书库已关闭');
+      _checkCacheAvailable(book);
+      if (sourceFor(book) == null) throw const SourceException('当前书源不可用');
+    },
+  );
   static String safeKey(String value) =>
       sha256.convert(utf8.encode(value)).toString();
 
@@ -837,6 +847,7 @@ class Library extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _downloadQueue?.dispose();
     super.dispose();
   }
 
@@ -1180,13 +1191,14 @@ class Library extends ChangeNotifier {
     try {
       final directory = Directory('${root.path}/${safeKey(book.key)}');
       final prefix = directory.absolute.uri.toString();
-      if (_downloads.contains(book.key) ||
+      if ((_downloadQueue?.hasPendingBook(book.key) ?? false) ||
+          _downloads.contains(book.key) ||
           _reads.keys.any((key) => key.startsWith('${book.key}/')) ||
           _imageReads.keys.any((key) => key.startsWith('${book.key}/')) ||
           _fileWrites.keys.any(
             (path) => File(path).absolute.uri.toString().startsWith(prefix),
           )) {
-        throw const SourceException('本书正在读取或下载，请等待完成后重试删除');
+        throw const SourceException('本书有排队、读取或下载任务，请先停止任务或等待完成后重试删除');
       }
       _cacheRevisions[book.key] = (_cacheRevisions[book.key] ?? 0) + 1;
       final type = await FileSystemEntity.type(

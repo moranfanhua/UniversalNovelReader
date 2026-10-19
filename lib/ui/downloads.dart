@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import '../data/library.dart';
-import 'batch_download_dialog.dart';
+import 'download_tasks.dart';
 import 'book_page.dart';
 import 'home.dart';
 import 'reader.dart';
@@ -12,7 +12,10 @@ class DownloadsPage extends StatefulWidget {
   State<DownloadsPage> createState() => _DownloadsPageState();
 }
 
-class _DownloadsPageState extends State<DownloadsPage> {
+class _DownloadsPageState extends State<DownloadsPage>
+    with SingleTickerProviderStateMixin {
+  late final tabs = TabController(length: 2, vsync: this);
+  int cacheRevision = 0;
   DownloadedBooksSnapshot? downloads;
   bool loading = true, failed = false;
   int generation = 0;
@@ -32,13 +35,37 @@ class _DownloadsPageState extends State<DownloadsPage> {
   @override
   void initState() {
     super.initState();
+    cacheRevision = widget.library.downloadQueue.cacheRevision;
+    widget.library.downloadQueue.addListener(_queueChanged);
+    tabs.addListener(_tabChanged);
     _refresh();
+  }
+
+  void _tabChanged() {
+    if (tabs.index != 0 && editing && !operating) _exitSelection();
+  }
+
+  void _queueChanged() {
+    final revision = widget.library.downloadQueue.cacheRevision;
+    if (revision == cacheRevision) return;
+    cacheRevision = revision;
+    _refresh();
+  }
+
+  @override
+  void dispose() {
+    widget.library.downloadQueue.removeListener(_queueChanged);
+    tabs.dispose();
+    super.dispose();
   }
 
   @override
   void didUpdateWidget(DownloadsPage oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.library != widget.library) {
+      oldWidget.library.downloadQueue.removeListener(_queueChanged);
+      cacheRevision = widget.library.downloadQueue.cacheRevision;
+      widget.library.downloadQueue.addListener(_queueChanged);
       selected.clear();
       editing = false;
       operating = false;
@@ -82,24 +109,24 @@ class _DownloadsPageState extends State<DownloadsPage> {
     selected.clear();
   });
 
-  Future<void> _downloadSelected() async {
+  void _downloadSelected() {
     if (operating || !canDownload) return;
     final library = widget.library;
     final books = selectedBooks.map((entry) => entry.book).toList();
-    setState(() => operating = true);
-    try {
-      await showDialog<void>(
-        context: context,
-        barrierDismissible: false,
-        builder: (_) => BatchDownloadDialog(library: library, books: books),
-      );
-      if (!mounted || widget.library != library) return;
-      _exitSelection();
-      await _refresh();
-    } finally {
-      if (mounted && widget.library == library) {
-        setState(() => operating = false);
+    final failures = <String>[];
+    for (final book in books) {
+      try {
+        library.downloadQueue.enqueue(book, book.chapters);
+      } catch (error) {
+        failures.add('${book.title}：$error');
       }
+    }
+    _exitSelection();
+    tabs.animateTo(1);
+    if (failures.isNotEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(failures.join('\n'))));
     }
   }
 
@@ -243,6 +270,14 @@ class _DownloadsPageState extends State<DownloadsPage> {
               ),
             ),
         ],
+        bottom: TabBar(
+          controller: tabs,
+          onTap: operating ? (_) => tabs.index = 0 : null,
+          tabs: const [
+            Tab(text: '已下载'),
+            Tab(text: '正在下载'),
+          ],
+        ),
       ),
       bottomNavigationBar: editing
           ? SafeArea(
@@ -285,64 +320,73 @@ class _DownloadsPageState extends State<DownloadsPage> {
               ),
             )
           : null,
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 900),
-          child: Builder(
-            builder: (context) {
-              if (loading) {
-                return const Center(child: CircularProgressIndicator());
-              }
-              if (failed) {
-                return _notice('下载记录加载失败，请重试。');
-              }
-              final data = downloads!;
-              if (data.books.isEmpty && data.unreadable == 0) {
-                return _notice('暂无已下载的书籍\n可在作品详情中下载章节，阅读缓存和本地导入的书籍也会显示在这里。');
-              }
-              return Column(
-                children: [
-                  if (deleting)
-                    const Padding(
-                      padding: EdgeInsets.all(12),
-                      child: Text('正在删除本地下载…'),
+      body: TabBarView(
+        controller: tabs,
+        physics: operating ? const NeverScrollableScrollPhysics() : null,
+        children: [
+          _downloadedContent(),
+          DownloadTasksView(library: widget.library),
+        ],
+      ),
+    ),
+  );
+
+  Widget _downloadedContent() => Center(
+    child: ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 900),
+      child: Builder(
+        builder: (context) {
+          if (loading) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (failed) {
+            return _notice('下载记录加载失败，请重试。');
+          }
+          final data = downloads!;
+          if (data.books.isEmpty && data.unreadable == 0) {
+            return _notice('暂无已下载的书籍\n可在作品详情中下载章节，阅读缓存和本地导入的书籍也会显示在这里。');
+          }
+          return Column(
+            children: [
+              if (deleting)
+                const Padding(
+                  padding: EdgeInsets.all(12),
+                  child: Text('正在删除本地下载…'),
+                ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 12, 12, 8),
+                child: Row(
+                  children: [
+                    Expanded(child: Text('已下载 ${data.books.length} 本')),
+                    IconButton(
+                      tooltip: '刷新下载记录',
+                      onPressed: operating ? null : _refresh,
+                      icon: const Icon(Icons.refresh),
                     ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(24, 12, 12, 8),
-                    child: Row(
-                      children: [
-                        Expanded(child: Text('已下载 ${data.books.length} 本')),
-                        IconButton(
-                          tooltip: '刷新下载记录',
-                          onPressed: operating ? null : _refresh,
-                          icon: const Icon(Icons.refresh),
-                        ),
-                      ],
+                  ],
+                ),
+              ),
+              if (data.unreadable > 0)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  child: Text(
+                    '${data.unreadable} 条下载记录读取失败，可刷新重试。',
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
                     ),
                   ),
-                  if (data.unreadable > 0)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 24),
-                      child: Text(
-                        '${data.unreadable} 条下载记录读取失败，可刷新重试。',
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.error,
-                        ),
-                      ),
-                    ),
-                  Expanded(
-                    child: ListView.separated(
-                      padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
-                      itemCount: data.books.length,
-                      separatorBuilder: (_, _) => const SizedBox(height: 12),
-                      itemBuilder: (context, index) => _book(data.books[index]),
-                    ),
-                  ),
-                ],
-              );
-            },
-          ),
-        ),
+                ),
+              Expanded(
+                child: ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
+                  itemCount: data.books.length,
+                  separatorBuilder: (_, _) => const SizedBox(height: 12),
+                  itemBuilder: (context, index) => _book(data.books[index]),
+                ),
+              ),
+            ],
+          );
+        },
       ),
     ),
   );

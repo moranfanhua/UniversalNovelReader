@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../data/download_queue.dart';
 import '../data/library.dart';
 import '../domain/models.dart';
 import '../sources/chapter_subscription_source.dart';
@@ -9,16 +10,24 @@ Future<void> showChapterDownloadDialog(
   BuildContext context, {
   required Library library,
   required Book book,
+  DownloadTask? previousTask,
 }) => showDialog<void>(
   context: context,
   barrierDismissible: false,
-  builder: (_) => DownloadDialog(library: library, book: book),
+  builder: (_) =>
+      DownloadDialog(library: library, book: book, previousTask: previousTask),
 );
 
 class DownloadDialog extends StatefulWidget {
-  const DownloadDialog({super.key, required this.library, required this.book});
+  const DownloadDialog({
+    super.key,
+    required this.library,
+    required this.book,
+    this.previousTask,
+  });
   final Library library;
   final Book book;
+  final DownloadTask? previousTask;
   @override
   State<DownloadDialog> createState() => _DownloadDialogState();
 }
@@ -34,15 +43,76 @@ class _DownloadDialogState extends State<DownloadDialog> {
   String status = '选择需要保存到本机的章节范围';
   final failures = <String>[];
   final subscriptionFailures = <String>{};
+  DownloadTask? task;
+  int taskRevision = -1;
+  late final chapterTitles = {
+    for (final chapter in widget.book.chapters) chapter.id: chapter.title,
+  };
+  @override
+  void initState() {
+    super.initState();
+    widget.library.downloadQueue.addListener(_syncTask);
+    final previous = widget.previousTask;
+    if (previous != null) {
+      start.text =
+          '${widget.book.chapters.indexWhere((c) => c.id == previous.chapters.first.id) + 1}';
+      end.text =
+          '${widget.book.chapters.indexWhere((c) => c.id == previous.chapters.last.id) + 1}';
+      refreshCached = previous.refreshCached;
+      subscriptionFailures.addAll(
+        previous.failures.entries
+            .where((e) => e.value is SubscriptionRequiredException)
+            .map((e) => e.key),
+      );
+    }
+  }
+
   @override
   void dispose() {
-    cancelled = true;
+    widget.library.downloadQueue.removeListener(_syncTask);
     start.dispose();
     end.dispose();
     super.dispose();
   }
 
-  Future<void> _run() async {
+  void _syncTask() {
+    final current = task;
+    if (!mounted || current == null || current.revision == taskRevision) return;
+    taskRevision = current.revision;
+    setState(() {
+      running = current.pending;
+      cancelled =
+          current.state == DownloadTaskState.stopping ||
+          current.state == DownloadTaskState.cancelled;
+      done = current.done;
+      total = current.chapters.length;
+      success = current.success;
+      failures.clear();
+      subscriptionFailures.clear();
+      final errors = current.failures;
+      for (final entry in errors.entries) {
+        final error = entry.value;
+        failures.add('${chapterTitles[entry.key]}：$error');
+        if (error is SubscriptionRequiredException) {
+          subscriptionFailures.add(entry.key);
+        }
+      }
+      status = switch (current.state) {
+        DownloadTaskState.queued => '已加入队列，等待前方任务完成',
+        DownloadTaskState.running =>
+          '${current.chapterTitle.isEmpty ? '正在下载…' : current.chapterTitle} · $done / $total',
+        DownloadTaskState.stopping => '正在停止…',
+        DownloadTaskState.cancelled =>
+          '已停止 · 成功 $success 章，失败 ${failures.length} 章',
+        DownloadTaskState.completed || DownloadTaskState.failed =>
+          current.error != null
+              ? '下载失败：${current.error}'
+              : '下载完成 · 成功 $success 章，失败 ${failures.length} 章',
+      };
+    });
+  }
+
+  void _run() {
     if (running || subscriptionOpen) return;
     final from = int.tryParse(start.text), to = int.tryParse(end.text);
     if (from == null ||
@@ -64,27 +134,13 @@ class _DownloadDialogState extends State<DownloadDialog> {
       status = '正在准备下载…';
     });
     try {
-      await widget.library.downloadChapters(
+      task = widget.library.downloadQueue.enqueue(
         widget.book,
         widget.book.chapters.sublist(from - 1, to),
-        isCancelled: () => cancelled || !mounted,
         refreshCached: refreshCached,
-        onProgress: (chapter, error) {
-          if (!mounted) return;
-          setState(() {
-            done++;
-            status = '${chapter.title} · $done / $total';
-            if (error == null) {
-              success++;
-            } else {
-              failures.add('${chapter.title}：$error');
-              if (error is SubscriptionRequiredException) {
-                subscriptionFailures.add(chapter.id);
-              }
-            }
-          });
-        },
       );
+      taskRevision = -1;
+      _syncTask();
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -92,13 +148,6 @@ class _DownloadDialogState extends State<DownloadDialog> {
         status = '下载失败：$error';
       });
       return;
-    }
-    if (mounted) {
-      setState(() {
-        running = false;
-        status =
-            '${cancelled ? '已停止' : '下载完成'} · 成功 $success 章，失败 ${failures.length} 章';
-      });
     }
   }
 
@@ -148,7 +197,7 @@ class _DownloadDialogState extends State<DownloadDialog> {
 
   @override
   Widget build(BuildContext context) => PopScope(
-    canPop: !running && !subscriptionOpen,
+    canPop: !subscriptionOpen,
     child: AlertDialog(
       title: const Text('下载章节'),
       content: SizedBox(
@@ -181,6 +230,11 @@ class _DownloadDialogState extends State<DownloadDialog> {
               ),
               const SizedBox(height: 18),
               Text(status),
+              const SizedBox(height: 8),
+              const Text(
+                '关闭窗口后继续下载，可在“下载 → 正在下载”查看进度。',
+                style: TextStyle(fontSize: 12),
+              ),
               if (total > 0)
                 Padding(
                   padding: const EdgeInsets.only(top: 14),
@@ -224,14 +278,13 @@ class _DownloadDialogState extends State<DownloadDialog> {
           TextButton(
             onPressed: cancelled
                 ? null
-                : () => setState(() => cancelled = true),
+                : () => widget.library.downloadQueue.cancel(task!),
             child: Text(cancelled ? '正在停止…' : '停止下载'),
-          )
-        else
-          TextButton(
-            onPressed: subscriptionOpen ? null : () => Navigator.pop(context),
-            child: const Text('关闭'),
           ),
+        TextButton(
+          onPressed: subscriptionOpen ? null : () => Navigator.pop(context),
+          child: Text(running ? '后台下载' : '关闭'),
+        ),
         if (widget.library.sourceFor(widget.book)
             case final ChapterSubscriptionSource source)
           OutlinedButton.icon(

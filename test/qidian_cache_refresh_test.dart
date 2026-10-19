@@ -68,7 +68,7 @@ class ReaderCacheLibrary extends Library {
 }
 
 class DownloadOptionsLibrary extends Library {
-  DownloadOptionsLibrary(super.root, super.source);
+  DownloadOptionsLibrary(super.root, super.source, {super.novelSources});
   final options = <bool>[];
   Completer<void>? gate;
   @override
@@ -255,9 +255,14 @@ void main() {
         tester.view.devicePixelRatio = 1;
         addTearDown(tester.view.resetPhysicalSize);
         addTearDown(tester.view.resetDevicePixelRatio);
+        final api = QidianApi(
+          client: MockClient((_) async => throw StateError('不应联网')),
+        );
+        addTearDown(api.close);
         final library = DownloadOptionsLibrary(
           Directory.systemTemp,
           defaultSource(),
+          novelSources: [QidianSource(api)],
         );
         addTearDown(library.dispose);
         await tester.pumpWidget(

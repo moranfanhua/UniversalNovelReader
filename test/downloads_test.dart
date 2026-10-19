@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/testing.dart';
 import 'package:unr/data/library.dart';
+import 'package:unr/data/download_queue.dart';
 import 'package:unr/domain/models.dart';
 import 'package:unr/main.dart';
 import 'package:unr/sources/sfacg/sfacg_api.dart';
@@ -396,7 +397,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('页面销毁后批量下载停止安排后续书籍', (tester) async {
+  testWidgets('页面销毁后批量下载继续并自动开始后续书籍', (tester) async {
     final library = memoryLibrary();
     library.snapshot = DownloadedBooksSnapshot(
       books: [
@@ -418,7 +419,13 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
     library.pendingDownload!.complete();
     await tester.pumpAndSettle();
-    expect(library.downloadCalls, ['sfacg:1']);
+    expect(library.downloadCalls, ['sfacg:1', 'sfacg:2']);
+    expect(
+      library.downloadQueue.tasks.every(
+        (task) => task.state == DownloadTaskState.completed,
+      ),
+      isTrue,
+    );
     expect(tester.takeException(), isNull);
   });
 
@@ -482,7 +489,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('批量下载仅处理勾选书籍，支持停止并保留逐章失败结果', (tester) async {
+  testWidgets('批量下载仅处理勾选书籍，停止当前任务后自动接续排队任务', (tester) async {
     final library = memoryLibrary();
     library.snapshot = DownloadedBooksSnapshot(
       books: [
@@ -506,22 +513,26 @@ void main() {
     library.pendingDownload = Completer<void>();
     await select();
     expect(library.downloadCalls, ['sfacg:1']);
+    expect(find.text('排队中 · 第 1 位 · 0 / 3 章'), findsOneWidget);
     await tester.tap(find.text('停止下载'));
     await tester.pumpAndSettle();
     library.pendingDownload!.complete();
     library.pendingDownload = null;
     await tester.pumpAndSettle();
-    expect(find.text('已停止 · 成功 0 章，失败 0 章'), findsOneWidget);
-    expect(library.downloadCalls, ['sfacg:1']);
-    await tester.tap(find.text('关闭'));
+    expect(find.text('已停止 · 0 / 3 章'), findsOneWidget);
+    expect(library.downloadCalls, ['sfacg:1', 'sfacg:2']);
+    await tester.tap(find.text('移除记录'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('暂无下载任务'), findsOneWidget);
+    await tester.tap(find.text('已下载'));
     await tester.pumpAndSettle();
     library.downloadCalls.clear();
     library.failChapter = true;
     await select();
     expect(library.downloadCalls, ['sfacg:1', 'sfacg:2']);
-    expect(find.text('下载完成 · 成功 4 章，失败 2 章'), findsOneWidget);
+    expect(find.text('成功 2 章，失败 1 章'), findsNWidgets(2));
     expect(find.textContaining('章节无权限'), findsNWidgets(2));
-    await tester.tap(find.text('关闭'));
+    await tester.tap(find.text('已下载'));
     await tester.pumpAndSettle();
     expect(find.byType(Checkbox), findsNothing);
     expect(tester.takeException(), isNull);
@@ -547,7 +558,10 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('download-selected')));
     await tester.pumpAndSettle();
     expect(library.downloadCalls, ['sfacg:1', 'sfacg:2']);
-    expect(find.text('下载完成 · 成功 3 章，失败 3 章'), findsOneWidget);
+    expect(library.downloadQueue.tasks.map((task) => task.state), [
+      DownloadTaskState.failed,
+      DownloadTaskState.completed,
+    ]);
     expect(find.textContaining('下载任务失败'), findsOneWidget);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());

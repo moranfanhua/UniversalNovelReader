@@ -24,6 +24,27 @@ class _BookPageState extends State<BookPage> {
       .cachedContents(book);
   bool busy = false;
   String? error;
+  int cacheRevision = 0;
+  @override
+  void initState() {
+    super.initState();
+    cacheRevision = widget.library.downloadQueue.cacheRevision;
+    widget.library.downloadQueue.addListener(_downloadChanged);
+  }
+
+  void _downloadChanged() {
+    final revision = widget.library.downloadQueue.cacheRevision;
+    if (revision == cacheRevision) return;
+    cacheRevision = revision;
+    _refreshCached();
+  }
+
+  @override
+  void dispose() {
+    widget.library.downloadQueue.removeListener(_downloadChanged);
+    super.dispose();
+  }
+
   void _refreshCached() {
     if (!mounted) return;
     final next = widget.library.cachedContents(book);

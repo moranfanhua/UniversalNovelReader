@@ -138,6 +138,41 @@ void main() {
     expect(await library.cached(book, chapters.first), isNull);
   });
 
+  test('队列中等待的作品不能删除，取消后可以删除且不会被后续任务重新缓存', () async {
+    final waitingBook = Book(
+      id: 'waiting',
+      source: book.source,
+      title: '排队作品',
+      author: '',
+      chapters: chapters,
+    );
+    await library.store(
+      waitingBook,
+      chapters.first,
+      content(chapters.first).content!,
+    );
+    final gate = Completer<void>();
+    source.fetch = (batch) async {
+      await gate.future;
+      return batch.map(content).toList();
+    };
+    final active = library.downloadQueue.enqueue(book, [chapters.first]);
+    final waiting = library.downloadQueue.enqueue(waitingBook, chapters);
+    await until(() => source.calls.isNotEmpty);
+    await expectLater(
+      library.deleteDownloadedBook(waitingBook),
+      throwsA(isA<SourceException>()),
+    );
+    library.downloadQueue.cancel(waiting);
+    await library.deleteDownloadedBook(waitingBook);
+    gate.complete();
+    await active.whenFinished;
+    expect(source.calls.length, 1);
+    expect(await library.cached(waitingBook, chapters.first), isNull);
+    final downloaded = await library.downloadedBooks();
+    expect(downloaded.books.single.book.key, book.key);
+  });
+
   test('删除期间禁止新读取、下载和写入，完成后可以重建缓存', () async {
     await library.store(book, chapters.first, content(chapters.first).content!);
     final deleting = library.deleteDownloadedBook(book);
