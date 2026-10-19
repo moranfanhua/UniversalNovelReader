@@ -1178,6 +1178,16 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     ),
     actions: [
       AddToShelfButton(library: library, book: widget.book, compact: true),
+      if (library.sourceFor(widget.book) != null)
+        IconButton(
+          tooltip: '下载章节',
+          onPressed: () => showChapterDownloadDialog(
+            context,
+            library: library,
+            book: widget.book,
+          ),
+          icon: const Icon(Icons.download_outlined),
+        ),
       IconButton(
         tooltip: '目录',
         onPressed: _directory,
@@ -1444,16 +1454,6 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                   ),
                 ),
                 chapterButton(previous: false),
-                if (library.sourceFor(widget.book) != null)
-                  IconButton(
-                    tooltip: '下载章节',
-                    onPressed: () => showChapterDownloadDialog(
-                      context,
-                      library: library,
-                      book: widget.book,
-                    ),
-                    icon: const Icon(Icons.download_outlined),
-                  ),
               ],
             ),
           );

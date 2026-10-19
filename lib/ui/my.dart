@@ -30,19 +30,6 @@ class MyPage extends StatelessWidget {
             child: Column(
               children: [
                 ListTile(
-                  key: const ValueKey('my-downloads-entry'),
-                  leading: const Icon(Icons.download_outlined),
-                  title: const Text('下载'),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () => Navigator.push<void>(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => DownloadsPage(library: library),
-                    ),
-                  ),
-                ),
-                const Divider(height: 1),
-                ListTile(
                   leading: const Icon(Icons.manage_accounts_outlined),
                   title: const Text('账号设置'),
                   trailing: const Icon(Icons.chevron_right),
@@ -66,6 +53,19 @@ class MyPage extends StatelessWidget {
                         gbk: gbk,
                         onEncodingChanged: onEncodingChanged,
                       ),
+                    ),
+                  ),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  key: const ValueKey('my-downloads-entry'),
+                  leading: const Icon(Icons.download_outlined),
+                  title: const Text('下载'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => Navigator.push<void>(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => DownloadsPage(library: library),
                     ),
                   ),
                 ),

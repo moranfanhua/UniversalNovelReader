@@ -206,7 +206,7 @@ void main() {
 
   for (final mode in ReadingMode.values) {
     for (final scale in [1.0, 2.0]) {
-      testWidgets('阅读菜单下载后保留章节和阅读位置（${mode.name}，缩放$scale）', (tester) async {
+      testWidgets('阅读顶栏下载后保留章节和阅读位置（${mode.name}，缩放$scale）', (tester) async {
         viewport(tester);
         final book = sample();
         library.readingMode = mode;
@@ -228,10 +228,17 @@ void main() {
         await tester.pumpAndSettle();
         expect(
           find.descendant(
-            of: find.byKey(const ValueKey('reader-bottom-toolbar')),
+            of: find.byType(AppBar),
             matching: find.byTooltip('下载章节'),
           ),
           findsOneWidget,
+        );
+        expect(
+          find.descendant(
+            of: find.byKey(const ValueKey('reader-bottom-toolbar')),
+            matching: find.byTooltip('下载章节'),
+          ),
+          findsNothing,
         );
         final reader = tester.state(find.byType(ReaderPage)) as dynamic;
         final position = (
