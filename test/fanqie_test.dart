@@ -16,6 +16,7 @@ import 'package:unr/sources/novel_search.dart';
 import 'package:unr/sources/sfacg/sfacg_api.dart';
 import 'package:unr/sources/sfacg/sfacg_source.dart';
 import 'package:unr/ui/account.dart';
+import 'package:unr/ui/account_platform_card.dart';
 import 'package:unr/ui/home.dart';
 import 'package:unr/ui/fanqie_account.dart';
 import 'package:unr/ui/import_shelf.dart';
@@ -680,11 +681,11 @@ void main() {
     );
     expect(
       tester
-          .widgetList<ListTile>(find.byType(ListTile))
-          .map((tile) => (tile.title! as Text).data),
+          .widgetList<AccountPlatformCard>(find.byType(AccountPlatformCard))
+          .map((card) => card.source.name),
       ['番茄小说', '菠萝包轻小说'],
     );
-    await tester.tap(find.text('番茄小说'));
+    await tester.tap(find.byKey(const ValueKey('account-card-fanqie')));
     await tester.pumpAndSettle();
     expect(find.text('番茄小说账号'), findsOneWidget);
     expect(find.text('选择登录方式'), findsOneWidget);

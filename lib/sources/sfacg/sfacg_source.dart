@@ -7,6 +7,8 @@ import 'package:http/http.dart' as http;
 
 import '../../domain/models.dart';
 import '../novel_source.dart';
+import '../account_source.dart';
+import 'sfacg_account.dart';
 import '../source_verification.dart';
 import '../chapter_batch_source.dart';
 import '../bookshelf_source.dart';
@@ -19,13 +21,14 @@ import '../comment_source.dart';
 export '../comment_source.dart' show CommentSort;
 
 class SfacgSource extends CommentSource
-    with SfacgSubscriptions
+    with SfacgSubscriptions, SfacgAccount
     implements
         SearchableNovelSource,
         BookshelfSource,
         ChapterBatchSource,
         VerifiableNovelSource,
-        BookUpdateSource {
+        BookUpdateSource,
+        AccountSource {
   SfacgSource(this.api, {Map<String, String>? cipher}) : cipher = cipher ?? {};
   @override
   final SfacgApi api;
