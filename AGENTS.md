@@ -4,7 +4,7 @@
 
 ## 项目与沟通
 
-* UniversalNovelReader（UNR）是基于 Flutter 的小说阅读器，当前提供 Windows、Android 工程，支持本地 EPUB / TXT 与菠萝包、番茄书源。
+* UniversalNovelReader（UNR）是基于 Flutter 的小说阅读器，当前提供 Windows、Android 工程，支持本地 EPUB / TXT，以及起点读书、番茄小说、刺猬猫阅读、菠萝包轻小说四个在线书源。
 * 默认使用简体中文沟通，界面文案保持中文。说明最终行为、验证结果与实际限制，避免将单个平台或模拟器的验证表述为全部平台通过。
 * 修改前检查 `git status`、当前分支和相关代码。保留用户及其他任务的未提交修改，只改动本任务涉及的内容。
 * 以当前代码、测试和工作流为准。历史聊天、参考仓库和提交标题用于定位线索，不能代替对最终实现的检查。
@@ -15,11 +15,11 @@
 | --- | --- |
 | `lib/main.dart` | 应用初始化、书源注册、主题与入口 |
 | `lib/domain/` | 作品、章节、段落、书架等领域模型 |
-| `lib/data/` | 书库、缓存、阅读进度、偏好与字体管理 |
+| `lib/data/` | 书库及快照、缓存、阅读进度、偏好、字体、日志与应用更新 |
 | `lib/formats/` | EPUB / TXT 导入导出及图像格式处理 |
-| `lib/sources/` | 书源、搜索、书架、段评与会话辅助接口 |
-| `lib/sources/sfacg/`、`lib/sources/fanqie/` | 各平台协议、认证、正文与评论适配 |
-| `lib/ui/` | 书架、作品详情、阅读器、设置及账号页面 |
+| `lib/sources/` | 书源、搜索、书架预览、批量下载、更新检查、段评、会话与安全验证接口 |
+| `lib/sources/sfacg/`、`lib/sources/fanqie/`、`lib/sources/qidian/`、`lib/sources/ciweimao/` | 各平台协议、认证、正文与评论适配 |
+| `lib/ui/` | 书架、作品详情、阅读器、设置、账号、安全验证、日志与关于页面 |
 | `assets/` | 字符表、平台图标等应用资源 |
 | `android/` | Android 工程、原生音量键翻页与平台集成 |
 | `windows/` | Windows 工程及平台集成 |
@@ -29,17 +29,22 @@
 
 ## 实现要求
 
-* 所有的请求仅考虑APP使用的API，不能使用网页端API作为替代。
+* 所有书源业务请求仅使用 App API，不能使用网页端 API 作为替代。
 * 所有登录、验证码发送、认证及会话校验统一依据已解包的官方 APK 实现，使用 App API、签名与设备参数；不得提供网页登录选项或回退网页端认证接口。旧会话迁移不得清空用户书库或登录存储。
+* 安全验证沿用官方 App 的挑战流程，通过 `SourceVerificationChallenge` 与公共验证页衔接；可主动验证的书源实现 `VerifiableNovelSource`。内嵌 WebView 仅承载安全验证，处理取消、过期、重试、旧回调及平台差异；不得注入 App 会话或将验证票据写入日志。
 * 沿用现有 Dart 风格与 `flutter_lints`；格式化改动文件，避免顺手重排整个项目。
 * 平台请求、签名、认证、分页和数据解析放在对应书源目录，通过公共接口向上层提供功能；不要把平台协议写进通用页面。
 * 新增能力按实际实现扩展 `NovelSource`、`SearchableNovelSource`、`BookshelfSource` 或 `CommentSource`。段评操作依据 `CommentCapabilities` 显示，不为未实现的能力提供可点击入口。
+* 书架导入使用 `BookshelfSource` 的作品预览，按需加载完整目录；自动更新通过 `BookUpdateSource` 获取新数据，保留每本书十分钟的检查间隔、重启后的限流与页面离开后的取消行为。目录请求遵循各平台 App 的会话规则，不污染已登录会话。
+* 离线下载使用 `ChapterBatchSource`，遵循各书源的批大小与并发限制，逐章保留成功与失败结果。实现 `PlatformRankedSearchSource` 的书源保留其平台搜索顺序与提示，通用搜索合并不得打乱该平台结果的相对顺序。
 * 保持书源与作品标识一致，避免不同平台的同名作品或相同数字 ID 混用缓存、阅读进度和书架成员。
 * 网络和文件操作应有明确的加载、失败与重试行为；处理页面销毁、异步结果过期、取消以及重复请求。发表评论、回复、点赞等写操作结果不确定时，不盲目自动重发。
 * 持久化变更兼容已有书库与阅读偏好。会话恢复异常不得阻断本地缓存阅读；不要为修复问题清空用户书库或登录状态。
+* 仅在 App 明确拒绝认证或返回匿名账号时判定 `SessionExpiredException`；网络故障、安全挑战和解析异常只表示暂时无法确认。启动、账号页及手动会话检查应忽略已被新登录或退出取代的结果，不自动清除会话。
 * 导入导出保留章节顺序、封面和插图。仅导出已缓存章节时明确提示节选，资源获取失败不得伪装成完整导出成功。
 * 阅读器改动同时考虑滚动、翻页、宽屏双页、跨章节衔接及进度恢复。UI 改动检查手机与宽屏布局、文字缩放及长书名。
-* 保留现有书架列表 / 宫格切换、手机宫格每行三本、书名拼音排序及目录按分卷收纳的行为，除非用户要求调整。
+* 保留现有书架列表 / 宫格切换、手机宫格每行三本、书名拼音排序及目录按分卷收纳的行为，除非用户要求调整。平台展示顺序统一使用 `lib/sources/source_order.dart`。
+* 云端字体按需下载并在本机保留原许可。GitHub 字体与安装包下载沿用 `DownloadMirror` 配置，书源与认证请求不套用下载镜像。版本检查直连 GitHub Releases API，仅接受本仓库已发布正式版与约定附件，安装包下载交由系统浏览器。
 * 新依赖应有实际用途，同时核对 `pubspec.yaml`、`pubspec.lock`、资源声明和第三方许可记录，不为无关任务升级依赖或 SDK。
 
 ## 开发与验证
@@ -59,6 +64,7 @@ flutter test --no-pub <相关测试文件>
 ```
 
 * 优先运行与行为相关的现有回归测试。修复故障或新增重要行为时，补能重现问题、验证结果的测试；纯文档、格式及低影响布局调整不必机械添加测试。
+* 会话改动优先检查 `test/session_validation_test.dart`、`test/startup_session_check_test.dart`、`test/account_session_test.dart` 及对应书源认证测试；安全验证改动检查 `test/sfacg_verification_test.dart`、`test/qidian_captcha_test.dart`、`test/reader_verification_test.dart` 中相关用例。Android WebView 与 Windows WebView2 的实际交互需分别核实，mock 测试不能替代。
 * 影响书库持久化、阅读器公共逻辑或多个书源的改动，交付前运行 `flutter test --no-pub`。检查通过且没有新改动或未解决问题时，不重复执行同一批检查。
 * Android 原生集成改动需运行相关现有原生测试（如有），并按需构建 `flutter build apk --debug --no-pub`。
 * Windows 平台集成改动按需运行 `flutter build windows --debug --no-pub`。使用平台构建验证改动，但不要把构建成功等同于真实账号或设备交互已验证。
@@ -84,6 +90,7 @@ python -m unittest discover -s .github/scripts/tests -v
 * `README.md` 只维护开源库、参考来源、版权与许可声明。版本说明写入根目录 `CHANGELOG.md`，agent 约定写在本文件，skill 写入 `.agents/skills/`。
 * 不额外提交开发报告、调试记录、发布操作文档等材料；临时脚本、探测结果、截图、日志与草稿统一放在已忽略的 `.local/`。
 * 不提交构建产物、缓存、账号密码、Cookie、Token、抓包文件、签名密钥或私有证书；日志和交付说明不要包含这些值。
+* 运行日志沿用 `AppLog` 与请求脱敏逻辑；新增日志字段、异常或诊断输出时检查账号、会话、验证码、验证票据和阅读密钥，导出日志也不得泄露这些值。
 * `.gitignore` 默认忽略 Markdown；确需随项目提交的文档添加精确例外，不广泛放开临时文档。
 * 保留项目 AGPL-3.0 及第三方版权、许可证和来源声明。引入或更新依赖、参考实现与字体时同步核对 README 中的声明。
 * 内容访问使用公开接口或用户已有阅读权限，不自动购买章节。认证和会话辅助沿用用户主动操作的流程。
