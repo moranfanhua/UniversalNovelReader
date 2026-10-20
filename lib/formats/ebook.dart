@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 import 'package:archive/archive.dart';
 import 'package:crypto/crypto.dart';
 import 'package:enough_convert/gbk.dart';
@@ -421,10 +422,36 @@ class Ebook {
     Future<String> embedImage(String key, {bool cover = false}) async {
       final existing = imagePaths[key];
       if (existing != null) return existing;
-      final bytes = await loadImage(key);
-      final mime = ImageFormat.mime(bytes);
+      var bytes = await loadImage(key);
+      var mime = ImageFormat.mime(bytes);
       if (mime == null) {
-        throw const SourceException('EPUB 导出暂只支持 PNG、JPEG、GIF、SVG 图像');
+        // Keep EPUB-compatible images intact; normalize other formats supported
+        // by the reader (such as WebP and BMP) for EPUB reading systems.
+        try {
+          final codec = await ui.instantiateImageCodec(bytes);
+          try {
+            final frame = await codec.getNextFrame();
+            try {
+              final png = await frame.image.toByteData(
+                format: ui.ImageByteFormat.png,
+              );
+              if (png == null) throw StateError('PNG encoding failed');
+              bytes = png.buffer.asUint8List(
+                png.offsetInBytes,
+                png.lengthInBytes,
+              );
+            } finally {
+              frame.image.dispose();
+            }
+          } finally {
+            codec.dispose();
+          }
+          mime = 'image/png';
+        } catch (_) {
+          throw SourceException(
+            cover ? 'EPUB 封面无法解码或转换，请检查图片后重试' : 'EPUB 插图无法解码或转换，请检查图片后重试',
+          );
+        }
       }
       final path = 'images/${imagePaths.length}.${ImageFormat.extension(mime)}';
       final id = 'image${imagePaths.length}';

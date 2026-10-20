@@ -1,10 +1,12 @@
 import 'dart:convert';
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 import 'package:archive/archive.dart';
 import 'package:enough_convert/gbk.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:unr/domain/models.dart';
 import 'package:unr/formats/ebook.dart';
+import 'package:xml/xml.dart';
 
 final tinyPng = base64Decode(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aN1QAAAAASUVORK5CYII=',
@@ -47,6 +49,114 @@ Uint8List fixture({
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  Future<(int, int, Uint8List)> pixels(Uint8List bytes) async {
+    final codec = await ui.instantiateImageCodec(bytes);
+    try {
+      final frame = await codec.getNextFrame();
+      try {
+        final data = (await frame.image.toByteData())!;
+        return (
+          frame.image.width,
+          frame.image.height,
+          data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
+        );
+      } finally {
+        frame.image.dispose();
+      }
+    } finally {
+      codec.dispose();
+    }
+  }
+
+  // Locally generated 2 x 3 solid-color images; WebP includes transparency.
+  final otherImages = {
+    'WebP': base64Decode(
+      'UklGRh4AAABXRUJQVlA4TBEAAAAvAYAAEAfQll50qICBiOh/AAA=',
+    ),
+    'BMP': base64Decode(
+      'Qk1OAAAAAAAAADYAAAAoAAAAAgAAAAMAAAABABgAAAAAABgAAADEDgAAxA4AAAAAAAAAAAAAQy0XQy0XAABDLRdDLRcAAEMtF0MtFwAA',
+    ),
+  };
+  for (final entry in otherImages.entries) {
+    test('${entry.key} 封面与插图转为 PNG，保留尺寸像素并复用资源', () async {
+      const key = 'https://example.com/cover.jpg';
+      const book = Book(
+        id: 'converted',
+        title: '图片转换',
+        author: '作者',
+        cover: key,
+        chapters: [Chapter(id: '1', title: '第一章')],
+      );
+      var loads = 0;
+      final original = Uint8List.fromList(entry.value);
+      final bytes = await Ebook.exportEpub(
+        book,
+        {
+          '1': const ChapterContent([
+            Paragraph('前文'),
+            Paragraph('', image: key),
+            Paragraph('后文'),
+          ]),
+        },
+        (_) async {
+          loads++;
+          return entry.value;
+        },
+      );
+      expect(loads, 1);
+      expect(entry.value, original);
+      final zip = ZipDecoder().decodeBytes(bytes, verify: true);
+      final opf = XmlDocument.parse(
+        utf8.decode(zip.findFile('OEBPS/content.opf')!.content),
+      );
+      final image = opf.descendants.whereType<XmlElement>().singleWhere(
+        (e) => e.getAttribute('properties') == 'cover-image',
+      );
+      expect(image.getAttribute('media-type'), 'image/png');
+      expect(image.getAttribute('href'), 'images/0.png');
+      final imported = Ebook.importEpub(bytes);
+      expect(imported.images.length, 1);
+      final converted = imported.images[imported.book.cover]!;
+      expect(converted.take(8), [137, 80, 78, 71, 13, 10, 26, 10]);
+      final before = await pixels(original), after = await pixels(converted);
+      expect((after.$1, after.$2), (2, 3));
+      expect(after.$3, before.$3);
+      final paragraphs = imported.contents['0']!.paragraphs;
+      expect(paragraphs.map((p) => p.text), ['前文', '', '后文']);
+      expect(paragraphs[1].image, imported.book.cover);
+    });
+  }
+
+  for (final cover in [true, false]) {
+    test('无法解码的${cover ? '封面' : '插图'}仍阻止导出并明确提示', () async {
+      const key = 'https://example.com/private-image';
+      final book = Book(
+        id: 'invalid-image',
+        title: '测试',
+        author: '',
+        cover: cover ? key : '',
+        chapters: const [Chapter(id: '1', title: '第一章')],
+      );
+      await expectLater(
+        Ebook.exportEpub(book, {
+          '1': ChapterContent([
+            const Paragraph('正文'),
+            if (!cover) const Paragraph('', image: key),
+          ]),
+        }, (_) async => Uint8List.fromList(utf8.encode('<html>加载失败</html>'))),
+        throwsA(
+          isA<SourceException>().having(
+            (e) => e.toString(),
+            'message',
+            contains(cover ? 'EPUB 封面无法解码或转换' : 'EPUB 插图无法解码或转换'),
+          ),
+        ),
+      );
+    });
+  }
+
   test('EPUB 2 与 3 声明的封面都导入本地资源', () {
     for (final version in [2, 3]) {
       final imported = Ebook.importEpub(
