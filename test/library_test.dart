@@ -53,6 +53,59 @@ void main() {
   );
   const book = Book(id: '1', title: '测试书', author: '测试', chapters: [chapter]);
 
+  test('缓存标记只查文件元数据，兼容旧缓存并隔离平台与临时文件', () async {
+    final api = SfacgApi();
+    addTearDown(api.close);
+    final library = Library(root, source(api));
+    addTearDown(library.dispose);
+    final chapters = [
+      for (var i = 0; i < 1000; i++) Chapter(id: '$i', title: '$i'),
+    ];
+    final large = book.withChapters(chapters);
+    final directory = Directory('${root.path}/${Library.safeKey(large.key)}');
+    await directory.create();
+    // Invalid JSON is deliberately present: listing must not parse any body.
+    await Future.wait([
+      for (final chapter in chapters)
+        File(
+          '${directory.path}/${Library.safeKey(chapter.id)}.json',
+        ).writeAsString('not JSON'),
+    ]);
+    expect(await library.cachedChapterIds(large), hasLength(1000));
+    final file = File('${directory.path}/${Library.safeKey('1')}.json');
+    await file.delete();
+    await File(
+      '${directory.path}/${Library.safeKey('2')}.json',
+    ).writeAsString('');
+    await File(
+      '${directory.path}/${Library.safeKey('1')}.json.tmp',
+    ).writeAsString('x');
+    expect(await library.cachedChapterIds(large), hasLength(998));
+    await expectLater(
+      library.cached(large, chapters[3]),
+      throwsFormatException,
+    );
+    expect(await library.cachedChapterIds(large), hasLength(997));
+    await library.store(
+      large,
+      chapters[3],
+      const ChapterContent([Paragraph('修复')]),
+    );
+    expect(await library.cachedChapterIds(large), hasLength(998));
+    expect(
+      await library.cachedChapterIds(
+        Book(
+          id: book.id,
+          title: '',
+          author: '',
+          source: 'fanqie',
+          chapters: chapters,
+        ),
+      ),
+      isEmpty,
+    );
+  });
+
   final png = base64Decode(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aN1QAAAAASUVORK5CYII=',
   );

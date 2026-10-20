@@ -42,11 +42,16 @@ class LayoutLibrary extends Library {
       );
   bool failSave = false;
   @override
+  Future<void> saveShelfUpdateTimes() => save();
+  @override
   Future<void> save() async {
     if (failSave) throw const FileSystemException('保存失败');
     notifyListeners();
   }
 
+  @override
+  Future<Set<String>> cachedChapterIds(Book book) async =>
+      (await cachedContents(book)).keys.toSet();
   @override
   Future<Map<String, ChapterContent>> cachedContents(Book book) async => {};
   @override

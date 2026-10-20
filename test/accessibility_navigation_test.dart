@@ -88,6 +88,9 @@ class NavigationLibrary extends Library {
   @override
   Future<void> save() async => notifyListeners();
   @override
+  Future<Set<String>> cachedChapterIds(Book book) async =>
+      (await cachedContents(book)).keys.toSet();
+  @override
   Future<Map<String, ChapterContent>> cachedContents(Book book) async => {};
   @override
   Future<ChapterContent> read(Book book, Chapter chapter) async =>
