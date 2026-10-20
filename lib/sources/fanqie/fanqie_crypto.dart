@@ -14,6 +14,9 @@ import 'package:pointycastle/export.dart'
         PKCS7Padding;
 import '../../domain/models.dart';
 import 'fanqie_signature.dart';
+import '../native_chapter_crypto.dart';
+
+typedef FanqieDecryptedBlob = ({Uint8List? bytes, SourceException? error});
 
 class FanqieCrypto {
   static Uint8List ttEncrypt(List<int> data, {List<int>? random}) {
@@ -60,6 +63,15 @@ class FanqieCrypto {
       throw const SourceException('番茄加密数据格式无效');
     }
     try {
+      if (!encrypt) {
+        return NativeChapterCrypto.decrypt(
+          ChapterDecryptInput(
+            data: Uint8List.fromList(data),
+            key: Uint8List.fromList(key),
+            iv: Uint8List.fromList(iv),
+          ),
+        );
+      }
       final cipher = PaddedBlockCipherImpl(
         PKCS7Padding(),
         CBCBlockCipher(AESEngine()),
@@ -155,5 +167,43 @@ class FanqieCrypto {
     } catch (_) {
       throw const SourceException('番茄加密正文格式无效');
     }
+  }
+
+  static List<FanqieDecryptedBlob> decryptBlobs(
+    List<String> encrypted,
+    List<int> key,
+  ) {
+    final results = List<FanqieDecryptedBlob>.filled(encrypted.length, (
+      bytes: null,
+      error: null,
+    ));
+    final jobs = <ChapterDecryptInput>[];
+    final indices = <int>[];
+    final secret = Uint8List.fromList(key);
+    for (var i = 0; i < encrypted.length; i++) {
+      try {
+        final blob = base64Decode(encrypted[i]);
+        if (blob.length < 32) throw const FormatException();
+        jobs.add(
+          ChapterDecryptInput(
+            data: Uint8List.sublistView(blob, 16),
+            key: secret,
+            iv: Uint8List.sublistView(blob, 0, 16),
+          ),
+        );
+        indices.add(i);
+      } catch (_) {
+        results[i] = (bytes: null, error: const SourceException('番茄加密正文格式无效'));
+      }
+    }
+    final decoded = NativeChapterCrypto.decryptBatch(jobs);
+    for (var i = 0; i < decoded.length; i++) {
+      final bytes = decoded[i];
+      results[indices[i]] = (
+        bytes: bytes,
+        error: bytes == null ? const SourceException('番茄加密数据校验失败') : null,
+      );
+    }
+    return results;
   }
 }
