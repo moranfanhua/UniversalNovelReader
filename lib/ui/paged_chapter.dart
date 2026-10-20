@@ -56,6 +56,7 @@ class PagedChapter extends StatefulWidget {
     this.loadNextChapter,
     this.onContinueChapter,
     this.onPreviewRows,
+    this.nextChapterErrorBuilder,
     this.skipFirstPage = false,
     this.onTapTurn,
     this.onCenterTap,
@@ -78,6 +79,8 @@ class PagedChapter extends StatefulWidget {
   final Future<ChapterPreview> Function()? loadNextChapter;
   final ValueChanged<ChapterContinuation>? onContinueChapter;
   final ValueChanged<Set<int>>? onPreviewRows;
+  final Widget Function(Object error, VoidCallback retry)?
+  nextChapterErrorBuilder;
   final bool skipFirstPage;
   final ValueChanged<int>? onTapTurn;
   final VoidCallback? onCenterTap;
@@ -644,6 +647,8 @@ class PagedChapterState extends State<PagedChapter> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text('下一章加载失败：$previewError'),
+                    if (widget.nextChapterErrorBuilder case final builder?)
+                      builder(previewError!, _loadPreview),
                     TextButton(
                       onPressed: _loadPreview,
                       child: const Text('重试下一章'),

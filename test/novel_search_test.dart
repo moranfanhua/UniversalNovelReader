@@ -52,9 +52,16 @@ class SearchSource implements SearchableNovelSource {
 class SearchSfacg extends SfacgSource {
   SearchSfacg(super.api, this.response);
   final Future<List<Book>> Function(String) response;
+  final opened = <String>[];
   @override
   Future<List<Book>> search(String keyword, {int page = 0}) =>
       response(keyword);
+
+  @override
+  Future<Book> getBook(String input) async {
+    opened.add(input);
+    throw const SourceException('已调用菠萝包书源');
+  }
 }
 
 class PlatformSearchSource extends SearchSource
@@ -226,6 +233,56 @@ void main() {
     expect(calls, ['fanqie', 'sfacg']);
     expect(find.text('搜索未完成，请重试'), findsOneWidget);
     expect(find.textContaining('已显示其他平台的结果'), findsNothing);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('数字书名按关键词搜索，菠萝包链接与番茄长 ID 仍直接打开', (tester) async {
+    final calls = <String>[];
+    final api = SfacgApi();
+    addTearDown(api.close);
+    final sfacg = SearchSfacg(api, (keyword) async {
+      calls.add('sfacg:$keyword');
+      return [book('1', keyword)];
+    });
+    final fanqie = SearchSource('fanqie', (keyword) async {
+      calls.add('fanqie:$keyword');
+      return [book('2', keyword, source: 'fanqie')];
+    });
+    final library = SearchMemoryLibrary(
+      Directory.systemTemp,
+      sfacg,
+      novelSources: [fanqie],
+    );
+    addTearDown(library.dispose);
+    await tester.pumpWidget(MaterialApp(home: HomePage(library: library)));
+    await tester.tap(find.text('书源'));
+    await tester.pumpAndSettle();
+
+    for (final keyword in ['0', '1984', '776753', '1234567890']) {
+      calls.clear();
+      await tester.enterText(find.byType(TextField), ' $keyword ');
+      await tester.tap(find.byTooltip('搜索或添加作品'));
+      await tester.pumpAndSettle();
+      expect(calls, ['fanqie:$keyword', 'sfacg:$keyword']);
+      expect(sfacg.opened, isEmpty);
+      expect(fanqie.opened, isEmpty);
+      expect(find.byKey(const ValueKey('search-sfacg:1')), findsOneWidget);
+      expect(find.byKey(const ValueKey('search-fanqie:2')), findsOneWidget);
+    }
+
+    calls.clear();
+    const link = 'https://book.sfacg.com/Novel/776753/';
+    await tester.enterText(find.byType(TextField), link);
+    await tester.tap(find.byTooltip('搜索或添加作品'));
+    await tester.pumpAndSettle();
+    expect(sfacg.opened, [link]);
+    const fanqieId = '7123456789012345678';
+    await tester.enterText(find.byType(TextField), fanqieId);
+    await tester.tap(find.byTooltip('搜索或添加作品'));
+    await tester.pumpAndSettle();
+    expect(fanqie.opened, [fanqieId]);
+    expect(calls, isEmpty);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
   });

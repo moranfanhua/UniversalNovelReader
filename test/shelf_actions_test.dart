@@ -41,6 +41,8 @@ class ActionsLibrary extends Library {
   ActionsLibrary() : super(Directory.systemTemp, SfacgSource(SfacgApi()));
   bool failSave = false;
   @override
+  Future<void> saveShelfUpdateTimes() => save();
+  @override
   Future<void> save() async {
     if (failSave) throw const FileSystemException('保存失败');
     notifyListeners();

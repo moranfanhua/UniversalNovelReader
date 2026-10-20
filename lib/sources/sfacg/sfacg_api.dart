@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
 
 import '../../domain/models.dart';
+import '../../domain/server_error_message.dart';
 import '../../data/app_log.dart';
 import '../logged_request.dart';
 import '../session_validation.dart';
@@ -218,6 +219,11 @@ class SfacgApi {
         }
         return head ? response.headers : doc['data'];
       }
+      final serverMessage = ServerErrorMessage.parse(
+        status['msg'],
+        responseData: doc,
+        secrets: [cookies, body, query, device, nonce, req.headers.values],
+      );
       AppLog.instance.record(
         LogLevel.warning,
         'sfacg.request_rejected',
@@ -227,6 +233,7 @@ class SfacgApi {
           errorCode: int.tryParse('${status['errorCode']}'),
         ),
         httpStatus: response.statusCode,
+        serverMessage: serverMessage,
       );
       if (!requiresVerification &&
           retry &&
@@ -260,35 +267,28 @@ class SfacgApi {
           : req.method == 'POST' && uri.path.endsWith('/replys')
           ? '段评回复'
           : '菠萝包请求';
-      var message = '${status['msg'] ?? ''}'.trim();
-      for (final secret in [
-        ...cookies.values,
-        if (body != null) ...body.values.whereType<String>(),
-        if (query?['captcha_ticket'] != null) query!['captcha_ticket']!,
-        if (query?['captcha_randstr'] != null) query!['captcha_randstr']!,
-      ]) {
-        if (secret.isNotEmpty) message = message.replaceAll(secret, '[已隐藏]');
-      }
-      message = message
-          .replaceAll(RegExp(r'1[3-9]\d{9}'), '[手机号已隐藏]')
-          .replaceAll(RegExp(r'[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}'), '[邮箱已隐藏]');
       final errorCode = int.tryParse('${status['errorCode']}');
       if (requiresVerification) {
+        final message = '$endpoint遇到平台安全限制';
         throw SourceVerificationRequiredException(
-          '$endpoint遇到平台安全限制${message.isEmpty ? '' : '：$message'}',
+          serverMessage?.appendTo(message) ?? message,
           code: code,
           errorCode: errorCode,
         );
       }
       if (uri.path.startsWith('/Chaps/') && code == 401 && errorCode == 507) {
-        throw const SourceException(
-          '菠萝包正文接口拒绝当前 App 请求配置（错误码 507），请检查 App 版本和设备标识；登录成功不代表正文接口可用',
+        const message =
+            '菠萝包正文接口拒绝当前 App 请求配置（错误码 507），请检查 App 版本和设备标识；登录成功不代表正文接口可用';
+        throw SourceException(
+          serverMessage?.appendTo(message) ?? message,
           code: 401,
           errorCode: 507,
         );
       }
+      final message =
+          '$endpoint失败（HTTP ${response.statusCode}，状态 $code，错误码 ${status['errorCode'] ?? 0}）';
       throw SourceException(
-        '$endpoint失败（HTTP ${response.statusCode}，状态 $code，错误码 ${status['errorCode'] ?? 0}）${message.isEmpty ? '' : '：$message'}',
+        serverMessage?.appendTo(message) ?? message,
         code: code,
         errorCode: errorCode,
       );

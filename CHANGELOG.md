@@ -1,5 +1,22 @@
 # 更新日志
 
+## v1.0.2
+
+### 新增 | New
+
+* 新增下载管理页，集中查看已下载书籍与正在执行的任务；支持选择章节加入顺序下载队列、关闭窗口后继续下载，并查看失败章节及重新下载。[#59](https://github.com/moranfanhua/UniversalNovelReader/pull/59)
+* 支持菠萝包、起点和刺猬猫从当前章节起批量订阅后续章节；先获取费用并由用户确认后提交，跳过免费及已订阅章节。[#55](https://github.com/moranfanhua/UniversalNovelReader/pull/55)
+
+### 修复 | Fix
+
+* 修复 Android 自动更新下载包始终使用 universal 版本的问题，改为按设备 ABI 下载对应安装包。[#48](https://github.com/moranfanhua/UniversalNovelReader/pull/48)
+* 修复番茄段评中的图片与表情显示问题。[#54](https://github.com/moranfanhua/UniversalNovelReader/pull/54)
+* 修复番茄正文中缺少图片说明的空图片导致整章无法读取的问题。[#56](https://github.com/moranfanhua/UniversalNovelReader/pull/56)
+* 番茄分享短链解析不再调用 H5 页面；无法从短链取得作品 ID 时，提示改用作品 ID、完整作品链接或搜索书名。[#60](https://github.com/moranfanhua/UniversalNovelReader/pull/60)
+* 修复菠萝包数字书名被误判为作品 ID、导致书名搜索失效的问题。[#61](https://github.com/moranfanhua/UniversalNovelReader/pull/61)
+* 修复服务端错误说明未完整保留的问题，并在日志中对相关内容脱敏。[#62](https://github.com/moranfanhua/UniversalNovelReader/pull/62)
+* 修复导出 EPUB 时遇到不兼容图片格式导致失败的问题，导出时转换图片格式。[#63](https://github.com/moranfanhua/UniversalNovelReader/pull/63)
+
 ## v1.0.1
 
 ### 新增 | New

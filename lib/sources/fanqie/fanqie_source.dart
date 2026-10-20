@@ -211,40 +211,11 @@ class FanqieSource extends FanqieComments
         final candidate = uri.queryParameters[key];
         if (candidate != null && _id.hasMatch(candidate)) return candidate;
       }
-    }
-    throw const SourceException('请输入番茄作品 ID、官网作品链接或分享链接');
-  }
-
-  Future<String> _resolveId(String input) async {
-    try {
-      return bookId(input);
-    } on SourceException {
-      /* Resolve official short links. */
-    }
-    var uri = _link(input);
-    if (uri == null || !uri.path.startsWith('/h5/')) return bookId(input);
-    for (var i = 0; i < 4; i++) {
-      final response = await api.fetch(uri!, redirect: false);
-      if (response.statusCode >= 300) {
-        final location = response.headers['location'];
-        if (location == null) break;
-        final next = _link(uri.resolve(location).toString());
-        if (next == null) throw const SourceException('番茄分享链接跳转地址无效');
-        try {
-          return bookId(next.toString());
-        } on SourceException {
-          /* Follow next redirect. */
-        }
-        uri = next;
-      } else {
-        final page = initialState(utf8.decode(response.bodyBytes))['page'];
-        if (page is Map && _id.hasMatch('${page['bookId']}')) {
-          return '${page['bookId']}';
-        }
-        break;
+      if (uri.path.startsWith('/h5/')) {
+        throw const SourceException('暂不支持解析此番茄短链，请输入作品 ID、完整作品链接，或搜索书名');
       }
     }
-    throw const SourceException('无法解析番茄分享链接，请使用官网作品链接或作品 ID');
+    throw const SourceException('请输入番茄作品 ID、官网作品链接或含作品 ID 的分享链接');
   }
 
   @override
@@ -299,7 +270,7 @@ class FanqieSource extends FanqieComments
 
   @override
   Future<Book> getBook(String input) async {
-    final bid = await _resolveId(input);
+    final bid = bookId(input);
     // Official GetDirectoryForItemIdResponse includes both book_info and the
     // ordered item_list / item_data_list. Request an uncached full snapshot.
     final directory = await api.app.request(
@@ -456,38 +427,6 @@ class FanqieSource extends FanqieComments
     return parseContent(markup, itemVersion: version);
   }
 
-  static Map<String, dynamic> initialState(String page) {
-    const prefix = 'window.__INITIAL_STATE__=';
-    final start = page.indexOf(prefix);
-    if (start < 0) throw const SourceException('番茄页面未返回作品数据，请完成官网验证后重试');
-    final begin = start + prefix.length;
-    var depth = 0, quoted = false, escaped = false;
-    for (var i = begin; i < page.length; i++) {
-      final c = page[i];
-      if (quoted) {
-        if (escaped) {
-          escaped = false;
-        } else if (c == r'\') {
-          escaped = true;
-        } else if (c == '"') {
-          quoted = false;
-        }
-      } else if (c == '"') {
-        quoted = true;
-      } else if (c == '{') {
-        depth++;
-      } else if (c == '}' && --depth == 0) {
-        try {
-          return jsonDecode(page.substring(begin, i + 1))
-              as Map<String, dynamic>;
-        } catch (_) {
-          break;
-        }
-      }
-    }
-    throw const SourceException('番茄页面数据格式已变化');
-  }
-
   String _decode(String text) => text.runes.map((r) {
     if (r < 0xe000 || r > 0xf8ff) return String.fromCharCode(r);
     final value = cipher['$r'];
@@ -508,10 +447,18 @@ class FanqieSource extends FanqieComments
     final paragraphs = <Paragraph>[];
     final text = StringBuffer();
     int? remoteIndex;
+    void validateRemoteIndex() {
+      // Empty image captions can omit idx; only emitted content needs an index.
+      if (itemVersion != null && (remoteIndex == null || remoteIndex! < 0)) {
+        throw const SourceException('番茄 App 段落编号无效');
+      }
+    }
+
     void flush() {
       final value = _decode(text.toString()).trim();
       text.clear();
       if (value.isNotEmpty) {
+        validateRemoteIndex();
         paragraphs.add(
           Paragraph(value, remoteIndex: remoteIndex, remoteId: itemVersion),
         );
@@ -532,12 +479,10 @@ class FanqieSource extends FanqieComments
         remoteIndex = itemVersion == null
             ? null
             : int.tryParse(node.attributes['idx'] ?? '');
-        if (itemVersion != null && (remoteIndex == null || remoteIndex! < 0)) {
-          throw const SourceException('番茄 App 段落编号无效');
-        }
       }
       if (node.localName == 'img') {
         flush();
+        validateRemoteIndex();
         var address = node.attributes['src'] ?? '';
         if (address.startsWith('{{image_domain}}')) {
           try {

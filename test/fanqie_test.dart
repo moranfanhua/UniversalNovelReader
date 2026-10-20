@@ -25,9 +25,6 @@ const bookId = '7143038691944959011';
 const chapterId = '7173216089122439711';
 const nextId = '7173217408294453791';
 
-String page(Map<String, dynamic> state) =>
-    '<script>window.__INITIAL_STATE__=${jsonEncode(state)};}</script>';
-
 http.Response jsonResponse(Object data) => http.Response(
   jsonEncode({'code': 0, 'data': data}),
   200,
@@ -184,20 +181,86 @@ void main() {
     }
   });
 
-  test('解析页面状态中的嵌套对象、引号和分号，不执行页面脚本', () {
-    final state = {
-      'page': {
-        'bookName': '引用 "};" 与 \\ 路径',
-        'list': [
-          {'id': 1},
-        ],
-      },
-    };
-    expect(FanqieSource.initialState(page(state)), state);
-    expect(
-      () => FanqieSource.initialState('<script>alert(1)</script>'),
-      throwsA(isA<SourceException>()),
-    );
+  test('作品导入从 ID、官网链接与含 ID 的分享文本直接请求 App 目录', () async {
+    var calls = 0;
+    final api = FanqieApi(
+      client: MockClient((request) async {
+        calls++;
+        expect(request.url.scheme, 'https');
+        expect(request.url.host, 'api5-normal-sinfonlineb.fqnovel.com');
+        expect(request.url.path, '/reading/bookapi/directory/all_items/v/');
+        expect(request.url.queryParameters['book_id'], bookId);
+        expect(request.headers.containsKey('cookie'), isFalse);
+        return jsonResponse({
+          'book_info': {'book_id': bookId, 'book_name': '测试书', 'genre': '0'},
+          'item_data_list': [
+            {'item_id': chapterId, 'title': '第一章'},
+          ],
+        });
+      }),
+    )..setCookie('sessionid=test-session');
+    addTearDown(api.close);
+    api.app.restore({'deviceId': '123456789', 'installId': '234567890'});
+    final source = FanqieSource(api);
+    final inputs = [
+      bookId,
+      'https://fanqienovel.com/page/$bookId',
+      'https://www.fanqienovel.com/page/$bookId/',
+      for (final key in ['book_id', 'bookId', 'bookid'])
+        '分享作品 https://reading.snssdk.com/h5/test?$key=$bookId。',
+    ];
+    for (final input in inputs) {
+      final result = await source.getBook(input);
+      expect(result.key, 'fanqie:$bookId');
+      expect(result.chapters.single.id, chapterId);
+    }
+    expect(calls, inputs.length);
+    expect(api.cookie, 'sessionid=test-session');
+  });
+
+  test('作品导入拒绝无 ID 短链与非法链接，不请求网页或跟随跳转且保留会话', () async {
+    var calls = 0;
+    final api = FanqieApi(
+      client: MockClient((request) async {
+        calls++;
+        return http.Response(
+          '',
+          302,
+          headers: {'location': 'https://evil.com/page/$bookId'},
+        );
+      }),
+    )..setCookie('sessionid=test-session');
+    addTearDown(api.close);
+    final source = FanqieSource(api);
+    for (final input in [
+      'https://reading.snssdk.com/h5/test',
+      '分享作品 https://fanqienovel.com/h5/test。',
+      'https://reading.snssdk.com/h5/test?book_id=123',
+    ]) {
+      await expectLater(
+        source.getBook(input),
+        throwsA(
+          isA<SourceException>().having(
+            (error) => error.message,
+            '短链提示提供替代输入',
+            allOf(contains('短链'), contains('作品 ID'), contains('搜索书名')),
+          ),
+        ),
+      );
+    }
+    for (final input in [
+      'https://evil.com/page/$bookId',
+      'https://fanqienovel.com.evil.com/h5/test?book_id=$bookId',
+      'https://user@fanqienovel.com/h5/test?book_id=$bookId',
+      'https://fanqienovel.com:444/h5/test?book_id=$bookId',
+      'https://reading.snssdk.com/reader/$chapterId',
+      'https://reading.snssdk.com/unknown',
+      '无效输入',
+    ]) {
+      await expectLater(source.getBook(input), throwsA(isA<SourceException>()));
+    }
+    expect(calls, 0);
+    expect(api.cookie, 'sessionid=test-session');
   });
 
   test('真实字体字符表解码正文，处理空段、换行和插图位置且不改写图片路径', () {
@@ -229,6 +292,61 @@ void main() {
     );
     expect(
       () => source.parseContent('<p></p>'),
+      throwsA(isA<SourceException>()),
+    );
+  });
+
+  test('App 空段与空图片说明不要求编号，也不改变正文及插图的段评位置', () {
+    final api = FanqieApi();
+    addTearDown(api.close);
+    final source = FanqieSource(api);
+    final content = source.parseContent(
+      '<h1>章节标题</h1><p></p><p idx="0">插图前正文</p>'
+      '<div data-fanqie-type="image" idx="30001" p_idx="40000">'
+      '<p class="picture" group-id="2" idx="20001" p_idx="30001">'
+      '<img src="https://example.com/illustration.jpg"/></p>'
+      '<p class="pictureDesc" group-id="2" p_idx="30001"></p></div>'
+      '<p idx=""> <span>&nbsp;</span><br></p><p idx="-1"></p>'
+      '<p idx="1">插图后正文</p>',
+      itemVersion: 'version-1',
+    );
+    expect(content.paragraphs.map((p) => p.text), ['插图前正文', '', '插图后正文']);
+    expect(content.paragraphs.map((p) => p.image), [
+      null,
+      'https://example.com/illustration.jpg',
+      null,
+    ]);
+    expect(content.paragraphs.map((p) => p.remoteIndex), [0, 20001, 1]);
+    expect(
+      content.paragraphs.map((p) => p.remoteId),
+      everyElement('version-1'),
+    );
+  });
+
+  test('App 可见正文与插图仍须有有效编号，纯空段不能伪装为完整正文', () {
+    final api = FanqieApi();
+    addTearDown(api.close);
+    final source = FanqieSource(api);
+    for (final index in ['', ' idx="-1"', ' idx="invalid"']) {
+      for (final body in [
+        '无效编号正文',
+        '<br>换行后的正文',
+        '<img src="https://example.com/illustration.jpg"/>',
+      ]) {
+        expect(
+          () => source.parseContent(
+            '<p idx="0">有效正文</p><p$index>$body</p>',
+            itemVersion: 'version-1',
+          ),
+          throwsA(isA<SourceException>()),
+        );
+      }
+    }
+    expect(
+      () => source.parseContent(
+        '<p></p><p class="pictureDesc">&nbsp;<br></p>',
+        itemVersion: 'version-1',
+      ),
       throwsA(isA<SourceException>()),
     );
   });
@@ -398,7 +516,7 @@ void main() {
     expect(books.single.favoriteCount, isNull);
   });
 
-  test('短链接处理空正文跳转，拒绝跳转至外部域名并隔离会话', () async {
+  test('底层请求处理空正文跳转，拒绝跳转至外部域名并隔离会话', () async {
     var calls = 0;
     final api = FanqieApi(
       client: MockClient((request) async {

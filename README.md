@@ -1,6 +1,6 @@
 ## 声明
 
-UniversalNovelReader是一个非官方第三方阅读工具，与任何小说平台及其关联方无隶属、代理、合作或授权关系。平台名称、图标、商标、作品、评论、插图、封面等归各自权利人所有，本项目仅作技术说明与平台标识之用。
+UniversalNovelReader（UNR）是一个非官方第三方阅读工具，与任何小说平台及其关联方无隶属、代理、合作或授权关系。平台名称、图标、商标、作品、评论、插图、封面等归各自权利人所有，本项目仅作技术说明与平台标识之用。
 
 ### 1. 内容与权限
 
@@ -8,7 +8,7 @@ UniversalNovelReader是一个非官方第三方阅读工具，与任何小说平
 
 ### 2. 账号与会话
 
-账号登录、Cookie、会话仅用于用户主动发起的站点访问。用户应自行确保有权使用该账号，并遵守对应平台条款。不得共享、出租、售卖账号或会话。若本地保存，应加密存储并允许用户清除，不上传至开发者服务器。
+账号登录与会话导入由用户主动发起，登录凭据、Cookie、会话仅用于对应平台的 App API 请求及会话校验。用户应自行确保有权使用该账号，并遵守对应平台条款。不得共享、出租、售卖账号或会话。本机会话通过 `flutter_secure_storage` 保存，用户可在账号页退出登录清除，不上传至开发者服务器。
 
 ### 3. 导入、下载、导出与缓存
 
@@ -50,7 +50,7 @@ UniversalNovelReader是一个非官方第三方阅读工具，与任何小说平
 
 本声明可能更新，更新后公布即生效。继续使用视为接受更新版本。
 
-最后更新日期：2026.10.16
+最后更新日期：2026.10.19
 
 ## 开源库
 
@@ -66,6 +66,7 @@ UniversalNovelReader是一个非官方第三方阅读工具，与任何小说平
 - [path_provider](https://pub.dev/packages/path_provider) — BSD-3-Clause
 - [package_info_plus](https://pub.dev/packages/package_info_plus)、[package_info_plus_platform_interface](https://pub.dev/packages/package_info_plus_platform_interface) — BSD-3-Clause；读取已安装应用的版本与构建号。
 - [url_launcher](https://pub.dev/packages/url_launcher) 及其 Android、iOS、Linux、macOS、Web、Windows 和平台接口包 — BSD-3-Clause；使用系统浏览器下载更新包。
+- [pub_semver](https://pub.dev/packages/pub_semver) — BSD-3-Clause；检查更新时解析、比较正式版本号。
 - [flutter_secure_storage](https://pub.dev/packages/flutter_secure_storage) — BSD-3-Clause
 - [enough_convert](https://pub.dev/packages/enough_convert) — MPL-2.0
 - [flutter_lints](https://pub.dev/packages/flutter_lints)、[lints](https://pub.dev/packages/lints) — BSD-3-Clause
@@ -81,7 +82,7 @@ UniversalNovelReader是一个非官方第三方阅读工具，与任何小说平
 - [leak_tracker_testing](https://pub.dev/packages/leak_tracker_testing)、[logging](https://pub.dev/packages/logging)、[matcher](https://pub.dev/packages/matcher)、[meta](https://pub.dev/packages/meta) — BSD-3-Clause
 - [objective_c](https://pub.dev/packages/objective_c)、[package_config](https://pub.dev/packages/package_config)、[path](https://pub.dev/packages/path)、[path_provider_android](https://pub.dev/packages/path_provider_android) — BSD-3-Clause
 - [path_provider_foundation](https://pub.dev/packages/path_provider_foundation)、[path_provider_linux](https://pub.dev/packages/path_provider_linux)、[path_provider_platform_interface](https://pub.dev/packages/path_provider_platform_interface)、[path_provider_windows](https://pub.dev/packages/path_provider_windows) — BSD-3-Clause
-- [platform](https://pub.dev/packages/platform)、[plugin_platform_interface](https://pub.dev/packages/plugin_platform_interface)、[pub_semver](https://pub.dev/packages/pub_semver)、[record_use](https://pub.dev/packages/record_use) — BSD-3-Clause
+- [platform](https://pub.dev/packages/platform)、[plugin_platform_interface](https://pub.dev/packages/plugin_platform_interface)、[record_use](https://pub.dev/packages/record_use) — BSD-3-Clause
 - [source_span](https://pub.dev/packages/source_span)、[stack_trace](https://pub.dev/packages/stack_trace)、[stream_channel](https://pub.dev/packages/stream_channel)、[string_scanner](https://pub.dev/packages/string_scanner) — BSD-3-Clause
 - [term_glyph](https://pub.dev/packages/term_glyph)、[test_api](https://pub.dev/packages/test_api)、[typed_data](https://pub.dev/packages/typed_data)、[vector_graphics](https://pub.dev/packages/vector_graphics) — BSD-3-Clause
 - [vector_graphics_codec](https://pub.dev/packages/vector_graphics_codec)、[vector_graphics_compiler](https://pub.dev/packages/vector_graphics_compiler)、[vector_math](https://pub.dev/packages/vector_math)、[vm_service](https://pub.dev/packages/vm_service) — BSD-3-Clause
@@ -94,17 +95,13 @@ UniversalNovelReader是一个非官方第三方阅读工具，与任何小说平
 - [peter-evans/create-pull-request](https://github.com/peter-evans/create-pull-request) — MIT；自动格式化变更的 PR 创建与更新工具。
 - [SFacgExporter](https://github.com/moranfanhua/SFacgExporter) — AGPL-3.0；菠萝包签名、正文字符表与导出逻辑参考来源，原作者 moranfanhua。
 - [fanqienovel-downloader](https://github.com/ying-ck/fanqienovel-downloader) — AGPL-3.0；番茄官网正文字体字符表参考来源，原作者 ying-ck（qxqycb）。
-- [Pointy Castle](https://pub.dev/packages/pointycastle) — MIT；番茄接口签名与阅读密钥注册使用的 AES、SM3 实现，起点 App 协议使用的 AES、DES 与 3DES 实现，以及刺猬猫 App 协议使用的 AES 与 RSA 实现。
+- [Pointy Castle](https://pub.dev/packages/pointycastle) — MIT；番茄设备与阅读密钥注册使用的 AES 加密，起点 App 请求使用的 3DES 加密，以及起点与刺猬猫 App 协议使用的 RSA 加密。
+- [Mbed TLS 3.6.7](https://github.com/Mbed-TLS/mbedtls/tree/068ff080b369adfac81509f9b57b2afabaf82dc5) — Apache-2.0（选择上游双重许可中的 Apache-2.0）；精简且未修改的 AES、DES 与平台工具源码用于起点、番茄、刺猬猫的原生章节解密。来源、文件摘要与许可见 `third_party/mbedtls/UPSTREAM`、`third_party/mbedtls/LICENSE`；许可随应用打包并显示在开源许可页。
+- [native_toolchain_c](https://pub.dev/packages/native_toolchain_c)、[glob](https://pub.dev/packages/glob)、[file](https://pub.dev/packages/file) — BSD-3-Clause；配合 `hooks`、`code_assets` 和 `ffi` 编译、打包并调用请求签名与章节解密的 C++ 实现。
+- [LLVM libc++ / libc++abi](https://github.com/llvm/llvm-project/blob/main/libcxx/LICENSE.TXT) — Apache-2.0 WITH LLVM-exception；Android 原生签名与章节解密库静态链接的 NDK C++ 运行库。
 - [pinyin](https://pub.dev/packages/pinyin) — BSD-2-Clause；书名排序使用的汉字转拼音实现。
-- [Bugaoshan（不高山上）](https://github.com/moranfanhua/Bugaoshan) — AGPL-3.0；运行日志页的筛选、分级列表与堆栈折叠交互参考来源。
-- [MaaAssistantArknights](https://github.com/moranfanhua/MaaAssistantArknights) — AGPL-3.0；项目 `maa-issue-log-analysis` skill 的证据时间线、版本对照与诉求评估方法为 UNR issue 分析 skill 的参考来源；GitHub Actions 的快速测试、构建、依赖更新、PR 规范与格式检查流程为 UNR CI 的设计参考。
 - [convert](https://pub.dev/packages/convert) — BSD-3-Clause；Pointy Castle 的传递依赖。
 - [fqapp](https://github.com/ch6vip/fqapp) — GPL-3.0；番茄签名、密钥注册与接口参数参考来源，原作者 ch6vip。
 - [Guava](https://github.com/google/guava) — Apache-2.0；AndroidX 仍使用其 listenablefuture 接口包。
 - [AndroidX Core](https://android.googlesource.com/platform/frameworks/support/)、[AndroidX Annotation](https://android.googlesource.com/platform/frameworks/support/) — Apache-2.0；Flutter Android 插件的平台适配。WebView 插件还使用 Apache-2.0 的 AndroidX WebKit、Browser、AppCompat 与 SwipeRefreshLayout。
 - [Error Prone annotations](https://github.com/google/error-prone)、[JSpecify](https://github.com/jspecify/jspecify) — Apache-2.0；Flutter Android 插件的传递依赖。
-
-## 协议参考来源
-
-- [刺猬猫官方 Android 客户端](https://www.ciweimao.com/setting/download) 2.9.367 — 刺猬猫 App 接口、签名及数据格式的兼容性参考；客户端及平台标识的权利归原权利人所有。
-- `assets/ciweimao_emoji/` 的 40 个内置表情取自上述官方客户端的 `drawable/emoji_01` 至 `drawable/emoji_40`，用于还原评论中的 `#(表情名)`；表情图片的版权归原权利人所有，不属于本项目原创代码的 AGPL-3.0 授权范围。

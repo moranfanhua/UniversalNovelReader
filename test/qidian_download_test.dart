@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:unr/domain/models.dart';
+import 'package:unr/sources/chapter_subscription_source.dart';
 import 'package:unr/sources/qidian/qidian_api.dart';
 import 'package:unr/sources/qidian/qidian_source.dart';
 
@@ -117,7 +118,7 @@ void main() {
     expect(h.paths.where((p) => p.endsWith('getkey')).length, 1);
     expect(results[0].content!.paragraphs.first.text, '合成免费正文。');
     expect(results[1].content!.paragraphs.first.text, contains('测试付费段落'));
-    expect(results[2].error, isA<SourceException>());
+    expect(results[2].error, isA<SubscriptionRequiredException>());
   });
 
   test('匿名与未购VIP不进入批量任务，空任务不请求密钥和ZIP', () async {

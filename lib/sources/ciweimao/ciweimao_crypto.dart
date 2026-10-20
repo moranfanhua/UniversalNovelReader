@@ -6,6 +6,7 @@ import 'package:crypto/crypto.dart';
 import 'package:pointycastle/export.dart';
 
 import '../../domain/models.dart';
+import '../native_chapter_crypto.dart';
 
 /// Protocol verified against the official Android App 2.9.367.
 class CiweimaoCrypto {
@@ -53,21 +54,15 @@ class CiweimaoCrypto {
       if (bytes.isEmpty || bytes.length % 16 != 0) {
         throw const FormatException();
       }
-      final cipher =
-          PaddedBlockCipherImpl(PKCS7Padding(), CBCBlockCipher(AESEngine()))
-            ..init(
-              false,
-              PaddedBlockCipherParameters<ParametersWithIV<KeyParameter>, Null>(
-                ParametersWithIV(
-                  KeyParameter(
-                    Uint8List.fromList(sha256.convert(utf8.encode(seed)).bytes),
-                  ),
-                  Uint8List(16),
-                ),
-                null,
-              ),
-            );
-      return utf8.decode(cipher.process(bytes));
+      return utf8.decode(
+        NativeChapterCrypto.decrypt(
+          ChapterDecryptInput(
+            data: bytes,
+            key: Uint8List.fromList(sha256.convert(utf8.encode(seed)).bytes),
+            iv: Uint8List(16),
+          ),
+        ),
+      );
     } catch (_) {
       throw const SourceException('刺猬猫返回无法识别的数据，请重试');
     }

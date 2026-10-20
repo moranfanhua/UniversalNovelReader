@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../domain/models.dart';
 import '../comment_source.dart';
+import '../comment_like_cache.dart';
 import 'ciweimao_api.dart';
 import 'ciweimao_parser.dart';
 import 'ciweimao_markup.dart';
@@ -15,7 +16,10 @@ abstract class CiweimaoComments extends CommentSource {
   final _counts = <String, ({DateTime at, Map<int, int> values})>{};
   final _countRequests = <String, Future<Map<int, int>>>{};
   final _countEpochs = <String, int>{};
-  final _likes = <String, ValueNotifier<CommentLikeStatus>>{};
+  late final _likes = CommentLikeCache(
+    onEvict: (key) => _likeVersions.remove(key),
+    isPending: _likeRequests.containsKey,
+  );
   final _likeVersions = <String, int>{};
   final _likeRequests = <String, Future<void>>{};
   final _writes = <String, Future<void>>{};
@@ -217,7 +221,7 @@ abstract class CiweimaoComments extends CommentSource {
     final key = _likeKey(comment);
     final state = _likes.putIfAbsent(
       key,
-      () => ValueNotifier(
+      () => CommentLikeNotifier(
         CommentLikeStatus(
           count: comment.likes,
           liked: '${info['is_like']}' == '1',
@@ -369,7 +373,7 @@ abstract class CiweimaoComments extends CommentSource {
     ParagraphComment? root,
   }) => _likes.putIfAbsent(
     _likeKey(comment),
-    () => ValueNotifier(CommentLikeStatus(count: comment.likes)),
+    () => CommentLikeNotifier(CommentLikeStatus(count: comment.likes)),
   );
 
   @override
@@ -393,6 +397,7 @@ abstract class CiweimaoComments extends CommentSource {
       () => _like(comment, state, location: location, root: root).whenComplete(
         () {
           _likeRequests.remove(key);
+          _likes.trim();
         },
       ),
     );

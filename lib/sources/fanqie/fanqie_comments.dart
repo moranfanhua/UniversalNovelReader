@@ -1,8 +1,9 @@
-import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import '../../domain/models.dart';
 import '../comment_source.dart';
+import '../comment_like_cache.dart';
 import 'fanqie_api.dart';
+import 'fanqie_markup.dart';
 
 abstract class FanqieComments extends CommentSource {
   FanqieComments(this.api);
@@ -23,7 +24,10 @@ abstract class FanqieComments extends CommentSource {
   final _counts = <String, ({DateTime at, Map<String, int> data})>{};
   final _countRequests = <String, Future<Map<String, int>>>{};
   final _countEpochs = <String, int>{};
-  final _likes = <String, ValueNotifier<CommentLikeStatus>>{};
+  late final _likes = CommentLikeCache(
+    onEvict: (key) => _services.remove(key),
+    isPending: _likeRequests.containsKey,
+  );
   final _likeRequests = <String, Future<void>>{};
   final _services = <String, Object>{};
   String _session = '';
@@ -147,24 +151,11 @@ abstract class FanqieComments extends CommentSource {
     final stat = _map(raw['stat']), action = _map(raw['user_action']);
     final cid = _id(raw[reply ? 'reply_id' : 'comment_id']);
     final seconds = _int(common['create_timestamp']);
-    final images = content['image_data_list'];
-    var text = '${content['text'] ?? ''}';
-    if (images is List && images.isNotEmpty) {
-      final urls = <String>[];
-      for (final image in images) {
-        final value = _map(image);
-        final address = value['url'] ?? value['image_url'];
-        final valid = address is String ? commentImageAddress(address) : null;
-        if (valid != null) urls.add(valid);
-      }
-      if (urls.isNotEmpty) {
-        text = '\u0000fanqie:${jsonEncode({'text': text, 'images': urls})}';
-      }
-    }
+    final text = FanqieMarkup.encode(content);
     _services[cid] = common['service_id'] ?? 1;
     final status = _likes.putIfAbsent(
       cid,
-      () => ValueNotifier(
+      () => CommentLikeNotifier(
         CommentLikeStatus(
           count: _int(stat['digg_count']),
           liked: action['user_digg'] == true,
@@ -197,20 +188,7 @@ abstract class FanqieComments extends CommentSource {
   }
 
   @override
-  List<CommentPart> commentContent(String text) {
-    if (!text.startsWith('\u0000fanqie:')) return [CommentPart.text(text)];
-    try {
-      final data = jsonDecode(text.substring('\u0000fanqie:'.length)) as Map;
-      return [
-        CommentPart.text('${data['text'] ?? ''}'),
-        for (final image in data['images'] as List)
-          if (image is String && commentImageAddress(image) != null)
-            CommentPart.image(image),
-      ];
-    } catch (_) {
-      return [CommentPart.text(text)];
-    }
-  }
+  List<CommentPart> commentContent(String text) => FanqieMarkup.content(text);
 
   static String? _next(Map info, String? cursor) {
     if (info['has_more'] != true) return null;
@@ -259,7 +237,13 @@ abstract class FanqieComments extends CommentSource {
             'common': {
               'create_timestamp': raw['create_timestamp'],
               'service_id': raw['service_id'],
-              'content': {'text': raw['text'] ?? ''},
+              'content': {
+                'text': raw['text'] ?? '',
+                'image_data_list': raw['image_data_list'],
+                'image_data': raw['image_data'],
+                'image_url': raw['image_url'] ?? raw['expand_image_url'],
+                'text_exts': raw['text_exts'],
+              },
               'user_info': {'user_id': user['user_id'], 'base_info': user},
             },
             'stat': {
@@ -461,7 +445,7 @@ abstract class FanqieComments extends CommentSource {
     _checkSession();
     return _likes.putIfAbsent(
       comment.id,
-      () => ValueNotifier(CommentLikeStatus(count: comment.likes)),
+      () => CommentLikeNotifier(CommentLikeStatus(count: comment.likes)),
     );
   }
 
@@ -515,6 +499,7 @@ abstract class FanqieComments extends CommentSource {
           rethrow;
         } finally {
           _likeRequests.remove(cid);
+          _likes.trim();
         }
       })();
     });

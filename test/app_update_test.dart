@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:ffi' show Abi;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -7,8 +8,12 @@ import 'package:unr/data/app_update.dart';
 import 'helpers/app_release.dart';
 
 void main() {
-  AppUpdates updatesFor(http.Response response) {
+  AppUpdates updatesFor(
+    http.Response response, {
+    Abi runtimeAbi = Abi.androidArm64,
+  }) {
     final updates = AppUpdates(
+      runtimeAbi: runtimeAbi,
       clientFactory: () => MockClient((request) async {
         expect(request.url, AppUpdates.latestRelease);
         expect(request.url.host, 'api.github.com');
@@ -20,8 +25,10 @@ void main() {
     return updates;
   }
 
-  AppUpdates withRelease(Map<String, dynamic> json) =>
-      updatesFor(jsonResponse(json));
+  AppUpdates withRelease(
+    Map<String, dynamic> json, {
+    Abi runtimeAbi = Abi.androidArm64,
+  }) => updatesFor(jsonResponse(json), runtimeAbi: runtimeAbi);
 
   test('直连 GitHub 检查正式版并解析两个平台的发布包', () async {
     final release = (await withRelease(releaseJson()).check('0.3.2'))!;
@@ -30,12 +37,77 @@ void main() {
     expect(release.downloads.keys, containsAll(UpdatePlatform.values));
     expect(
       release.downloads[UpdatePlatform.android]!.path,
-      endsWith('/unr-0.4.0-android-universal.apk'),
+      endsWith('/unr-0.4.0-android-arm64-v8a.apk'),
     );
     expect(
       release.downloads[UpdatePlatform.windows]!.path,
       endsWith('/unr-0.4.0-windows-x64.zip'),
     );
+  });
+
+  test('Android 按当前运行架构选择更新包，不受附件顺序影响', () async {
+    for (final (abi, suffix) in [
+      (Abi.androidArm, 'armeabi-v7a'),
+      (Abi.androidArm64, 'arm64-v8a'),
+      (Abi.androidX64, 'x86_64'),
+    ]) {
+      for (final reverse in [false, true]) {
+        final json = releaseJson();
+        if (reverse) {
+          json['assets'] = (json['assets'] as List).reversed.toList();
+        }
+        final release = (await withRelease(
+          json,
+          runtimeAbi: abi,
+        ).check('0.3.2'))!;
+        expect(
+          release.downloads[UpdatePlatform.android]!.path,
+          endsWith('/unr-0.4.0-android-$suffix.apk'),
+        );
+      }
+    }
+  });
+
+  test('缺失或损坏同架构包时不回退 universal 或其他架构包', () async {
+    for (final change in [
+      {'state': 'new'},
+      {'size': 0},
+      {'browser_download_url': 'https://other.example/update.apk'},
+      {'name': 'unr-0.3.0-android-arm64-v8a.apk'},
+    ]) {
+      final json = releaseJson();
+      json['assets'] = [
+        for (final asset in json['assets'] as List<Map<String, dynamic>>)
+          if (asset['name'] == 'unr-0.4.0-android-arm64-v8a.apk')
+            {...asset, ...change}
+          else
+            asset,
+      ];
+      final release = (await withRelease(json).check('0.3.2'))!;
+      expect(
+        release.downloads[UpdatePlatform.android],
+        isNull,
+        reason: '$change',
+      );
+      expect(release.downloads[UpdatePlatform.windows], isNotNull);
+    }
+    final json = releaseJson();
+    (json['assets'] as List).removeWhere(
+      (asset) => asset['name'] == 'unr-0.4.0-android-arm64-v8a.apk',
+    );
+    final release = (await withRelease(json).check('0.3.2'))!;
+    expect(release.downloads[UpdatePlatform.android], isNull);
+  });
+
+  test('不支持的运行架构不提供 Android 包，Windows 下载保持可用', () async {
+    for (final abi in [Abi.androidIA32, Abi.windowsX64, Abi.linuxArm64]) {
+      final release = (await withRelease(
+        releaseJson(),
+        runtimeAbi: abi,
+      ).check('0.3.2'))!;
+      expect(release.downloads[UpdatePlatform.android], isNull);
+      expect(release.downloads[UpdatePlatform.windows], isNotNull);
+    }
   });
 
   test('按数值比较版本，忽略本地构建号，避免重复更新及降级', () async {

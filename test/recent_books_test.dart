@@ -37,6 +37,8 @@ class RecentLibrary extends Library {
   Completer<void>? saving;
   Completer<ChapterContent>? pendingRead;
   @override
+  Future<void> saveShelfUpdateTimes() => save();
+  @override
   Future<void> save() async {
     saves++;
     if (failSave) throw const FileSystemException('保存失败');
@@ -44,6 +46,9 @@ class RecentLibrary extends Library {
     await saving?.future;
   }
 
+  @override
+  Future<Set<String>> cachedChapterIds(Book book) async =>
+      (await cachedContents(book)).keys.toSet();
   @override
   Future<Map<String, ChapterContent>> cachedContents(Book book) async => {};
   @override
@@ -171,7 +176,8 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
   }
 
-  for (final (input, onShelf) in [('1', true), ('作品', false)]) {
+  const sfacgLink = 'https://book.sfacg.com/Novel/1/';
+  for (final (input, onShelf) in [(sfacgLink, true), ('作品', false)]) {
     for (final mode in ReadingMode.values) {
       testWidgets('重新打开已有作品同步目录并恢复新增章节（$input，${mode.name}）', (tester) async {
         viewport(tester);
@@ -196,7 +202,7 @@ void main() {
         await tester.enterText(find.byType(TextField), input);
         await tester.tap(find.byTooltip('搜索或添加作品'));
         await tester.pumpAndSettle();
-        if (input != '1') {
+        if (input != sfacgLink) {
           await tester.tap(find.byKey(ValueKey('search-${previous.key}')));
           await tester.pumpAndSettle();
         }

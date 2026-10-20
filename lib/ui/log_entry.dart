@@ -13,6 +13,7 @@ class LogEntry {
     required this.raw,
     this.time,
     this.errorType,
+    this.serverMessage,
     this.httpStatus,
     this.code,
     this.errorCode,
@@ -24,7 +25,7 @@ class LogEntry {
   final String event, raw;
   final LogLevel level;
   final DateTime? time;
-  final String? errorType;
+  final String? errorType, serverMessage;
   final int? httpStatus, code, errorCode, elapsedMs;
   final List<String> stack;
 
@@ -40,7 +41,9 @@ class LogEntry {
       event.startsWith('session.') ||
       event.startsWith('ciweimao.auth_') ||
       event.startsWith('fanqie.auth_') ||
-      event == 'http.fanqie.auth';
+      event.startsWith('qidian.auth_') ||
+      event == 'http.fanqie.auth' ||
+      event == 'http.qidian.auth';
 
   String get message =>
       const {
@@ -54,6 +57,10 @@ class LogEntry {
         'http.fanqie.app': '番茄 App 请求完成',
         'http.fanqie.auth': '番茄认证请求完成',
         'http.ciweimao': '刺猬猫请求完成',
+        'http.qidian': '起点请求完成',
+        'http.qidian.auth': '起点认证请求完成',
+        'qidian.request_rejected': '起点请求被拒绝',
+        'qidian.auth_rejected': '起点认证未通过',
         'ciweimao.response_invalid': '刺猬猫响应解析失败',
         'ciweimao.request_rejected': '刺猬猫请求被拒绝',
         'ciweimao.auth_response_invalid': '刺猬猫认证响应解析失败',
@@ -110,9 +117,11 @@ String logModuleName(String module) =>
       'http.sfacg': '菠萝包网络',
       'http.fanqie': '番茄网络',
       'http.ciweimao': '刺猬猫网络',
+      'http.qidian': '起点网络',
       'sfacg': '菠萝包',
       'fanqie': '番茄',
       'ciweimao': '刺猬猫',
+      'qidian': '起点',
       'session.sfacg': '菠萝包会话',
       'session.fanqie': '番茄会话',
       'session.ciweimao': '刺猬猫会话',
@@ -155,6 +164,9 @@ String logLevelName(LogLevel level) => switch (level) {
           raw: line,
           time: data['time'] is String ? DateTime.tryParse(data['time']) : null,
           errorType: data['errorType'] is String ? data['errorType'] : null,
+          serverMessage: data['serverMessage'] is String
+              ? data['serverMessage']
+              : null,
           httpStatus: data['httpStatus'] is int ? data['httpStatus'] : null,
           code: data['code'] is int ? data['code'] : null,
           errorCode: data['errorCode'] is int ? data['errorCode'] : null,
@@ -227,6 +239,10 @@ class LogEntryTile extends StatelessWidget {
                     color: foreground,
                   ),
                 ),
+                if (entry.serverMessage != null) ...[
+                  const SizedBox(height: 4),
+                  Text('服务端：${entry.serverMessage}'),
+                ],
                 if (entry.errorType != null) ...[
                   const SizedBox(height: 4),
                   Text('异常：${entry.errorType}'),
