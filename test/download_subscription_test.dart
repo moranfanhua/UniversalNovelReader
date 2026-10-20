@@ -4,12 +4,13 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:unr/data/library.dart';
+import 'package:unr/data/download_queue.dart';
 import 'package:unr/domain/models.dart';
 import 'package:unr/sources/chapter_subscription_source.dart';
 import 'package:unr/sources/novel_source.dart';
 import 'package:unr/sources/sfacg/sfacg_api.dart';
 import 'package:unr/sources/sfacg/sfacg_source.dart';
-import 'package:unr/ui/book_page.dart';
+import 'package:unr/ui/chapter_download_dialog.dart';
 
 class _SubscriptionSource implements ChapterSubscriptionSource {
   _SubscriptionSource(this.id);
@@ -111,7 +112,11 @@ void main() {
       for (var i = 1; i <= 4; i++) Chapter(id: '$i', title: '第$i章', vip: i > 1),
     ],
   );
-  Future<void> open(WidgetTester tester, {double width = 360}) async {
+  Future<void> open(
+    WidgetTester tester, {
+    double width = 360,
+    DownloadTask? previousTask,
+  }) async {
     tester.view.physicalSize = Size(width, 800);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -129,8 +134,11 @@ void main() {
             builder: (context) => TextButton(
               onPressed: () => showDialog<void>(
                 context: context,
-                builder: (_) =>
-                    DownloadDialog(library: library, book: book(source.id)),
+                builder: (_) => DownloadDialog(
+                  library: library,
+                  book: book(source.id),
+                  previousTask: previousTask,
+                ),
               ),
               child: const Text('打开下载'),
             ),
@@ -232,6 +240,37 @@ void main() {
     expect(source.purchases, 1);
     await tap(tester, '取消');
     expect(library.downloads, 1);
+  });
+  testWidgets('后台失败任务的下载设置保留范围并定位首个未订阅章节', (tester) async {
+    final selectedBook = book(source.id);
+    final task = library.downloadQueue.enqueue(
+      selectedBook,
+      selectedBook.chapters.sublist(1),
+    );
+    await tester.pump();
+    expect(task.state, DownloadTaskState.failed);
+    await open(tester, previousTask: task);
+    expect(
+      tester
+          .widget<TextField>(find.widgetWithText(TextField, '起始章'))
+          .controller!
+          .text,
+      '2',
+    );
+    expect(
+      tester
+          .widget<TextField>(find.widgetWithText(TextField, '结束章'))
+          .controller!
+          .text,
+      '4',
+    );
+    await tap(tester, '订阅后续章节');
+    await tap(tester, '获取订阅费用');
+    expect(source.firstId, '2');
+    expect(source.purchases, 0);
+    await tap(tester, '取消');
+    expect(library.downloads, 1);
+    expect(tester.takeException(), isNull);
   });
   testWidgets('没有订阅能力的平台不显示入口', (tester) async {
     final free = _FreeSource();

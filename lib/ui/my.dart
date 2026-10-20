@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../data/library.dart';
 import 'about.dart';
 import 'account.dart';
+import 'downloads.dart';
 import 'settings.dart';
 
 class MyPage extends StatelessWidget {
@@ -52,6 +53,19 @@ class MyPage extends StatelessWidget {
                         gbk: gbk,
                         onEncodingChanged: onEncodingChanged,
                       ),
+                    ),
+                  ),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  key: const ValueKey('my-downloads-entry'),
+                  leading: const Icon(Icons.download_outlined),
+                  title: const Text('下载'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => Navigator.push<void>(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => DownloadsPage(library: library),
                     ),
                   ),
                 ),
