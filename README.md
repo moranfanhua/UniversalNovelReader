@@ -95,7 +95,9 @@ UniversalNovelReader（UNR）是一个非官方第三方阅读工具，与任何
 - [peter-evans/create-pull-request](https://github.com/peter-evans/create-pull-request) — MIT；自动格式化变更的 PR 创建与更新工具。
 - [SFacgExporter](https://github.com/moranfanhua/SFacgExporter) — AGPL-3.0；菠萝包签名、正文字符表与导出逻辑参考来源，原作者 moranfanhua。
 - [fanqienovel-downloader](https://github.com/ying-ck/fanqienovel-downloader) — AGPL-3.0；番茄官网正文字体字符表参考来源，原作者 ying-ck（qxqycb）。
-- [Pointy Castle](https://pub.dev/packages/pointycastle) — MIT；番茄接口签名与阅读密钥注册使用的 AES、SM3 实现，起点 App 协议使用的 AES、DES 与 3DES 实现，以及刺猬猫 App 协议使用的 AES 与 RSA 实现。
+- [Pointy Castle](https://pub.dev/packages/pointycastle) — MIT；番茄设备注册、阅读密钥注册与正文解密使用的 AES 实现，起点 App 协议使用的 AES、DES 与 3DES 实现，以及刺猬猫 App 协议使用的 AES 与 RSA 实现。
+- [native_toolchain_c](https://pub.dev/packages/native_toolchain_c)、[glob](https://pub.dev/packages/glob)、[file](https://pub.dev/packages/file) — BSD-3-Clause；配合 `hooks`、`code_assets` 和 `ffi` 编译、打包并调用番茄请求签名的 C++ 实现。
+- [LLVM libc++ / libc++abi](https://github.com/llvm/llvm-project/blob/main/libcxx/LICENSE.TXT) — Apache-2.0 WITH LLVM-exception；Android 番茄签名库静态链接的 NDK C++ 运行库。
 - [pinyin](https://pub.dev/packages/pinyin) — BSD-2-Clause；书名排序使用的汉字转拼音实现。
 - [convert](https://pub.dev/packages/convert) — BSD-3-Clause；Pointy Castle 的传递依赖。
 - [fqapp](https://github.com/ch6vip/fqapp) — GPL-3.0；番茄签名、密钥注册与接口参数参考来源，原作者 ch6vip。
