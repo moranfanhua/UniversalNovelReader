@@ -1,3 +1,5 @@
+import 'dart:io';
+import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import '../data/library.dart';
@@ -20,8 +22,7 @@ class BookPage extends StatefulWidget {
 
 class _BookPageState extends State<BookPage> {
   late Book book = widget.book;
-  late Future<Map<String, ChapterContent>> cached = widget.library
-      .cachedContents(book);
+  late Future<Set<String>> cached = widget.library.cachedChapterIds(book);
   bool busy = false;
   String? error;
   int cacheRevision = 0;
@@ -47,7 +48,7 @@ class _BookPageState extends State<BookPage> {
 
   void _refreshCached() {
     if (!mounted) return;
-    final next = widget.library.cachedContents(book);
+    final next = widget.library.cachedChapterIds(book);
     setState(() {
       cached = next;
     });
@@ -58,8 +59,9 @@ class _BookPageState extends State<BookPage> {
       busy = true;
       error = null;
     });
+    File? exportFile;
     try {
-      final data = await widget.library.cachedContents(book);
+      final data = await widget.library.cachedChapterIds(book);
       if (!mounted) return;
       if (data.isEmpty) throw const SourceException('请先阅读或下载需要导出的章节');
       if (data.length < book.chapters.length) {
@@ -84,13 +86,29 @@ class _BookPageState extends State<BookPage> {
         );
         if (proceed != true) return;
       }
-      final bytes = epub
-          ? await Ebook.exportEpub(
-              book,
-              data,
-              (key) => widget.library.loadImage(book, key),
-            )
-          : Ebook.exportTxt(book, data);
+      final Uint8List bytes;
+      if (epub) {
+        exportFile = await Ebook.exportEpubFile(
+          book,
+          (chapter) async {
+            if (!data.contains(chapter.id)) return null;
+            final content = await widget.library.cached(book, chapter);
+            if (content == null) {
+              throw const SourceException('缓存章节已变更，请重新导出');
+            }
+            return content;
+          },
+          (key) => widget.library.loadImage(book, key),
+          isCancelled: () => !mounted,
+        );
+        bytes = await exportFile.readAsBytes();
+      } else {
+        bytes = Ebook.exportTxt(
+          book,
+          await widget.library.cachedContents(book),
+        );
+      }
+      if (!mounted) return;
       final title = book.title.replaceAll(
         RegExp(r'[<>:"/\\|?*\x00-\x1f]'),
         '_',
@@ -116,6 +134,16 @@ class _BookPageState extends State<BookPage> {
       );
       if (mounted) setState(() => error = '$e');
     } finally {
+      try {
+        if (exportFile != null) await exportFile.parent.delete(recursive: true);
+      } catch (e, stack) {
+        AppLog.instance.record(
+          LogLevel.warning,
+          'export.cleanup_failed',
+          error: e,
+          stackTrace: stack,
+        );
+      }
       if (mounted) setState(() => busy = false);
     }
   }
@@ -133,7 +161,7 @@ class _BookPageState extends State<BookPage> {
       if (mounted) {
         setState(() {
           book = next;
-          cached = widget.library.cachedContents(next);
+          cached = widget.library.cachedChapterIds(next);
         });
       }
     } catch (e, stack) {
@@ -300,11 +328,11 @@ class _BookPageState extends State<BookPage> {
                       ),
                     ),
                   ),
-                  FutureBuilder<Map<String, ChapterContent>>(
+                  FutureBuilder<Set<String>>(
                     future: cached,
                     builder: (context, snapshot) => ChapterDirectory(
                       chapters: book.chapters,
-                      cachedChapterIds: snapshot.data?.keys.toSet() ?? {},
+                      cachedChapterIds: snapshot.data ?? {},
                       selectedChapter:
                           widget.library.progress[book.key]?.firstOrNull,
                       enabled: !busy,

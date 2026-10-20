@@ -351,6 +351,32 @@ class Library extends ChangeNotifier {
         library.recentBooks.addAll(read.take(recentBookLimit));
       }
     }
+    final checkpoints = File('${dir.path}/shelf-checkpoints.json');
+    if (await checkpoints.exists()) {
+      try {
+        final data = jsonDecode(await checkpoints.readAsString()) as Map;
+        for (final entry in data.entries) {
+          final key = '${entry.key}', value = entry.value;
+          if (value is! int) throw const FormatException('检查点格式错误');
+          final previous = library._shelfUpdateTimes[key];
+          if (previous == null || value > previous) {
+            library._shelfUpdateTimes[key] = value;
+          }
+        }
+      } catch (_) {
+        // A damaged optional checkpoint must not block cached/local reading or
+        // cause an immediate retry burst after restarting.
+        final now = library.clock().millisecondsSinceEpoch;
+        for (final book in [...library.books, ...library.recentBooks]) {
+          final previous = library._shelfUpdateTimes[book.key] ?? 0;
+          if (now > previous) library._shelfUpdateTimes[book.key] = now;
+        }
+        AppLog.instance.record(
+          LogLevel.warning,
+          'bookshelf.checkpoints_restore_failed',
+        );
+      }
+    }
     library.downloadedFonts.addAll(await library.fonts.available());
     if (library.readingFontId.isNotEmpty) {
       try {
@@ -469,6 +495,19 @@ class Library extends ChangeNotifier {
     });
     _writes = next;
     if (!_disposed) notifyListeners();
+    return next;
+  }
+
+  /// Request gates are durable without rebuilding the book/chapter index or
+  /// notifying UI listeners. Share the write queue with full snapshots.
+  Future<void> saveShelfUpdateTimes() {
+    final bytes = utf8.encode(jsonEncode(_shelfUpdateTimes));
+    final next = _writes
+        .catchError((_) {})
+        .then(
+          (_) => _atomic(File('${root.path}/shelf-checkpoints.json'), bytes),
+        );
+    _writes = next;
     return next;
   }
 
@@ -744,10 +783,12 @@ class Library extends ChangeNotifier {
       // Each of the three workers awaits its checkpoint. Sharing checkpoints
       // batches their writes without allowing an unbounded queue or delaying
       // persistence beyond 250 ms when a request is slow or fails.
-      final checkpoints = _ShelfCheckpoints(
-        save,
-        batchSize: candidates.length < 3 ? candidates.length : 3,
+      final batchSize = candidates.length < 3 ? candidates.length : 3;
+      final requestCheckpoints = _ShelfCheckpoints(
+        saveShelfUpdateTimes,
+        batchSize: batchSize,
       );
+      final checkpoints = _ShelfCheckpoints(save, batchSize: batchSize);
       var cursor = 0, checked = 0, failed = 0;
       Book? current(String key) =>
           (shelfId == recentShelfId ? recentBooks : books)
@@ -766,7 +807,7 @@ class Library extends ChangeNotifier {
           checked++;
           try {
             // Persist before sending, so reopening cannot bypass the cooldown.
-            await checkpoints.save();
+            await requestCheckpoints.save();
             if (cancelled()) return;
             final service = sourceFor(book)!;
             Book next;
@@ -804,6 +845,16 @@ class Library extends ChangeNotifier {
             if (cancelled() || !identical(current(book.key), book)) continue;
             if (next.key != book.key) {
               throw const SourceException('书源未返回对应作品的信息，已保留本地内容');
+            }
+            if (identical(next.chapters, book.chapters) &&
+                next.title == book.title &&
+                next.author == book.author &&
+                next.cover == book.cover &&
+                next.description == book.description &&
+                next.favoriteCount == book.favoriteCount &&
+                next.updatedAt == book.updatedAt &&
+                next.wordCount == book.wordCount) {
+              continue;
             }
             await _updateBook(
               next,
@@ -1077,6 +1128,9 @@ class Library extends ChangeNotifier {
       _chapterFile(book, chapter),
       utf8.encode(jsonEncode(content.toJson())),
     );
+    _invalidCacheFiles.remove(
+      _chapterFile(book, chapter).absolute.uri.toString(),
+    );
   }
 
   Future<DownloadedBooksSnapshot> downloadedBooks() async {
@@ -1110,16 +1164,7 @@ class Library extends ChangeNotifier {
     final downloaded = <DownloadedBook>[];
     for (final book in candidates.values) {
       try {
-        final directory = Directory('${root.path}/${safeKey(book.key)}');
-        if (!await directory.exists()) continue;
-        final files = <String>{};
-        await for (final entity in directory.list(followLinks: false)) {
-          if (entity is File) files.add(entity.uri.pathSegments.last);
-        }
-        final ids = {
-          for (final chapter in book.chapters)
-            if (files.contains('${safeKey(chapter.id)}.json')) chapter.id,
-        };
+        final ids = await cachedChapterIds(book);
         if (ids.isEmpty) continue;
         downloaded.add(DownloadedBook(book: book, chapterIds: ids));
         // Older caches have only shelf/history metadata. Migrate it in place.
@@ -1136,7 +1181,43 @@ class Library extends ChangeNotifier {
   Future<ChapterContent?> cached(Book book, Chapter chapter) async {
     final file = _chapterFile(book, chapter);
     if (!await file.exists()) return null;
-    return ChapterContent.fromJson(jsonDecode(await file.readAsString()));
+    try {
+      final content = ChapterContent.fromJson(
+        jsonDecode(await file.readAsString()),
+      );
+      _invalidCacheFiles.remove(file.absolute.uri.toString());
+      return content;
+    } on FormatException {
+      _invalidCacheFiles.add(file.absolute.uri.toString());
+      rethrow;
+    } on TypeError {
+      _invalidCacheFiles.add(file.absolute.uri.toString());
+      rethrow;
+    }
+  }
+
+  final _invalidCacheFiles = <String>{};
+
+  /// Presence only: directory badges never read or deserialize chapter bodies.
+  /// Empty files and corruption already observed by a reader are excluded.
+  Future<Set<String>> cachedChapterIds(Book book) async {
+    final directory = Directory('${root.path}/${safeKey(book.key)}');
+    if (!await directory.exists()) return {};
+    final files = <String>{};
+    await for (final entity in directory.list(followLinks: false)) {
+      if (entity is! File ||
+          _invalidCacheFiles.contains(entity.absolute.uri.toString())) {
+        continue;
+      }
+      final stat = await entity.stat();
+      if (stat.type == FileSystemEntityType.file && stat.size > 0) {
+        files.add(entity.uri.pathSegments.last);
+      }
+    }
+    return {
+      for (final chapter in book.chapters)
+        if (files.contains('${safeKey(chapter.id)}.json')) chapter.id,
+    };
   }
 
   Future<ChapterContent> read(Book book, Chapter chapter) async {

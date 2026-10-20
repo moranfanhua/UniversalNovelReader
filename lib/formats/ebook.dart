@@ -1,7 +1,10 @@
 import 'dart:convert';
+import 'dart:io';
+import 'dart:isolate';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:archive/archive.dart';
+import 'package:archive/archive_io.dart';
 import 'package:crypto/crypto.dart';
 import 'package:enough_convert/gbk.dart';
 import 'package:html/dom.dart' as dom;
@@ -396,18 +399,180 @@ class Ebook {
     return Uint8List.fromList(utf8.encode(out.toString()));
   }
 
+  /// Compatibility API for callers that already hold the chapter map.
   static Future<Uint8List> exportEpub(
     Book book,
     Map<String, ChapterContent> contents,
     Future<Uint8List> Function(String) loadImage,
   ) async {
     if (contents.isEmpty) throw const SourceException('没有已下载的章节');
-    final zip = Archive();
-    zip.addFile(
+    final file = await exportEpubFile(
+      book,
+      (chapter) async => contents[chapter.id],
+      loadImage,
+    );
+    try {
+      return await file.readAsBytes();
+    } finally {
+      await file.parent.delete(recursive: true);
+    }
+  }
+
+  /// Owns a temporary directory; callers must remove file.parent after saving.
+  /// The worker requests one chapter/image at a time and writes each ZIP entry
+  /// immediately. Flutter image codecs remain on the caller's isolate.
+  static Future<File> exportEpubFile(
+    Book book,
+    Future<ChapterContent?> Function(Chapter) loadChapter,
+    Future<Uint8List> Function(String) loadImage, {
+    bool Function()? isCancelled,
+    Directory? temporaryDirectory,
+  }) async {
+    final directory = await (temporaryDirectory ?? Directory.systemTemp)
+        .createTemp('unr-epub-');
+    final file = File('${directory.path}/book.epub');
+    final messages = ReceivePort();
+    Isolate? worker;
+    Object? loadError;
+    StackTrace? loadStack;
+    var complete = false;
+    try {
+      worker = await Isolate.spawn(
+        _exportEpubWorker,
+        (book, file.path, messages.sendPort),
+        debugName: 'epub.export',
+        onError: messages.sendPort,
+        onExit: messages.sendPort,
+      );
+      await for (final message in messages) {
+        if (message is! (String, Object?, SendPort?)) {
+          throw const SourceException('EPUB 导出任务意外结束，请重试');
+        }
+        final (kind, data, response) = message;
+        if (kind == 'error') {
+          if (loadError != null) {
+            Error.throwWithStackTrace(loadError, loadStack!);
+          }
+          throw SourceException('$data');
+        }
+        if (kind == 'done') {
+          if (isCancelled?.call() ?? false) {
+            throw const SourceException('已取消导出');
+          }
+          complete = true;
+          return file;
+        }
+        try {
+          if (isCancelled?.call() ?? false) {
+            throw const SourceException('已取消导出');
+          }
+          final Object? value;
+          if (kind == 'chapter') {
+            value = await loadChapter(data as Chapter);
+          } else {
+            final (key, cover) = data as (String, bool);
+            value = await _epubImage(await loadImage(key), cover: cover);
+          }
+          response!.send((value, null));
+        } catch (error, stack) {
+          loadError = error;
+          loadStack = stack;
+          // Let the worker close its file before propagating cancellation/errors.
+          response!.send((null, 'EPUB 资源读取失败'));
+        }
+      }
+      throw const SourceException('EPUB 导出任务意外结束，请重试');
+    } finally {
+      worker?.kill(priority: Isolate.immediate);
+      messages.close();
+      if (!complete) await directory.delete(recursive: true);
+    }
+  }
+
+  static Future<Object?> _requestEpub(
+    SendPort host,
+    String kind,
+    Object data,
+  ) async {
+    final response = ReceivePort();
+    try {
+      host.send((kind, data, response.sendPort));
+      final (value, error) = await response.first as (Object?, String?);
+      if (error != null) throw SourceException(error);
+      return value;
+    } finally {
+      response.close();
+    }
+  }
+
+  static Future<void> _exportEpubWorker((Book, String, SendPort) task) async {
+    final (book, path, host) = task;
+    try {
+      final output = OutputFileStream(path);
+      try {
+        final zip = ZipEncoder()..startEncode(output);
+        await _writeEpub(
+          book,
+          (chapter) async =>
+              await _requestEpub(host, 'chapter', chapter) as ChapterContent?,
+          (key, cover) async =>
+              await _requestEpub(host, 'image', (key, cover))
+                  as (Uint8List, String),
+          (file) => zip.add(file),
+        );
+        zip.endEncode();
+      } finally {
+        output.closeSync();
+      }
+      host.send(('done', null, null));
+    } catch (error) {
+      host.send(('error', '$error', null));
+    }
+  }
+
+  static Future<(Uint8List, String)> _epubImage(
+    Uint8List bytes, {
+    required bool cover,
+  }) async {
+    final mime = ImageFormat.mime(bytes);
+    if (mime != null) return (bytes, mime);
+    try {
+      final codec = await ui.instantiateImageCodec(bytes);
+      try {
+        final frame = await codec.getNextFrame();
+        try {
+          final png = await frame.image.toByteData(
+            format: ui.ImageByteFormat.png,
+          );
+          if (png == null) throw StateError('PNG encoding failed');
+          return (
+            png.buffer.asUint8List(png.offsetInBytes, png.lengthInBytes),
+            'image/png',
+          );
+        } finally {
+          frame.image.dispose();
+        }
+      } finally {
+        codec.dispose();
+      }
+    } catch (_) {
+      throw SourceException(
+        cover ? 'EPUB 封面无法解码或转换，请检查图片后重试' : 'EPUB 插图无法解码或转换，请检查图片后重试',
+      );
+    }
+  }
+
+  static Future<void> _writeEpub(
+    Book book,
+    Future<ChapterContent?> Function(Chapter) loadChapter,
+    Future<(Uint8List, String)> Function(String, bool) loadImage,
+    void Function(ArchiveFile) addFile,
+  ) async {
+    addFile(
       ArchiveFile.string('mimetype', 'application/epub+zip')
         ..compression = CompressionType.none,
     );
-    zip.addFile(
+    addFile(
       ArchiveFile.string(
         'META-INF/container.xml',
         '<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>',
@@ -422,41 +587,11 @@ class Ebook {
     Future<String> embedImage(String key, {bool cover = false}) async {
       final existing = imagePaths[key];
       if (existing != null) return existing;
-      var bytes = await loadImage(key);
-      var mime = ImageFormat.mime(bytes);
-      if (mime == null) {
-        // Keep EPUB-compatible images intact; normalize other formats supported
-        // by the reader (such as WebP and BMP) for EPUB reading systems.
-        try {
-          final codec = await ui.instantiateImageCodec(bytes);
-          try {
-            final frame = await codec.getNextFrame();
-            try {
-              final png = await frame.image.toByteData(
-                format: ui.ImageByteFormat.png,
-              );
-              if (png == null) throw StateError('PNG encoding failed');
-              bytes = png.buffer.asUint8List(
-                png.offsetInBytes,
-                png.lengthInBytes,
-              );
-            } finally {
-              frame.image.dispose();
-            }
-          } finally {
-            codec.dispose();
-          }
-          mime = 'image/png';
-        } catch (_) {
-          throw SourceException(
-            cover ? 'EPUB 封面无法解码或转换，请检查图片后重试' : 'EPUB 插图无法解码或转换，请检查图片后重试',
-          );
-        }
-      }
+      final (bytes, mime) = await loadImage(key, cover);
       final path = 'images/${imagePaths.length}.${ImageFormat.extension(mime)}';
       final id = 'image${imagePaths.length}';
       imagePaths[key] = path;
-      zip.addFile(ArchiveFile('OEBPS/$path', bytes.length, bytes));
+      addFile(ArchiveFile('OEBPS/$path', bytes.length, bytes));
       manifest.write(
         '<item id="$id" href="$path" media-type="$mime"${cover ? ' properties="cover-image"' : ''}/>',
       );
@@ -465,7 +600,7 @@ class Ebook {
 
     if (book.cover.isNotEmpty) {
       final path = await embedImage(book.cover, cover: true);
-      zip.addFile(
+      addFile(
         ArchiveFile.string(
           'OEBPS/cover.xhtml',
           _xhtml(book.title, '<div><img src="$path" alt="封面"/></div>'),
@@ -478,7 +613,7 @@ class Ebook {
     }
     var index = 0;
     for (final chapter in book.chapters) {
-      final content = contents[chapter.id];
+      final content = await loadChapter(chapter);
       if (content == null) continue;
       final body = StringBuffer('<h1>${_xml(chapter.title)}</h1>');
       for (final p in content.paragraphs) {
@@ -490,7 +625,7 @@ class Ebook {
         body.write('<p><img src="$path" alt="插图"/></p>');
       }
       final file = 'chapter$index.xhtml';
-      zip.addFile(
+      addFile(
         ArchiveFile.string(
           'OEBPS/$file',
           _xhtml(chapter.title, body.toString()),
@@ -507,7 +642,7 @@ class Ebook {
     final title = index < book.chapters.length
         ? '${book.title}（节选）'
         : book.title;
-    zip.addFile(
+    addFile(
       ArchiveFile.string(
         'OEBPS/nav.xhtml',
         _xhtml(
@@ -516,13 +651,12 @@ class Ebook {
         ),
       ),
     );
-    zip.addFile(
+    addFile(
       ArchiveFile.string(
         'OEBPS/content.opf',
         '<?xml version="1.0" encoding="UTF-8"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="bookid"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="bookid">urn:unr:${_xml(book.key)}</dc:identifier><dc:title>${_xml(title)}</dc:title><dc:creator>${_xml(book.author)}</dc:creator><dc:description>${_xml(book.description)}</dc:description><dc:language>zh-CN</dc:language>${_sourceUrl(book) != null ? '<dc:source>${_xml(_sourceUrl(book)!)}</dc:source>' : ''}<meta property="dcterms:modified">${DateTime.now().toUtc().toIso8601String().split('.').first}Z</meta></metadata><manifest>$manifest</manifest><spine>$spine</spine></package>',
       ),
     );
-    return Uint8List.fromList(ZipEncoder().encode(zip));
   }
 
   static String _xhtml(String title, String body) =>

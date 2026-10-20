@@ -816,7 +816,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   }
 
   Future<void> _directory() async {
-    final cached = library.cachedContents(widget.book);
+    final cached = library.cachedChapterIds(widget.book);
     final index = await showModalBottomSheet<int>(
       context: context,
       isScrollControlled: true,
@@ -835,12 +835,12 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
             Expanded(
               child: CustomScrollView(
                 slivers: [
-                  FutureBuilder<Map<String, ChapterContent>>(
+                  FutureBuilder<Set<String>>(
                     future: cached,
                     builder: (context, snapshot) => ChapterDirectory(
                       chapters: widget.book.chapters,
                       selectedChapter: chapter,
-                      cachedChapterIds: snapshot.data?.keys.toSet() ?? {},
+                      cachedChapterIds: snapshot.data ?? {},
                       onChapterSelected: (i) => Navigator.pop(context, i),
                     ),
                   ),

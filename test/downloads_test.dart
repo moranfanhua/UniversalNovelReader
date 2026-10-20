@@ -99,6 +99,9 @@ class DownloadsLibrary extends Library {
   @override
   Future<ChapterContent?> cached(Book book, Chapter chapter) async => null;
   @override
+  Future<Set<String>> cachedChapterIds(Book book) async =>
+      (await cachedContents(book)).keys.toSet();
+  @override
   Future<Map<String, ChapterContent>> cachedContents(Book book) async => {};
 }
 

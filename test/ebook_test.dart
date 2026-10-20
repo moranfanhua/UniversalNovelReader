@@ -1,4 +1,7 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
+import 'dart:isolate';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:archive/archive.dart';
@@ -48,8 +51,120 @@ Uint8List fixture({
   return Uint8List.fromList(ZipEncoder().encode(zip));
 }
 
+class ObservedContent extends ChapterContent {
+  ObservedContent(this.events, this.text) : super(const []);
+  final SendPort events;
+  final String text;
+  @override
+  List<Paragraph> get paragraphs {
+    events.send(Isolate.current.debugName);
+    return [Paragraph(text), const Paragraph('', image: 'shared')];
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('大书逐章请求并在后台生成和压缩，封面插图去重且文件可重新导入', () async {
+    final directory = await Directory.systemTemp.createTemp('unr-export-test-');
+    addTearDown(() => directory.delete(recursive: true));
+    final events = ReceivePort();
+    addTearDown(events.close);
+    final encoded = <String?>[];
+    final observed = Completer<void>();
+    events.listen((event) {
+      encoded.add(event as String?);
+      if (encoded.length == 80) observed.complete();
+    });
+    final chapters = [
+      for (var i = 0; i < 80; i++) Chapter(id: '$i', title: '章节$i'),
+    ];
+    final book = Book(
+      id: 'large',
+      title: '大书',
+      author: '作者',
+      cover: 'shared',
+      chapters: chapters,
+    );
+    final reads = <String>[];
+    var active = 0, imageReads = 0, ticks = 0;
+    final timer = Timer.periodic(
+      const Duration(milliseconds: 1),
+      (_) => ticks++,
+    );
+    addTearDown(timer.cancel);
+    final file = await Ebook.exportEpubFile(
+      book,
+      (chapter) async {
+        expect(++active, 1);
+        reads.add(chapter.id);
+        await Future<void>.delayed(Duration.zero);
+        active--;
+        return ObservedContent(
+          events.sendPort,
+          '${chapter.id}正文${'长文本' * 7000}',
+        );
+      },
+      (_) async {
+        imageReads++;
+        return tinyPng;
+      },
+      temporaryDirectory: directory,
+    );
+    await observed.future;
+    expect(encoded.toSet(), {'epub.export'});
+    expect(reads, chapters.map((chapter) => chapter.id));
+    expect(imageReads, 1);
+    expect(ticks, greaterThan(0));
+    final bytes = await file.readAsBytes();
+    final zip = ZipDecoder().decodeBytes(bytes, verify: true);
+    expect(zip.first.name, 'mimetype');
+    expect(zip.first.compression, CompressionType.none);
+    final imported = Ebook.importEpub(bytes);
+    expect(
+      imported.book.chapters.map((chapter) => chapter.title),
+      chapters.map((chapter) => chapter.title),
+    );
+    expect(imported.images, hasLength(1));
+    expect(imported.contents['79']!.paragraphs.first.text, startsWith('79正文'));
+    await file.parent.delete(recursive: true);
+    expect(await directory.list().toList(), isEmpty);
+  });
+
+  test('资源失败和取消均关闭后台文件并清理临时目录，不继续读取后续章节', () async {
+    final directory = await Directory.systemTemp.createTemp(
+      'unr-export-failure-',
+    );
+    addTearDown(() => directory.delete(recursive: true));
+    const book = Book(
+      id: 'failure',
+      title: '',
+      author: '',
+      chapters: [
+        Chapter(id: '1', title: ''),
+        Chapter(id: '2', title: ''),
+      ],
+    );
+    for (final cancel in [true, false]) {
+      var cancelled = false, reads = 0;
+      await expectLater(
+        Ebook.exportEpubFile(
+          book,
+          (chapter) async {
+            reads++;
+            cancelled = cancel;
+            return const ChapterContent([Paragraph('', image: 'missing')]);
+          },
+          (_) async => throw const SourceException('插图获取失败'),
+          isCancelled: () => cancelled,
+          temporaryDirectory: directory,
+        ),
+        throwsA(isA<SourceException>()),
+      );
+      expect(reads, 1);
+      expect(await directory.list().toList(), isEmpty);
+    }
+  });
 
   Future<(int, int, Uint8List)> pixels(Uint8List bytes) async {
     final codec = await ui.instantiateImageCodec(bytes);

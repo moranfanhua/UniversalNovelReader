@@ -70,15 +70,30 @@ class UpdateLibrary extends Library {
   UpdateLibrary(super.root, super.source, {super.clock, super.novelSources});
   bool failSave = false;
   int saves = 0;
+  int indexSaves = 0, checkpointSaves = 0;
   Future<void> Function(int)? writing;
   @override
   Future<void> save() async {
-    saves++;
-    if (writing != null) await writing!(saves);
-    if (failSave) throw const FileSystemException('保存失败');
+    indexSaves++;
+    await _write();
     notifyListeners();
   }
 
+  @override
+  Future<void> saveShelfUpdateTimes() async {
+    checkpointSaves++;
+    await _write();
+  }
+
+  Future<void> _write() async {
+    saves++;
+    if (writing != null) await writing!(saves);
+    if (failSave) throw const FileSystemException('保存失败');
+  }
+
+  @override
+  Future<Set<String>> cachedChapterIds(Book book) async =>
+      (await cachedContents(book)).keys.toSet();
   @override
   Future<Map<String, ChapterContent>> cachedContents(Book book) async => {};
   @override
@@ -306,7 +321,9 @@ void main() {
     expect(source.calls.toSet(), hasLength(30));
     expect(library.books.every((book) => book.chapters.length == 2), isTrue);
     expect(library.saves, 20);
-    expect(notifications, 20);
+    expect(library.indexSaves, 10);
+    expect(library.checkpointSaves, 10);
+    expect(notifications, 10);
   });
 
   test('未加载目录的作品只取新元数据，按更新时间排序即时生效并持久化', () async {
@@ -445,12 +462,13 @@ void main() {
     library.books.addAll([for (var i = 0; i < 3; i++) sample('$i')]);
     source.load = (id) async {
       final saved =
-          jsonDecode(await File('${root.path}/index.json').readAsString())
+          jsonDecode(
+                await File(
+                  '${root.path}/shelf-checkpoints.json',
+                ).readAsString(),
+              )
               as Map;
-      expect(
-        saved['shelfUpdateTimes']['sfacg:$id'],
-        now.millisecondsSinceEpoch,
-      );
+      expect(saved['sfacg:$id'], now.millisecondsSinceEpoch);
       return sample(id, updated: true);
     };
     expect(
@@ -487,6 +505,99 @@ void main() {
     expect(failed.failed, 3);
     expect(library.books, originals);
     expect(library.progress['sfacg:0'], [0, 7]);
+  });
+
+  test('元数据未变仅写小检查点，不改索引不通知，重启仍保留冷却', () async {
+    final root = await Directory.systemTemp.createTemp('unr-small-checkpoint-');
+    addTearDown(() => root.delete(recursive: true));
+    final library = Library(root, source, clock: () => now);
+    addTearDown(library.dispose);
+    final date = now.subtract(const Duration(days: 1));
+    final book = Book(
+      id: '1',
+      title: '不变的作品',
+      author: '作者',
+      updatedAt: date,
+      chapters: [
+        for (var i = 0; i < 1000; i++) Chapter(id: '$i', title: '章节$i'),
+      ],
+    );
+    await library.add(book);
+    final index = File('${root.path}/index.json');
+    final before = await index.readAsBytes();
+    var notifications = 0;
+    library.addListener(() => notifications++);
+    source.update = (_) async => Book(
+      id: book.id,
+      title: book.title,
+      author: book.author,
+      updatedAt: date,
+      chapters: const [],
+    );
+    expect(
+      (await library.refreshShelfBooks(isCancelled: () => false)).checked,
+      1,
+    );
+    expect(await index.readAsBytes(), before);
+    expect(notifications, 0);
+    expect(library.books.single, same(book));
+    final checkpoints = File('${root.path}/shelf-checkpoints.json');
+    expect(await checkpoints.length(), lessThan(before.length ~/ 100));
+    final reopened = await Library.open(
+      source,
+      directory: root,
+      clock: () => now,
+    );
+    addTearDown(reopened.dispose);
+    expect(
+      (await reopened.refreshShelfBooks(isCancelled: () => false)).checked,
+      0,
+    );
+    now = now.add(const Duration(minutes: 10));
+    expect(
+      (await reopened.refreshShelfBooks(isCancelled: () => false)).checked,
+      1,
+    );
+  });
+
+  test('小检查点写入失败不联网，损坏检查点不阻断本地读取且保守冷却', () async {
+    final root = await Directory.systemTemp.createTemp(
+      'unr-checkpoint-failure-',
+    );
+    addTearDown(() => root.delete(recursive: true));
+    final library = Library(root, source, clock: () => now);
+    addTearDown(library.dispose);
+    final book = sample('1');
+    await library.add(book);
+    await library.store(
+      book,
+      book.chapters.first,
+      const ChapterContent([Paragraph('离线正文')]),
+    );
+    final file = File('${root.path}/shelf-checkpoints.json');
+    await Directory(file.path).create();
+    expect(
+      (await library.refreshShelfBooks(isCancelled: () => false)).failed,
+      1,
+    );
+    expect(source.calls, isEmpty);
+    await Directory(file.path).delete();
+    await file.writeAsString('broken');
+    final reopened = await Library.open(
+      source,
+      directory: root,
+      clock: () => now,
+    );
+    addTearDown(reopened.dispose);
+    expect(
+      (await reopened.refreshShelfBooks(isCancelled: () => false)).checked,
+      0,
+    );
+    expect(
+      (await reopened.read(book, book.chapters.first)).paragraphs.single.text,
+      '离线正文',
+    );
+    expect(source.calls, isEmpty);
   });
 
   test('批次保存迟到失败不回滚后来手动更新的目录、更新时间和阅读进度', () async {
