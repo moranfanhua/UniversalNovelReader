@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -20,6 +21,11 @@ import 'ui/startup_session_check.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  LicenseRegistry.addLicense(() async* {
+    yield LicenseEntryWithLineBreaks([
+      'Mbed TLS',
+    ], await rootBundle.loadString('third_party/mbedtls/LICENSE'));
+  });
   final log = AppLog.instance;
   installErrorLogging(log);
   await log.initialize();

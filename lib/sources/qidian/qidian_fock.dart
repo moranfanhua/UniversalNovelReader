@@ -2,9 +2,9 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
-import 'package:pointycastle/export.dart';
 
 import '../../domain/models.dart';
+import '../native_chapter_crypto.dart';
 
 /// Independent implementation of the Android App's libfock chapter container.
 /// Keys stay in memory and are bound to the requesting device and book version.
@@ -50,34 +50,17 @@ class QidianFock {
     bool des = false,
     bool padded = true,
   }) {
-    final block = des ? 8 : 16;
-    if (input.isEmpty || input.length % block != 0) {
-      throw const FormatException();
-    }
-    final cipher = CBCBlockCipher(des ? DESedeEngine() : AESEngine())
-      ..init(
-        false,
-        ParametersWithIV(
-          KeyParameter(
-            des
-                ? Uint8List.fromList(List.generate(24, (i) => key[i % 8]))
-                : key,
-          ),
-          Uint8List.sublistView(key, 0, block),
-        ),
-      );
-    final result = Uint8List(input.length);
-    for (var i = 0; i < input.length; i += block) {
-      cipher.processBlock(input, i, result, i);
-    }
-    if (!padded) return result;
-    final count = result.last;
-    if (count < 1 ||
-        count > block ||
-        result.skip(result.length - count).any((b) => b != count)) {
-      throw const FormatException();
-    }
-    return Uint8List.sublistView(result, 0, result.length - count);
+    return NativeChapterCrypto.decrypt(
+      ChapterDecryptInput(
+        data: input,
+        key: des
+            ? Uint8List.fromList(List.generate(24, (i) => key[i % 8]))
+            : key,
+        iv: Uint8List.sublistView(key, 0, des ? 8 : 16),
+        cipher: des ? ChapterCipher.des3Cbc : ChapterCipher.aesCbc,
+        padding: padded,
+      ),
+    );
   }
 
   static int _number(Uint8List bytes) {
@@ -141,15 +124,15 @@ class QidianFock {
         if (step == 'C') {
           // The App uses GCM update without a tag; its payload stream starts
           // at nonce || 2. Container MD5 is checked below before returning text.
-          final cipher = SICStreamCipher(AESEngine())
-            ..init(
-              false,
-              ParametersWithIV(
-                KeyParameter(key),
-                Uint8List.fromList([...key.take(12), 0, 0, 0, 2]),
-              ),
-            );
-          plain = cipher.process(plain);
+          plain = NativeChapterCrypto.decrypt(
+            ChapterDecryptInput(
+              data: plain,
+              key: key,
+              iv: Uint8List.fromList([...key.take(12), 0, 0, 0, 2]),
+              cipher: ChapterCipher.aesCtr,
+              padding: false,
+            ),
+          );
         } else {
           plain = _cbc(plain, key, des: step == 'D');
         }
