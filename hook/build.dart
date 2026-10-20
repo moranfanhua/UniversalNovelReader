@@ -7,12 +7,16 @@ import 'package:native_toolchain_c/native_toolchain_c.dart';
 void main(List<String> args) async {
   await build(args, (input, output) async {
     if (!input.config.buildCodeAssets) return;
+    final cppFlags = input.config.code.targetOS == OS.windows
+        ? ['/EHsc', '/we4530']
+        : <String>[];
     final builder = CBuilder.library(
       name: 'unr_fanqie_signature',
       assetName: 'sources/fanqie/fanqie_signature.dart',
       sources: ['lib/sources/fanqie/native/fanqie_signature.cpp'],
       language: Language.cpp,
       std: 'c++17',
+      flags: cppFlags,
       // This library exposes only C buffers; no C++ objects cross its boundary.
       cppLinkStdLib: input.config.code.targetOS == OS.android
           ? 'c++_static'
@@ -27,7 +31,9 @@ void main(List<String> args) async {
       'third_party/mbedtls/include',
       'third_party/mbedtls/library',
     ];
-    const defines = {'MBEDTLS_CONFIG_FILE': '"unr_mbedtls_config.h"'};
+    // A quoted /D value breaks cmd.exe invocation when MSVC's path has spaces.
+    // Select the Mbed TLS configuration inside the force-included header.
+    const forcedIncludes = ['lib/sources/native/unr_mbedtls_config.h'];
     await CBuilder.library(
       name: 'unr_mbedtls_chapter',
       sources: [
@@ -36,7 +42,7 @@ void main(List<String> args) async {
         'third_party/mbedtls/library/platform_util.c',
       ],
       includes: includes,
-      defines: defines,
+      forcedIncludes: forcedIncludes,
       linkModePreference: LinkModePreference.static,
     ).run(input: input, output: output);
     await CBuilder.library(
@@ -44,10 +50,11 @@ void main(List<String> args) async {
       assetName: 'sources/native_chapter_crypto.dart',
       sources: ['lib/sources/native/chapter_crypto.cpp'],
       includes: includes,
-      defines: defines,
+      forcedIncludes: forcedIncludes,
       libraries: ['unr_mbedtls_chapter'],
       language: Language.cpp,
       std: 'c++17',
+      flags: cppFlags,
       cppLinkStdLib: input.config.code.targetOS == OS.android
           ? 'c++_static'
           : null,
