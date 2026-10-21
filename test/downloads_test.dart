@@ -3,111 +3,17 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:http/testing.dart';
 import 'package:unr/data/library.dart';
 import 'package:unr/data/download_queue.dart';
 import 'package:unr/domain/models.dart';
 import 'package:unr/main.dart';
-import 'package:unr/sources/sfacg/sfacg_api.dart';
-import 'package:unr/sources/sfacg/sfacg_source.dart';
 import 'package:unr/ui/book_page.dart';
 import 'package:unr/ui/downloads.dart';
 import 'package:unr/ui/reader.dart';
 import 'helpers/reading_taps.dart';
-
-const chapters = [
-  Chapter(id: '1', title: '第一章'),
-  Chapter(id: '2', title: '第二章'),
-  Chapter(id: '3', title: '第三章'),
-];
-const content = ChapterContent([Paragraph('已保存的正文')]);
-Book sample(String id, {String source = 'sfacg', String? title}) => Book(
-  id: id,
-  source: source,
-  title: title ?? '下载作品$id',
-  author: '作者',
-  chapters: chapters,
-);
-
-class DownloadsLibrary extends Library {
-  DownloadsLibrary() : super(Directory.systemTemp, offlineSource());
-  DownloadedBooksSnapshot snapshot = const DownloadedBooksSnapshot(books: []);
-  Completer<DownloadedBooksSnapshot>? pending;
-  bool fail = false;
-  int loads = 0;
-  final reads = <String>[];
-  final deleted = <String>[];
-  final deleteFailures = <String>{};
-  final downloadCalls = <String>[];
-  final downloadFailures = <String>{};
-  Completer<void>? pendingDelete, pendingDownload;
-  bool failChapter = false;
-
-  @override
-  Future<void> deleteDownloadedBook(Book book) async {
-    deleted.add(book.key);
-    await pendingDelete?.future;
-    if (deleteFailures.contains(book.key)) {
-      throw const FileSystemException('删除失败');
-    }
-    snapshot = DownloadedBooksSnapshot(
-      books: snapshot.books
-          .where((entry) => entry.book.key != book.key)
-          .toList(),
-    );
-  }
-
-  @override
-  Future<void> downloadChapters(
-    Book book,
-    List<Chapter> chapters, {
-    required void Function(Chapter chapter, Object? error) onProgress,
-    bool Function()? isCancelled,
-    bool refreshCached = false,
-  }) async {
-    downloadCalls.add(book.key);
-    await pendingDownload?.future;
-    if (downloadFailures.contains(book.key)) {
-      throw const SourceException('下载任务失败');
-    }
-    for (final chapter in chapters) {
-      if (isCancelled?.call() == true) break;
-      onProgress(
-        chapter,
-        failChapter && chapter.id == '2'
-            ? const SourceException('章节无权限')
-            : null,
-      );
-    }
-  }
-
-  @override
-  Future<DownloadedBooksSnapshot> downloadedBooks() async {
-    loads++;
-    if (fail) throw const FileSystemException('无法读取');
-    return pending == null ? snapshot : pending!.future;
-  }
-
-  @override
-  Future<void> save() async => notifyListeners();
-  @override
-  Future<ChapterContent> read(Book book, Chapter chapter) async {
-    reads.add(chapter.id);
-    return content;
-  }
-
-  @override
-  Future<ChapterContent?> cached(Book book, Chapter chapter) async => null;
-  @override
-  Future<Set<String>> cachedChapterIds(Book book) async =>
-      (await cachedContents(book)).keys.toSet();
-  @override
-  Future<Map<String, ChapterContent>> cachedContents(Book book) async => {};
-}
-
-SfacgSource offlineSource() => SfacgSource(
-  SfacgApi(client: MockClient((_) async => throw StateError('不应访问网络'))),
-);
+import 'helpers/viewport.dart';
+import 'helpers/downloads.dart';
+import 'helpers/memory_library.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -232,9 +138,7 @@ void main() {
   });
 
   DownloadsLibrary memoryLibrary() {
-    final library = DownloadsLibrary();
-    addTearDown(library.dispose);
-    addTearDown(library.source.api.close);
+    final library = useLibrary(DownloadsLibrary());
     return library;
   }
 
@@ -573,10 +477,7 @@ void main() {
   for (final width in [320.0, 1400.0]) {
     for (final scale in [1.0, 2.0]) {
       testWidgets('下载列表长书名布局（宽$width，缩放$scale）', (tester) async {
-        tester.view.physicalSize = Size(width, 900);
-        tester.view.devicePixelRatio = 1;
-        addTearDown(tester.view.resetPhysicalSize);
-        addTearDown(tester.view.resetDevicePixelRatio);
+        setTestViewport(tester, Size(width, 900));
         final library = memoryLibrary();
         library.snapshot = DownloadedBooksSnapshot(
           books: [

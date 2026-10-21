@@ -1,14 +1,12 @@
-import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:unr/data/library.dart';
 import 'package:unr/domain/models.dart';
 import 'package:unr/main.dart';
-import 'package:unr/sources/sfacg/sfacg_api.dart';
-import 'package:unr/sources/sfacg/sfacg_source.dart';
 import 'helpers/reading_taps.dart';
+import 'helpers/memory_library.dart';
+import 'helpers/viewport.dart';
 
 class TreeRecorder {
   final nodes = <int, List<int>>{};
@@ -83,15 +81,8 @@ class RecordingBinding extends AutomatedTestWidgetsFlutterBinding {
       RecordingBuilder(super.createSemanticsUpdateBuilder(), recorder);
 }
 
-class NavigationLibrary extends Library {
-  NavigationLibrary() : super(Directory.systemTemp, SfacgSource(SfacgApi()));
-  @override
-  Future<void> save() async => notifyListeners();
-  @override
-  Future<Set<String>> cachedChapterIds(Book book) async =>
-      (await cachedContents(book)).keys.toSet();
-  @override
-  Future<Map<String, ChapterContent>> cachedContents(Book book) async => {};
+class NavigationLibrary extends TestLibrary
+    with MemoryPersistence, EmptyChapterCache {
   @override
   Future<ChapterContent> read(Book book, Chapter chapter) async =>
       const ChapterContent([Paragraph('用于导航测试的正文')]);
@@ -102,10 +93,7 @@ void main() {
   testWidgets(
     'Windows 开启语义树后反复打开书籍及阅读设置不发送悬空节点',
     (tester) async {
-      tester.view.physicalSize = const Size(1280, 720);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
+      setTestViewport(tester, const Size(1280, 720));
       final semantics = tester.ensureSemantics();
       final library = NavigationLibrary();
       library.books.add(

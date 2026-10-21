@@ -4,8 +4,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:unr/data/library.dart';
 import 'package:unr/ui/reader.dart';
 import 'package:unr/ui/reading_tap_zones.dart';
-import 'chapter_transition_test.dart' show TransitionLibrary, transitionBook;
+import 'helpers/chapter_transition.dart' show TransitionLibrary, transitionBook;
 import 'helpers/reading_taps.dart';
+import 'helpers/viewport.dart';
+import 'helpers/memory_library.dart';
 
 void main() {
   Future<void> settle(WidgetTester tester) async {
@@ -135,13 +137,8 @@ void main() {
     testWidgets(
       mode == ReadingMode.scroll ? '滚动模式点击两侧不会翻页或切章' : '移除翻页按钮后两侧点击仍可衔接章节',
       (tester) async {
-        tester.view.devicePixelRatio = 1;
-        tester.view.physicalSize = const Size(360, 640);
-        addTearDown(tester.view.resetDevicePixelRatio);
-        addTearDown(tester.view.resetPhysicalSize);
-        final library = TransitionLibrary()..readingMode = mode;
-        addTearDown(library.dispose);
-        addTearDown(library.source.api.close);
+        setTestViewport(tester, const Size(360, 640));
+        final library = useLibrary(TransitionLibrary()..readingMode = mode);
         await tester.pumpWidget(
           MaterialApp(
             home: ReaderPage(

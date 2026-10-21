@@ -9,6 +9,8 @@ import 'package:unr/sources/sfacg/sfacg_source.dart';
 import 'package:unr/ui/reader.dart';
 
 import 'helpers/reading_taps.dart';
+import 'helpers/memory_library.dart';
+import 'helpers/viewport.dart';
 
 Book directory(List<String> ids) => Book(
   id: 'directory',
@@ -18,15 +20,7 @@ Book directory(List<String> ids) => Book(
   chapters: [for (final id in ids) Chapter(id: id, title: id)],
 );
 
-class MigrationLibrary extends Library {
-  MigrationLibrary() : super(Directory.systemTemp, SfacgSource(SfacgApi()));
-  bool failSave = false;
-  @override
-  Future<void> save() async {
-    if (failSave) throw const FileSystemException('保存失败');
-    notifyListeners();
-  }
-
+class MigrationLibrary extends TestLibrary with MemoryPersistence {
   @override
   Future<ChapterContent> read(Book book, Chapter chapter) async =>
       ChapterContent([Paragraph('${chapter.id}章正文')]);
@@ -34,9 +28,7 @@ class MigrationLibrary extends Library {
 
 void main() {
   MigrationLibrary library() {
-    final value = MigrationLibrary();
-    addTearDown(value.dispose);
-    addTearDown(value.source.api.close);
+    final value = useLibrary(MigrationLibrary());
     return value;
   }
 
@@ -129,10 +121,7 @@ void main() {
       testWidgets('目录${deleted ? '删除前驱' : '前插章节'}后重开 B，向前翻到新目录的上一章（$width）', (
         tester,
       ) async {
-        tester.view.physicalSize = Size(width, 844);
-        tester.view.devicePixelRatio = 1;
-        addTearDown(tester.view.resetPhysicalSize);
-        addTearDown(tester.view.resetDevicePixelRatio);
+        setTestViewport(tester, Size(width, 844));
         final previous = directory(deleted ? ['序章', 'A', 'B'] : ['A', 'B']);
         final next = directory(deleted ? ['序章', 'B'] : ['序章', 'A', 'B']);
         final oldIndex = previous.chapters.length - 1;

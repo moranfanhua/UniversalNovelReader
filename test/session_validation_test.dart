@@ -21,6 +21,7 @@ import 'package:unr/ui/account_session_check.dart';
 import 'package:unr/ui/ciweimao_account.dart';
 import 'package:unr/ui/fanqie_account.dart';
 import 'package:unr/ui/qidian_account.dart';
+import 'helpers/viewport.dart';
 
 http.Response json(Object data, {int status = 200}) =>
     http.Response(jsonEncode(data), status);
@@ -240,10 +241,7 @@ void main() {
   for (final source in ['sfacg', 'fanqie', 'qidian', 'ciweimao']) {
     for (final size in [const Size(320, 800), const Size(1400, 900)]) {
       testWidgets('$source $size 双倍文字下自动检测、断网重试和失效提示', (tester) async {
-        tester.view.physicalSize = size;
-        tester.view.devicePixelRatio = 1;
-        addTearDown(tester.view.resetPhysicalSize);
-        addTearDown(tester.view.resetDevicePixelRatio);
+        setTestViewport(tester, size);
         var requests = 0, online = false, expired = false;
         final client = MockClient((request) async {
           requests++;

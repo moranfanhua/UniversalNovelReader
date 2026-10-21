@@ -13,6 +13,7 @@ import 'package:unr/sources/ciweimao/ciweimao_crypto.dart';
 import 'package:unr/sources/ciweimao/ciweimao_session.dart';
 import 'package:unr/ui/account_login_method.dart';
 import 'package:unr/ui/ciweimao_account.dart';
+import 'helpers/viewport.dart';
 
 CiweimaoCredentials credentials({String id = '106', bool guest = false}) =>
     CiweimaoCredentials(
@@ -458,10 +459,7 @@ void main() {
   });
   for (final size in [const Size(390, 844), const Size(1400, 900)]) {
     testWidgets('密码登录安全验证码在 $size 和双倍文字下可发送、输入并完成登录', (tester) async {
-      tester.view.physicalSize = size;
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
+      setTestViewport(tester, size);
       var sends = 0;
       final api = CiweimaoApi(
         client: MockClient((r) async {
@@ -526,10 +524,7 @@ void main() {
     });
     for (final method in AccountLoginMethod.values) {
       testWidgets('账号表单在 $size、两倍文字缩放下可使用：${method.label}', (tester) async {
-        tester.view.physicalSize = size;
-        tester.view.devicePixelRatio = 1;
-        addTearDown(tester.view.resetPhysicalSize);
-        addTearDown(tester.view.resetDevicePixelRatio);
+        setTestViewport(tester, size);
         final api = CiweimaoApi();
         addTearDown(api.close);
         await tester.pumpWidget(

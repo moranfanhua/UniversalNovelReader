@@ -7,7 +7,7 @@ import 'package:unr/data/library.dart';
 import 'package:unr/domain/models.dart';
 import 'package:unr/sources/sfacg/sfacg_api.dart';
 import 'package:unr/sources/sfacg/sfacg_source.dart';
-import 'chapter_download_test.dart'
+import 'helpers/chapter_batch.dart'
     show BatchSource, book, chapters, content, until;
 
 class DelayedCacheLibrary extends Library {

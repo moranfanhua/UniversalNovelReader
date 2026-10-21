@@ -1,15 +1,13 @@
-import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:unr/data/library.dart';
 import 'package:unr/domain/models.dart';
-import 'package:unr/sources/sfacg/sfacg_api.dart';
-import 'package:unr/sources/sfacg/sfacg_source.dart';
 import 'package:unr/ui/book_page.dart';
 import 'package:unr/ui/chapter_directory.dart';
 import 'package:unr/ui/reader.dart';
 import 'helpers/reading_taps.dart';
+import 'helpers/memory_library.dart';
+import 'helpers/viewport.dart';
 
 const book = Book(
   id: 'volumes',
@@ -25,8 +23,7 @@ const book = Book(
   ],
 );
 
-class DirectoryLibrary extends Library {
-  DirectoryLibrary() : super(Directory.systemTemp, SfacgSource(SfacgApi()));
+class DirectoryLibrary extends TestLibrary with MemoryPersistence {
   @override
   Future<Set<String>> cachedChapterIds(Book book) async => {'3'};
   @override
@@ -35,8 +32,6 @@ class DirectoryLibrary extends Library {
   @override
   Future<ChapterContent> read(Book book, Chapter chapter) async =>
       ChapterContent([Paragraph('正文${chapter.id}')]);
-  @override
-  Future<void> save() async => notifyListeners();
 }
 
 void main() {
@@ -45,19 +40,17 @@ void main() {
     TargetPlatform.android,
   });
   void configure(WidgetTester tester) {
-    tester.view.physicalSize = defaultTargetPlatform == TargetPlatform.windows
-        ? const Size(1400, 900)
-        : const Size(390, 844);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
+    setTestViewport(
+      tester,
+      defaultTargetPlatform == TargetPlatform.windows
+          ? const Size(1400, 900)
+          : const Size(390, 844),
+    );
   }
 
   testWidgets('详情阅读按钮只依据当前作品的非空阅读记录', (tester) async {
     configure(tester);
-    final library = DirectoryLibrary();
-    addTearDown(library.dispose);
-    addTearDown(library.source.api.close);
+    final library = useLibrary(DirectoryLibrary());
     library.progress['sfacg:${book.id}'] = [2, 0];
     library.pageOffsets[book.key] = 0;
     await library.markActive(book);
@@ -89,9 +82,7 @@ void main() {
 
   testWidgets('首次阅读返回详情后改为继续阅读，并恢复已读章节', (tester) async {
     configure(tester);
-    final library = DirectoryLibrary();
-    addTearDown(library.dispose);
-    addTearDown(library.source.api.close);
+    final library = useLibrary(DirectoryLibrary());
     await tester.pumpWidget(
       MaterialApp(
         home: BookPage(library: library, book: book),
@@ -203,9 +194,7 @@ void main() {
 
   testWidgets('作品详情按卷收纳，展开后跳转到对应章节首页', (tester) async {
     configure(tester);
-    final library = DirectoryLibrary();
-    addTearDown(library.dispose);
-    addTearDown(library.source.api.close);
+    final library = useLibrary(DirectoryLibrary());
     await tester.pumpWidget(
       MaterialApp(
         home: BookPage(library: library, book: book),
@@ -237,9 +226,7 @@ void main() {
 
   testWidgets('阅读页目录按卷折叠，跨卷跳转保持全书章节索引', (tester) async {
     configure(tester);
-    final library = DirectoryLibrary();
-    addTearDown(library.dispose);
-    addTearDown(library.source.api.close);
+    final library = useLibrary(DirectoryLibrary());
     await tester.pumpWidget(
       MaterialApp(
         home: ReaderPage(library: library, book: book),

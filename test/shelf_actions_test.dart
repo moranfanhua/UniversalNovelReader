@@ -9,6 +9,8 @@ import 'package:unr/domain/models.dart';
 import 'package:unr/main.dart';
 import 'package:unr/sources/sfacg/sfacg_api.dart';
 import 'package:unr/sources/sfacg/sfacg_source.dart';
+import 'helpers/memory_library.dart';
+import 'helpers/viewport.dart';
 
 const a = Book(
   id: '1',
@@ -37,23 +39,14 @@ const shelf = Bookshelf(
   bookKeys: ['sfacg:1', 'sfacg:2'],
 );
 
-class ActionsLibrary extends Library {
-  ActionsLibrary() : super(Directory.systemTemp, SfacgSource(SfacgApi()));
-  bool failSave = false;
+class ActionsLibrary extends TestLibrary with MemoryPersistence {
   @override
   Future<void> saveShelfUpdateTimes() => save();
-  @override
-  Future<void> save() async {
-    if (failSave) throw const FileSystemException('保存失败');
-    notifyListeners();
-  }
 }
 
 void main() {
   test('置顶优先于三种排序，取消后恢复原序，最近阅读保持原有容量和记录顺序', () async {
-    final library = ActionsLibrary();
-    addTearDown(library.dispose);
-    addTearDown(library.source.api.close);
+    final library = useLibrary(ActionsLibrary());
     library.books.addAll([a, b, other]);
     library.recentBooks.addAll([a, b, other]);
     library.lastActiveTimes.addAll({a.key: 3, b.key: 2, other.key: 1});
@@ -145,9 +138,7 @@ void main() {
   });
 
   test('命名书架和最近阅读的移除仅影响当前书架，置顶最近作品不自动加入书架', () async {
-    final library = ActionsLibrary();
-    addTearDown(library.dispose);
-    addTearDown(library.source.api.close);
+    final library = useLibrary(ActionsLibrary());
     library.books.addAll([a, b]);
     library.recentBooks.addAll([a, b, other]);
     library.shelves.addAll([
@@ -175,9 +166,7 @@ void main() {
   });
 
   test('置顶和三种移除保存失败均回滚，不丢失原有书架成员或最近记录', () async {
-    final library = ActionsLibrary();
-    addTearDown(library.dispose);
-    addTearDown(library.source.api.close);
+    final library = useLibrary(ActionsLibrary());
     library.books.addAll([a, b]);
     library.recentBooks.addAll([a, b]);
     library.shelves.add(shelf);
@@ -211,12 +200,12 @@ void main() {
     TargetPlatform.android,
   });
   void viewport(WidgetTester tester) {
-    tester.view.physicalSize = defaultTargetPlatform == TargetPlatform.windows
-        ? const Size(1400, 900)
-        : const Size(390, 844);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
+    setTestViewport(
+      tester,
+      defaultTargetPlatform == TargetPlatform.windows
+          ? const Size(1400, 900)
+          : const Size(390, 844),
+    );
   }
 
   Future<void> action(WidgetTester tester, Book book, String label) async {
@@ -236,9 +225,7 @@ void main() {
   for (final layout in ShelfLayout.values) {
     testWidgets('长按底栏置顶、取消和移除立即生效（${layout.name}）', (tester) async {
       viewport(tester);
-      final library = ActionsLibrary()..shelfLayout = layout;
-      addTearDown(library.dispose);
-      addTearDown(library.source.api.close);
+      final library = useLibrary(ActionsLibrary()..shelfLayout = layout);
       library.books.addAll([a, b]);
       await tester.pumpWidget(UnrApp(library: library));
       await tester.pumpAndSettle();
@@ -278,9 +265,7 @@ void main() {
 
   testWidgets('底栏移除只影响选中的命名书架或最近阅读', (tester) async {
     viewport(tester);
-    final library = ActionsLibrary();
-    addTearDown(library.dispose);
-    addTearDown(library.source.api.close);
+    final library = useLibrary(ActionsLibrary());
     library.books.addAll([a, b]);
     library.recentBooks.addAll([a, b]);
     library.shelves.add(shelf);

@@ -10,6 +10,7 @@ import 'package:unr/domain/models.dart';
 import 'package:unr/domain/server_error_message.dart';
 import 'package:unr/ui/log_entry.dart';
 import 'package:unr/ui/logs.dart';
+import 'helpers/viewport.dart';
 
 class RetryLog extends AppLog {
   var fail = true;
@@ -43,10 +44,7 @@ Future<void> action(WidgetTester tester, String title) async {
 }
 
 void configure(WidgetTester tester, {Size size = const Size(1200, 1000)}) {
-  tester.view.physicalSize = size;
-  tester.view.devicePixelRatio = 1;
-  addTearDown(tester.view.resetPhysicalSize);
-  addTearDown(tester.view.resetDevicePixelRatio);
+  setTestViewport(tester, size);
   addTearDown(() => tester.pumpWidget(const SizedBox.shrink()));
 }
 

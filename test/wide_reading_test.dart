@@ -1,27 +1,19 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:unr/data/library.dart';
 import 'package:unr/domain/models.dart';
-import 'package:unr/sources/sfacg/sfacg_api.dart';
-import 'package:unr/sources/sfacg/sfacg_source.dart';
 import 'package:unr/ui/paged_chapter.dart';
 import 'package:unr/ui/reader.dart';
 import 'helpers/reading_taps.dart';
+import 'helpers/memory_library.dart';
 
-class WideLibrary extends Library {
-  WideLibrary(this.content)
-    : super(Directory.systemTemp, SfacgSource(SfacgApi()));
+class WideLibrary extends TestLibrary
+    with MemoryPersistence, MemoryReadingProgress {
+  WideLibrary(this.content);
   final ChapterContent content;
   @override
   Future<ChapterContent> read(Book book, Chapter chapter) async => content;
-  @override
-  Future<void> save() async => notifyListeners();
-  @override
-  Future<void> remember(Book book, int chapter, int paragraph) async {
-    progress[book.key] = [chapter, paragraph];
-  }
 }
 
 void main() {

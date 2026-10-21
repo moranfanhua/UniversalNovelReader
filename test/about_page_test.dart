@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:ffi' show Abi;
-import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -9,14 +8,12 @@ import 'package:http/testing.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:unr/data/app_update.dart';
 import 'package:unr/data/download_mirror.dart';
-import 'package:unr/data/library.dart';
-import 'package:unr/sources/sfacg/sfacg_api.dart';
-import 'package:unr/sources/sfacg/sfacg_source.dart';
 import 'package:unr/ui/about.dart';
 import 'helpers/app_release.dart';
+import 'helpers/viewport.dart';
+import 'helpers/memory_library.dart';
 
-class AboutMemoryLibrary extends Library {
-  AboutMemoryLibrary() : super(Directory.systemTemp, SfacgSource(SfacgApi()));
+class AboutMemoryLibrary extends TestLibrary {
   @override
   Future<void> save() async {}
 }
@@ -53,12 +50,12 @@ void main() {
     Future<bool> Function(Uri)? openUrl,
     double textScale = 1,
   }) async {
-    tester.view.physicalSize = defaultTargetPlatform == TargetPlatform.android
-        ? const Size(320, 640)
-        : const Size(1400, 900);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
+    setTestViewport(
+      tester,
+      defaultTargetPlatform == TargetPlatform.android
+          ? const Size(320, 640)
+          : const Size(1400, 900),
+    );
     await tester.pumpWidget(
       MaterialApp(
         builder: (context, child) => MediaQuery(

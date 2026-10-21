@@ -13,6 +13,8 @@ import 'package:unr/sources/novel_source.dart';
 import 'package:unr/sources/sfacg/sfacg_api.dart';
 import 'package:unr/sources/sfacg/sfacg_source.dart';
 import 'package:unr/ui/reader.dart';
+import 'helpers/memory_library.dart';
+import 'helpers/viewport.dart';
 
 Book sample(String id, {String source = 'sfacg', bool updated = false}) => Book(
   id: id,
@@ -66,7 +68,7 @@ class OtherUpdateSource implements NovelSource {
       const ChapterContent([Paragraph('测试正文')]);
 }
 
-class UpdateLibrary extends Library {
+class UpdateLibrary extends Library with EmptyChapterCache {
   UpdateLibrary(super.root, super.source, {super.clock, super.novelSources});
   bool failSave = false;
   int saves = 0;
@@ -91,11 +93,6 @@ class UpdateLibrary extends Library {
     if (failSave) throw const FileSystemException('保存失败');
   }
 
-  @override
-  Future<Set<String>> cachedChapterIds(Book book) async =>
-      (await cachedContents(book)).keys.toSet();
-  @override
-  Future<Map<String, ChapterContent>> cachedContents(Book book) async => {};
   @override
   Future<ChapterContent> read(Book book, Chapter chapter) async =>
       const ChapterContent([Paragraph('测试正文')]);
@@ -672,12 +669,12 @@ void main() {
     TargetPlatform.android,
   });
   testWidgets('首次进入、切回书库、返回阅读页和恢复前台均检查，十分钟内不重发', (tester) async {
-    tester.view.physicalSize = defaultTargetPlatform == TargetPlatform.windows
-        ? const Size(1400, 900)
-        : const Size(390, 844);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
+    setTestViewport(
+      tester,
+      defaultTargetPlatform == TargetPlatform.windows
+          ? const Size(1400, 900)
+          : const Size(390, 844),
+    );
     final library = memory()..books.add(sample('1'));
     await tester.pumpWidget(UnrApp(library: library));
     await tester.pumpAndSettle();

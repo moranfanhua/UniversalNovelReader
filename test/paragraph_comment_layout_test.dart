@@ -8,6 +8,7 @@ import 'package:unr/ui/paragraph_comment_button.dart';
 import 'package:unr/ui/reading_paragraph.dart';
 import 'package:unr/ui/reading_tap_zones.dart';
 import 'package:unr/ui/text_pagination.dart';
+import 'helpers/viewport.dart';
 
 void main() {
   Future<void> mount(
@@ -172,10 +173,7 @@ void main() {
     testWidgets('分页测量与实际段落一致，段尾模式只在最终片段显示入口（${placement.name}）', (
       tester,
     ) async {
-      tester.view.physicalSize = const Size(360, 640);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
+      setTestViewport(tester, const Size(360, 640));
       final text = '连续段落😀中文。' * 100;
       final key = GlobalKey<PagedChapterState>();
       await tester.pumpWidget(

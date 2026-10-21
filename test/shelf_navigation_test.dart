@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -12,6 +11,8 @@ import 'package:unr/ui/book_page.dart';
 import 'package:unr/ui/home.dart';
 import 'package:unr/ui/reader.dart';
 import 'helpers/reading_taps.dart';
+import 'helpers/memory_library.dart';
+import 'helpers/viewport.dart';
 
 const book = Book(
   id: 'resume',
@@ -25,9 +26,10 @@ const book = Book(
   ],
 );
 
-class ShelfNavigationLibrary extends Library {
+class ShelfNavigationLibrary extends TestLibrary
+    with MemoryPersistence, EmptyChapterCache {
   ShelfNavigationLibrary({SfacgSource? source})
-    : super(Directory.systemTemp, source ?? SfacgSource(SfacgApi()));
+    : super(source: source ?? SfacgSource(SfacgApi()));
   final reads = <String>[];
   // These tests isolate opening cached books and loading missing directories.
   // Automatic visit updates are covered by shelf_updates_test.dart.
@@ -36,13 +38,6 @@ class ShelfNavigationLibrary extends Library {
     String? shelfId,
     required bool Function() isCancelled,
   }) async => const ShelfUpdateResult();
-  @override
-  Future<void> save() async => notifyListeners();
-  @override
-  Future<Set<String>> cachedChapterIds(Book book) async =>
-      (await cachedContents(book)).keys.toSet();
-  @override
-  Future<Map<String, ChapterContent>> cachedContents(Book book) async => {};
   @override
   Future<ChapterContent> read(Book book, Chapter chapter) async {
     reads.add(chapter.id);
@@ -89,12 +84,12 @@ void main() {
     library.source.api.close();
   });
   void viewport(WidgetTester tester) {
-    tester.view.physicalSize = defaultTargetPlatform == TargetPlatform.windows
-        ? const Size(1400, 900)
-        : const Size(390, 844);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
+    setTestViewport(
+      tester,
+      defaultTargetPlatform == TargetPlatform.windows
+          ? const Size(1400, 900)
+          : const Size(390, 844),
+    );
   }
 
   for (final layout in ShelfLayout.values) {

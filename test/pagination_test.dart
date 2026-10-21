@@ -13,21 +13,14 @@ import 'package:unr/ui/paged_chapter.dart';
 import 'package:unr/ui/reader.dart';
 import 'package:unr/ui/text_pagination.dart';
 import 'helpers/reading_taps.dart';
+import 'helpers/memory_library.dart';
+import 'helpers/viewport.dart';
 
-class PagedLibrary extends Library {
-  PagedLibrary() : super(Directory.systemTemp, SfacgSource(SfacgApi()));
+class PagedLibrary extends TestLibrary
+    with MemoryPersistence, MemoryReadingProgress {
   final content = ChapterContent([Paragraph('连续正文😀中文。' * 300)]);
   @override
   Future<ChapterContent> read(Book book, Chapter chapter) async => content;
-  @override
-  Future<void> save() async {
-    notifyListeners();
-  }
-
-  @override
-  Future<void> remember(Book book, int chapter, int paragraph) async {
-    progress[book.key] = [chapter, paragraph];
-  }
 }
 
 void main() {
@@ -127,10 +120,7 @@ void main() {
     testWidgets('手机点击两侧、滑动、键盘与字号调整保持进度，重新打开恢复（${animation.name}）', (
       tester,
     ) async {
-      tester.view.physicalSize = const Size(360, 640);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
+      setTestViewport(tester, const Size(360, 640));
       final library = PagedLibrary()
         ..readingMode = ReadingMode.paged
         ..pageTurnAnimation = animation;

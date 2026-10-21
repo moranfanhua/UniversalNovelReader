@@ -16,6 +16,8 @@ import 'package:unr/sources/sfacg/sfacg_api.dart';
 import 'package:unr/sources/sfacg/sfacg_source.dart';
 import 'package:unr/ui/chapter_download_dialog.dart';
 import 'package:unr/ui/reader.dart';
+import 'helpers/memory_library.dart';
+import 'helpers/viewport.dart';
 
 const chapter = Chapter(id: '12345', title: '第一章');
 const book = Book(
@@ -53,18 +55,13 @@ class RefreshQidianSource extends QidianSource {
   }
 }
 
-class ReaderCacheLibrary extends Library {
+class ReaderCacheLibrary extends Library
+    with MemoryPersistence, MemoryReadingProgress {
   ReaderCacheLibrary(super.root, super.source, RefreshQidianSource qidian)
     : super(novelSources: [qidian]);
   ChapterContent snapshot = legacy;
   @override
   Future<ChapterContent> read(Book book, Chapter chapter) async => snapshot;
-  @override
-  Future<void> save() async => notifyListeners();
-  @override
-  Future<void> remember(Book book, int chapter, int paragraph) async {
-    progress[book.key] = [chapter, paragraph];
-  }
 }
 
 class DownloadOptionsLibrary extends Library {
@@ -176,10 +173,7 @@ void main() {
   for (final mode in ReadingMode.values) {
     for (final width in [390.0, 1400.0]) {
       testWidgets('旧缓存重取后恢复正确段评入口（${mode.name}，宽 $width）', (tester) async {
-        tester.view.physicalSize = Size(width, 900);
-        tester.view.devicePixelRatio = 1;
-        addTearDown(tester.view.resetPhysicalSize);
-        addTearDown(tester.view.resetDevicePixelRatio);
+        setTestViewport(tester, Size(width, 900));
         final root = (await tester.runAsync(
           () => Directory.systemTemp.createTemp('unr-reader-refresh-'),
         ))!;
@@ -251,10 +245,7 @@ void main() {
   for (final width in [390.0, 1400.0]) {
     for (final scale in [1.0, 1.6]) {
       testWidgets('下载窗口可主动重取缓存且运行期间锁定选项（宽 $width，缩放 $scale）', (tester) async {
-        tester.view.physicalSize = Size(width, 900);
-        tester.view.devicePixelRatio = 1;
-        addTearDown(tester.view.resetPhysicalSize);
-        addTearDown(tester.view.resetDevicePixelRatio);
+        setTestViewport(tester, Size(width, 900));
         final api = QidianApi(
           client: MockClient((_) async => throw StateError('不应联网')),
         );

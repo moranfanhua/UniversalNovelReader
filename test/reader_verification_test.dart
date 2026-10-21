@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -13,6 +12,8 @@ import 'package:unr/sources/sfacg/sfacg_source.dart';
 import 'package:unr/sources/sfacg/sfacg_verification.dart';
 import 'package:unr/sources/source_verification.dart';
 import 'package:unr/ui/reader.dart';
+import 'helpers/memory_library.dart';
+import 'helpers/viewport.dart';
 
 class _Source extends SfacgSource {
   _Source() : super(SfacgApi());
@@ -52,13 +53,9 @@ class _Source extends SfacgSource {
   }
 }
 
-class _Library extends Library {
+class _Library extends TestLibrary with MemoryReadingProgress {
   _Library(_Source other, {SfacgSource? primary})
-    : super(
-        Directory.systemTemp,
-        primary ?? SfacgSource(SfacgApi()),
-        novelSources: [other],
-      ) {
+    : super(source: primary ?? SfacgSource(SfacgApi()), novelSources: [other]) {
     showParagraphComments = false;
   }
   @override
@@ -68,10 +65,6 @@ class _Library extends Library {
   Future<void> save() async {}
   @override
   Future<void> recordReading(Book book) async {}
-  @override
-  Future<void> remember(Book book, int chapter, int paragraph) async {
-    progress[book.key] = [chapter, paragraph];
-  }
 }
 
 Book book({bool twoChapters = false, String source = 'future-source'}) => Book(
@@ -96,10 +89,7 @@ void main() {
     SourceVerificationSolver? solver = solved,
     double width = 360,
   }) async {
-    tester.view.physicalSize = Size(width, 720);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
+    setTestViewport(tester, Size(width, 720));
     addTearDown(library.dispose);
     addTearDown(library.source.api.close);
     await tester.pumpWidget(

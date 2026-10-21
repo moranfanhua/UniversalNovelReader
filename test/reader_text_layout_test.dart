@@ -13,12 +13,14 @@ import 'package:unr/sources/sfacg/sfacg_source.dart';
 import 'package:unr/ui/paged_chapter.dart';
 import 'package:unr/ui/reader.dart';
 import 'package:unr/ui/reading_paragraph.dart';
+import 'helpers/memory_library.dart';
+import 'helpers/viewport.dart';
 
-class TextLayoutLibrary extends Library {
+class TextLayoutLibrary extends TestLibrary
+    with MemoryPersistence, MemoryReadingProgress {
   TextLayoutLibrary(this.content)
     : super(
-        Directory.systemTemp,
-        SfacgSource(
+        source: SfacgSource(
           SfacgApi(
             client: MockClient(
               (_) async =>
@@ -30,12 +32,6 @@ class TextLayoutLibrary extends Library {
   final ChapterContent content;
   @override
   Future<ChapterContent> read(Book book, Chapter chapter) async => content;
-  @override
-  Future<void> save() async => notifyListeners();
-  @override
-  Future<void> remember(Book book, int chapter, int paragraph) async {
-    progress[book.key] = [chapter, paragraph];
-  }
 }
 
 void main() {
@@ -70,10 +66,7 @@ void main() {
   );
 
   void size(WidgetTester tester, double width) {
-    tester.view.physicalSize = Size(width, 900);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
+    setTestViewport(tester, Size(width, 900));
   }
 
   void expectLastCharacterVisible(WidgetTester tester, Finder paragraph) {

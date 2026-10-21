@@ -23,6 +23,8 @@ import 'package:unr/ui/account.dart';
 import 'package:unr/ui/book_page.dart';
 import 'package:unr/ui/ciweimao_account.dart';
 import 'package:unr/ui/import_shelf.dart';
+import 'helpers/memory_library.dart';
+import 'helpers/viewport.dart';
 
 http.Response ok(Object data) => http.Response(
   CiweimaoCrypto.encrypt(jsonEncode({'code': 100000, 'data': data})),
@@ -35,10 +37,8 @@ CiweimaoCredentials credentials({bool guest = false}) => CiweimaoCredentials(
   guest: guest,
 );
 
-class MemoryLibrary extends Library {
+class MemoryLibrary extends Library with MemoryPersistence {
   MemoryLibrary(super.root, super.source, {required super.novelSources});
-  @override
-  Future<void> save() async => notifyListeners();
 }
 
 void main() {
@@ -197,10 +197,7 @@ void main() {
 
   for (final size in [const Size(390, 844), const Size(1400, 900)]) {
     testWidgets('四平台账号与书架入口正确显示刺猬猫图标，适配 $size 两倍字体', (tester) async {
-      tester.view.physicalSize = size;
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
+      setTestViewport(tester, size);
       final sfacg = SfacgApi(),
           api = CiweimaoApi(),
           fanqie = FanqieApi(),
@@ -264,10 +261,7 @@ void main() {
     });
   }
   testWidgets('书源入口支持官方分享链接和带平台前缀的 ID，不误路由至菠萝包', (tester) async {
-    tester.view.physicalSize = const Size(390, 844);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
+    setTestViewport(tester, const Size(390, 844));
     var sfacgCalls = 0, details = 0;
     final sfacg = SfacgApi(
       client: MockClient((_) async {

@@ -13,6 +13,7 @@ import 'package:unr/sources/qidian/qidian_captcha.dart';
 import 'package:unr/sources/qidian/qidian_session.dart';
 import 'package:unr/ui/qidian_account.dart';
 import 'package:unr/ui/account_login_method.dart';
+import 'helpers/viewport.dart';
 
 http.Response sdk(Map<String, Object> data) =>
     http.Response(jsonEncode({'code': 0, 'data': data}), 200);
@@ -507,10 +508,7 @@ void main() {
 
   for (final width in [320.0, 1280.0]) {
     testWidgets('手机号登录页面适配宽度 $width 与两倍文字', (tester) async {
-      tester.view.physicalSize = Size(width, 1100);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
+      setTestViewport(tester, Size(width, 1100));
       final api = QidianApi(
         client: MockClient((_) async => sdk({'sessionKey': 'synthetic'})),
       );

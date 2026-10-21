@@ -12,6 +12,8 @@ import 'package:unr/sources/sfacg/sfacg_source.dart';
 import 'package:unr/ui/book_page.dart';
 import 'package:unr/ui/reader.dart';
 import 'helpers/reading_taps.dart';
+import 'helpers/memory_library.dart';
+import 'helpers/viewport.dart';
 
 Book sample(String id, {String source = 'sfacg', String? title}) => Book(
   id: id,
@@ -30,8 +32,8 @@ class RecentSource extends SfacgSource {
   Future<List<Book>> search(String keyword, {int page = 0}) async => [opened];
 }
 
-class RecentLibrary extends Library {
-  RecentLibrary(RecentSource source) : super(Directory.systemTemp, source);
+class RecentLibrary extends TestLibrary with EmptyChapterCache {
+  RecentLibrary(RecentSource source) : super(source: source);
   bool failSave = false;
   int saves = 0;
   Completer<void>? saving;
@@ -46,11 +48,6 @@ class RecentLibrary extends Library {
     await saving?.future;
   }
 
-  @override
-  Future<Set<String>> cachedChapterIds(Book book) async =>
-      (await cachedContents(book)).keys.toSet();
-  @override
-  Future<Map<String, ChapterContent>> cachedContents(Book book) async => {};
   @override
   Future<ChapterContent> read(Book book, Chapter chapter) async =>
       pendingRead == null
@@ -168,12 +165,12 @@ void main() {
     TargetPlatform.android,
   });
   void viewport(WidgetTester tester) {
-    tester.view.physicalSize = defaultTargetPlatform == TargetPlatform.windows
-        ? const Size(1400, 900)
-        : const Size(390, 844);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
+    setTestViewport(
+      tester,
+      defaultTargetPlatform == TargetPlatform.windows
+          ? const Size(1400, 900)
+          : const Size(390, 844),
+    );
   }
 
   const sfacgLink = 'https://book.sfacg.com/Novel/1/';

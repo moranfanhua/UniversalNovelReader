@@ -14,6 +14,8 @@ import 'package:unr/ui/paged_chapter.dart';
 import 'package:unr/ui/reader.dart';
 import 'package:unr/ui/reading_settings.dart';
 import 'helpers/reading_taps.dart';
+import 'helpers/memory_library.dart';
+import 'helpers/viewport.dart';
 
 class FakeFonts extends ReaderFonts {
   FakeFonts() : super(Directory.systemTemp);
@@ -30,23 +32,14 @@ class FakeFonts extends ReaderFonts {
   }
 }
 
-class PreferencesLibrary extends Library {
-  PreferencesLibrary()
-    : super(Directory.systemTemp, SfacgSource(SfacgApi()), fonts: FakeFonts());
+class PreferencesLibrary extends TestLibrary
+    with MemoryPersistence, MemoryReadingProgress {
+  PreferencesLibrary() : super(fonts: FakeFonts());
   final content = ChapterContent([
     for (var i = 0; i < 40; i++) Paragraph('段落$i ${'中文正文' * 30}'),
   ]);
   @override
   Future<ChapterContent> read(Book book, Chapter chapter) async => content;
-  @override
-  Future<void> save() async {
-    notifyListeners();
-  }
-
-  @override
-  Future<void> remember(Book book, int chapter, int paragraph) async {
-    progress[book.key] = [chapter, paragraph];
-  }
 }
 
 void main() {
@@ -95,13 +88,8 @@ void main() {
   for (final width in [360.0, 1000.0]) {
     for (final scale in [1.0, 1.5]) {
       testWidgets('翻页动画选项可切换且滚动阅读保留选择（宽$width，缩放$scale）', (tester) async {
-        tester.view.physicalSize = Size(width, 800);
-        tester.view.devicePixelRatio = 1;
-        addTearDown(tester.view.resetPhysicalSize);
-        addTearDown(tester.view.resetDevicePixelRatio);
-        final library = PreferencesLibrary();
-        addTearDown(library.dispose);
-        addTearDown(library.source.api.close);
+        setTestViewport(tester, Size(width, 800));
+        final library = useLibrary(PreferencesLibrary());
         await tester.pumpWidget(
           MaterialApp(
             builder: (context, child) => MediaQuery(
@@ -279,13 +267,8 @@ void main() {
   });
   for (final width in [360.0, 1280.0]) {
     testWidgets('新增字体在宽度 $width 和放大文字下显示来源并可下载切换', (tester) async {
-      tester.view.physicalSize = Size(width, 900);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
-      final library = PreferencesLibrary();
-      addTearDown(library.dispose);
-      addTearDown(library.source.api.close);
+      setTestViewport(tester, Size(width, 900));
+      final library = useLibrary(PreferencesLibrary());
       await tester.pumpWidget(
         MaterialApp(
           builder: (context, child) => MediaQuery(
@@ -327,10 +310,7 @@ void main() {
     });
   }
   testWidgets('阅读设置同时改变滚动页与翻页布局，关闭面板保留阅读段落', (tester) async {
-    tester.view.physicalSize = const Size(360, 640);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
+    setTestViewport(tester, const Size(360, 640));
     final library = PreferencesLibrary();
     const book = Book(
       id: 'local',

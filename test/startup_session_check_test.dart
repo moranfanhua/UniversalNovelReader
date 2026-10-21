@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -23,6 +22,7 @@ import 'package:unr/sources/sfacg/sfacg_source.dart';
 import 'package:unr/ui/account.dart';
 import 'package:unr/ui/home.dart';
 import 'package:unr/ui/reader.dart';
+import 'helpers/memory_library.dart';
 
 class SessionFixture {
   final calls = <String, int>{};
@@ -112,17 +112,14 @@ class SessionFixture {
   void close() => client.close();
 }
 
-class CachedLibrary extends Library {
+class CachedLibrary extends TestLibrary with MemoryPersistence {
   CachedLibrary(SessionFixture fixture)
     : super(
-        Directory.systemTemp,
-        fixture.sources.first as SfacgSource,
+        source: fixture.sources.first as SfacgSource,
         novelSources: fixture.sources.skip(1),
       );
 
   int reads = 0;
-  @override
-  Future<void> save() async => notifyListeners();
   @override
   Future<ShelfUpdateResult> refreshShelfBooks({
     String? shelfId,

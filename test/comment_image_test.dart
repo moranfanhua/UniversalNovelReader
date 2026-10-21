@@ -8,6 +8,7 @@ import 'package:unr/sources/comment_source.dart';
 import 'package:unr/domain/models.dart';
 import 'package:unr/ui/comment_content.dart';
 import 'package:unr/ui/comment_image.dart';
+import 'helpers/viewport.dart';
 
 class _Comments extends CommentSource {
   @override
@@ -134,10 +135,7 @@ void main() {
 
   for (final width in [320.0, 1400.0]) {
     testWidgets('配图独立显示、表情保持行内，宽度 $width 大字体无溢出', (tester) async {
-      tester.view.physicalSize = Size(width, 900);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
+      setTestViewport(tester, Size(width, 900));
       await tester.pumpWidget(
         MaterialApp(
           home: MediaQuery(

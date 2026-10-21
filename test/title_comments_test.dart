@@ -1,16 +1,15 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:unr/data/library.dart';
 import 'package:unr/domain/models.dart';
 import 'package:unr/domain/reading_preferences.dart';
 import 'package:unr/sources/comment_source.dart';
-import 'package:unr/sources/sfacg/sfacg_api.dart';
-import 'package:unr/sources/sfacg/sfacg_source.dart';
 import 'package:unr/ui/comments_sheet.dart';
 import 'package:unr/ui/paragraph_comment_button.dart';
 import 'package:unr/ui/reading_heading.dart';
 import 'package:unr/ui/reader.dart';
+import 'helpers/memory_library.dart';
+import 'helpers/viewport.dart';
 
 class _TitleComments extends CommentSource {
   final counts = <(String, int?)>[];
@@ -49,13 +48,9 @@ class _TitleComments extends CommentSource {
   }
 }
 
-class _Library extends Library {
-  _Library(_TitleComments comments)
-    : super(
-        Directory.systemTemp,
-        SfacgSource(SfacgApi()),
-        commentSources: [comments],
-      );
+class _Library extends TestLibrary
+    with MemoryPersistence, MemoryReadingProgress {
+  _Library(_TitleComments comments) : super(commentSources: [comments]);
   void showComments(bool value) {
     showParagraphComments = value;
     notifyListeners();
@@ -64,12 +59,6 @@ class _Library extends Library {
   @override
   Future<ChapterContent> read(Book book, Chapter chapter) async =>
       const ChapterContent([Paragraph('正文首段。', remoteIndex: 1)]);
-  @override
-  Future<void> save() async => notifyListeners();
-  @override
-  Future<void> remember(Book book, int chapter, int paragraph) async {
-    progress[book.key] = [chapter, paragraph];
-  }
 }
 
 void main() {
@@ -79,18 +68,15 @@ void main() {
         testWidgets('标题可读写且段号独立（${mode.name}，$width，${placement.name}）', (
           tester,
         ) async {
-          tester.view.physicalSize = Size(width, 1000);
-          tester.view.devicePixelRatio = 1;
-          addTearDown(tester.view.resetPhysicalSize);
-          addTearDown(tester.view.resetDevicePixelRatio);
+          setTestViewport(tester, Size(width, 1000));
           final comments = _TitleComments();
-          final library = _Library(comments)
-            ..readingMode = mode
-            ..paragraphCommentPlacement = placement
-            ..showParagraphComments =
-                !(mode == ReadingMode.paged && width == 1400);
-          addTearDown(library.dispose);
-          addTearDown(library.source.api.close);
+          final library = useLibrary(
+            _Library(comments)
+              ..readingMode = mode
+              ..paragraphCommentPlacement = placement
+              ..showParagraphComments =
+                  !(mode == ReadingMode.paged && width == 1400),
+          );
           final title = '这是一个用于验证标题段评气泡布局的长章节标题' * 3;
           final book = Book(
             id: '1',

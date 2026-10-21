@@ -15,8 +15,11 @@ import 'package:unr/ui/comment_content.dart';
 import 'package:unr/ui/comments_sheet.dart';
 import 'package:unr/ui/reader.dart';
 import 'helpers/reading_taps.dart';
+import 'helpers/memory_library.dart';
+import 'helpers/viewport.dart';
 
-class CommentLibrary extends Library {
+class CommentLibrary extends Library
+    with MemoryPersistence, MemoryReadingProgress {
   CommentLibrary(super.root, super.source);
   @override
   Future<ChapterContent> read(Book book, Chapter chapter) async =>
@@ -24,23 +27,13 @@ class CommentLibrary extends Library {
         for (var i = 1; i <= 40; i++)
           Paragraph('第$i段正文内容。' * 3, remoteIndex: i),
       ]);
-  @override
-  Future<void> remember(Book book, int chapter, int paragraph) async {
-    progress[book.key] = [chapter, paragraph];
-  }
-
-  @override
-  Future<void> save() async => notifyListeners();
 }
 
 void main() {
   for (final mode in ReadingMode.values) {
     for (final width in [390.0, 1400.0]) {
       testWidgets('显示段评开关控制入口和计数请求（${mode.name}，宽度$width）', (tester) async {
-        tester.view.physicalSize = Size(width, 900);
-        tester.view.devicePixelRatio = 1;
-        addTearDown(tester.view.resetPhysicalSize);
-        addTearDown(tester.view.resetDevicePixelRatio);
+        setTestViewport(tester, Size(width, 900));
         var requests = 0;
         final api = SfacgApi(
           client: MockClient((request) async {

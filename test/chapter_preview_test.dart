@@ -7,12 +7,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:unr/data/library.dart';
 import 'package:unr/domain/models.dart';
 import 'package:unr/domain/reading_preferences.dart';
-import 'package:unr/sources/comment_source.dart';
 import 'package:unr/sources/sfacg/sfacg_api.dart';
 import 'package:unr/sources/sfacg/sfacg_source.dart';
 import 'package:unr/ui/reader.dart';
-import 'comment_source_test.dart' show AlternateComments;
+import 'helpers/alternate_comments.dart' show PreviewComments;
 import 'helpers/reading_taps.dart';
+import 'helpers/memory_library.dart';
+import 'helpers/viewport.dart';
 
 const previewBook = Book(
   id: 'preview-book',
@@ -26,24 +27,10 @@ const previewBook = Book(
   ],
 );
 
-class PreviewComments extends AlternateComments {
-  @override
-  Future<int> paragraphCommentCount(
-    CommentLocation location, {
-    bool refresh = false,
-  }) async {
-    locations.add(location);
-    return int.parse(location.chapter.id) * 11;
-  }
-}
-
-class PreviewLibrary extends Library {
+class PreviewLibrary extends TestLibrary
+    with MemoryPersistence, MemoryReadingProgress {
   PreviewLibrary({PreviewComments? comments})
-    : super(
-        Directory.systemTemp,
-        SfacgSource(SfacgApi()),
-        commentSources: comments == null ? [] : [comments],
-      );
+    : super(commentSources: comments == null ? [] : [comments]);
   final requests = <String>[];
   Completer<ChapterContent>? pending;
   final contents = <String, ChapterContent>{
@@ -70,12 +57,6 @@ class PreviewLibrary extends Library {
   Future<Uint8List> loadImage(Book book, String url) async => base64Decode(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aN1QAAAAASUVORK5CYII=',
   );
-  @override
-  Future<void> save() async => notifyListeners();
-  @override
-  Future<void> remember(Book book, int chapter, int paragraph) async {
-    progress[book.key] = [chapter, paragraph];
-  }
 }
 
 void main() {
@@ -98,10 +79,7 @@ void main() {
     PreviewLibrary library, {
     double width = 1920,
   }) async {
-    tester.view.devicePixelRatio = 1;
-    tester.view.physicalSize = Size(width, 640);
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
+    setTestViewport(tester, Size(width, 640));
     addTearDown(library.dispose);
     addTearDown(library.source.api.close);
     await mount(tester, library);

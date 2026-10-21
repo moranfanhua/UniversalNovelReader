@@ -12,12 +12,12 @@ import 'package:unr/sources/sfacg/sfacg_api.dart';
 import 'package:unr/sources/sfacg/sfacg_source.dart';
 import 'package:unr/ui/reader.dart';
 import 'helpers/reading_taps.dart';
+import 'helpers/memory_library.dart';
 
-class ThemeLibrary extends Library {
+class ThemeLibrary extends TestLibrary {
   ThemeLibrary()
     : super(
-        Directory.systemTemp,
-        SfacgSource(
+        source: SfacgSource(
           SfacgApi(client: MockClient((_) async => throw StateError('不应请求网络'))),
         ),
       );
@@ -113,9 +113,7 @@ void main() {
     addTearDown(restored.dispose);
     expect(restored.themeMode, AppThemeMode.dark);
 
-    final library = ThemeLibrary()..failSave = true;
-    addTearDown(library.dispose);
-    addTearDown(library.source.api.close);
+    final library = useLibrary(ThemeLibrary()..failSave = true);
     await expectLater(
       library.setThemeMode(AppThemeMode.dark),
       throwsA(isA<FileSystemException>()),
@@ -137,9 +135,7 @@ void main() {
   }
 
   ThemeLibrary libraryForTest() {
-    final library = ThemeLibrary();
-    addTearDown(library.dispose);
-    addTearDown(library.source.api.close);
+    final library = useLibrary(ThemeLibrary());
     return library;
   }
 

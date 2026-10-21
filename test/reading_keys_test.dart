@@ -11,8 +11,10 @@ import 'package:unr/sources/sfacg/sfacg_api.dart';
 import 'package:unr/sources/sfacg/sfacg_source.dart';
 import 'package:unr/ui/reader.dart';
 import 'package:unr/ui/reading_settings.dart';
-import 'chapter_transition_test.dart' show TransitionLibrary, transitionBook;
+import 'helpers/chapter_transition.dart' show TransitionLibrary, transitionBook;
 import 'helpers/reading_taps.dart';
+import 'helpers/viewport.dart';
+import 'helpers/memory_library.dart';
 
 const volumeChannel = MethodChannel('unr/reader_volume_keys');
 
@@ -38,10 +40,7 @@ void main() {
     TransitionLibrary library, {
     int chapter = 0,
   }) async {
-    tester.view.devicePixelRatio = 1;
-    tester.view.physicalSize = const Size(360, 640);
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
+    setTestViewport(tester, const Size(360, 640));
     addTearDown(library.dispose);
     addTearDown(library.source.api.close);
     await tester.pumpWidget(
@@ -230,9 +229,7 @@ void main() {
   });
 
   testWidgets('音量键开关仅 Android 显示，恢复默认重新启用', (tester) async {
-    final library = TransitionLibrary();
-    addTearDown(library.dispose);
-    addTearDown(library.source.api.close);
+    final library = useLibrary(TransitionLibrary());
     for (final platform in [TargetPlatform.windows, TargetPlatform.android]) {
       debugDefaultTargetPlatformOverride = platform;
       await tester.pumpWidget(

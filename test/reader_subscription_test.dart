@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -13,6 +12,8 @@ import 'package:unr/sources/sfacg/sfacg_api.dart';
 import 'package:unr/sources/sfacg/sfacg_source.dart';
 import 'package:unr/ui/reader.dart';
 import 'package:unr/ui/paged_chapter.dart';
+import 'helpers/memory_library.dart';
+import 'helpers/viewport.dart';
 
 class _Source extends SfacgSource {
   _Source() : super(SfacgApi());
@@ -59,8 +60,8 @@ class _Source extends SfacgSource {
   }
 }
 
-class _Library extends Library {
-  _Library(SfacgSource source) : super(Directory.systemTemp, source) {
+class _Library extends TestLibrary with MemoryReadingProgress {
+  _Library(SfacgSource source) : super(source: source) {
     showParagraphComments = false;
   }
   @override
@@ -70,10 +71,6 @@ class _Library extends Library {
   Future<void> save() async {}
   @override
   Future<void> recordReading(Book book) async {}
-  @override
-  Future<void> remember(Book book, int chapter, int paragraph) async {
-    progress[book.key] = [chapter, paragraph];
-  }
 }
 
 void main() {
@@ -96,10 +93,7 @@ void main() {
     source.api.close();
   });
   Future<void> open(WidgetTester tester, {double width = 360}) async {
-    tester.view.physicalSize = Size(width, 800);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
+    setTestViewport(tester, Size(width, 800));
     await tester.pumpWidget(
       MaterialApp(
         builder: (context, child) => MediaQuery(

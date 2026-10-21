@@ -83,128 +83,115 @@ void main() {
     expect(restored.hasSession, isFalse);
   });
 
-  testWidgets(
-    '番茄账号页保留短信登录和会话导入，不再提供 VPN',
-    (tester) async {
-      final api = FanqieApi();
-      addTearDown(api.close);
-      await tester.pumpWidget(MaterialApp(home: FanqieAccountPage(api: api)));
+  final platforms = TargetPlatformVariant({
+    TargetPlatform.android,
+    TargetPlatform.windows,
+  });
+  for (final (name, method, form, page) in [
+    (
+      '番茄账号页保留短信登录和会话导入，不再提供 VPN',
+      '手机号验证码登录',
+      '获取验证码',
+      () {
+        final api = FanqieApi();
+        addTearDown(api.close);
+        return FanqieAccountPage(api: api);
+      },
+    ),
+    (
+      '菠萝包账号页保留密码登录和会话导入，不再提供 VPN',
+      '账号密码登录',
+      '登录菠萝包',
+      () {
+        final api = SfacgApi();
+        addTearDown(api.close);
+        return Scaffold(
+          body: AccountPage(
+            library: Library(Directory.systemTemp, SfacgSource(api)),
+          ),
+        );
+      },
+    ),
+  ]) {
+    testWidgets(name, (tester) async {
+      await tester.pumpWidget(MaterialApp(home: page()));
       expect(find.text('网页登录'), findsNothing);
-      expect(find.text('手机号验证码登录'), findsOneWidget);
       expect(find.text('VPN 辅助登录'), findsNothing);
       expect(find.text('导入会话'), findsOneWidget);
-      await tester.tap(find.text('手机号验证码登录'));
+      expect(find.text(method), findsOneWidget);
+      await tester.tap(find.text(method));
       await tester.pumpAndSettle();
-      expect(find.text('获取验证码'), findsOneWidget);
+      expect(find.text(form), findsOneWidget);
       expect(find.text('改用网页登录'), findsNothing);
       expect(find.text('打开官网登录'), findsNothing);
       await tester.pumpWidget(const SizedBox.shrink());
-    },
-    variant: TargetPlatformVariant({
-      TargetPlatform.android,
-      TargetPlatform.windows,
-    }),
-  );
-
-  testWidgets(
-    '菠萝包账号页保留密码登录和会话导入，不再提供 VPN',
-    (tester) async {
-      final api = SfacgApi();
-      addTearDown(api.close);
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: AccountPage(
-              library: Library(Directory.systemTemp, SfacgSource(api)),
-            ),
-          ),
-        ),
-      );
-      expect(find.text('网页登录'), findsNothing);
-      expect(find.text('VPN 辅助登录'), findsNothing);
-      expect(find.text('导入会话'), findsOneWidget);
-      await tester.tap(find.text('账号密码登录'));
-      await tester.pumpAndSettle();
-      expect(find.text('登录菠萝包'), findsOneWidget);
-      expect(find.text('打开官网登录'), findsNothing);
-    },
-    variant: TargetPlatformVariant({
-      TargetPlatform.android,
-      TargetPlatform.windows,
-    }),
-  );
+    }, variant: platforms);
+  }
 
   for (final source in ['sfacg', 'fanqie']) {
-    testWidgets(
-      '$source 手动导入会话仍通过 App 接口验证并保存',
-      (tester) async {
-        var saves = 0;
-        final sf = SfacgApi(
-          client: MockClient((request) async {
-            expect(request.url.host, 'api.sfacg.com');
-            expect(request.url.path, '/user');
-            expect(
-              request.headers['Cookie'],
-              contains('session_APP=app-session'),
-            );
-            return sfResponse({'accountId': 42});
-          }),
-        );
-        final fq = FanqieApi(
-          client: MockClient((request) async {
-            expect(request.url.host, 'security.snssdk.com');
-            expect(request.url.path, '/passport/account/info/v2/');
-            expect(request.headers['Cookie'], 'sessionid=app-session');
-            return http.Response(
-              jsonEncode({
-                'message': 'success',
-                'data': {'user_id': '42'},
-              }),
-              200,
-            );
-          }),
-        );
-        fq.app.restore({'deviceId': '1234567890', 'installId': '2345678901'});
-        addTearDown(sf.close);
-        addTearDown(fq.close);
-        sf.onSessionChanged = fq.onSessionChanged = () async {
-          saves++;
-        };
-        await tester.pumpWidget(
-          MaterialApp(
-            home: source == 'sfacg'
-                ? Scaffold(
-                    body: AccountPage(
-                      library: Library(Directory.systemTemp, SfacgSource(sf)),
-                    ),
-                  )
-                : FanqieAccountPage(api: fq),
-          ),
-        );
-        await tester.tap(find.text('导入会话'));
-        await tester.pumpAndSettle();
-        expect(find.text('打开官网登录'), findsNothing);
-        await tester.enterText(
-          find.byType(TextField),
-          source == 'sfacg'
-              ? '.SFCommunity=app; session_APP=app-session'
-              : 'sessionid=app-session',
-        );
-        await tester.tap(find.text('验证并保存会话'));
-        await tester.pumpAndSettle();
-        expect(saves, 1);
-        expect(
-          tester.widget<TextField>(find.byType(TextField)).controller!.text,
-          isEmpty,
-        );
-        if (source == 'sfacg') expect(sf.websiteSession, isFalse);
-        expect(source == 'sfacg' ? sf.hasSession : fq.hasSession, isTrue);
-        expect(tester.takeException(), isNull);
-      },
-      variant: TargetPlatformVariant({
-        TargetPlatform.android,
-        TargetPlatform.windows,
-      }),
-    );
+    testWidgets('$source 手动导入会话仍通过 App 接口验证并保存', (tester) async {
+      var saves = 0;
+      final sf = SfacgApi(
+        client: MockClient((request) async {
+          expect(request.url.host, 'api.sfacg.com');
+          expect(request.url.path, '/user');
+          expect(
+            request.headers['Cookie'],
+            contains('session_APP=app-session'),
+          );
+          return sfResponse({'accountId': 42});
+        }),
+      );
+      final fq = FanqieApi(
+        client: MockClient((request) async {
+          expect(request.url.host, 'security.snssdk.com');
+          expect(request.url.path, '/passport/account/info/v2/');
+          expect(request.headers['Cookie'], 'sessionid=app-session');
+          return http.Response(
+            jsonEncode({
+              'message': 'success',
+              'data': {'user_id': '42'},
+            }),
+            200,
+          );
+        }),
+      );
+      fq.app.restore({'deviceId': '1234567890', 'installId': '2345678901'});
+      addTearDown(sf.close);
+      addTearDown(fq.close);
+      sf.onSessionChanged = fq.onSessionChanged = () async {
+        saves++;
+      };
+      await tester.pumpWidget(
+        MaterialApp(
+          home: source == 'sfacg'
+              ? Scaffold(
+                  body: AccountPage(
+                    library: Library(Directory.systemTemp, SfacgSource(sf)),
+                  ),
+                )
+              : FanqieAccountPage(api: fq),
+        ),
+      );
+      await tester.tap(find.text('导入会话'));
+      await tester.pumpAndSettle();
+      expect(find.text('打开官网登录'), findsNothing);
+      await tester.enterText(
+        find.byType(TextField),
+        source == 'sfacg'
+            ? '.SFCommunity=app; session_APP=app-session'
+            : 'sessionid=app-session',
+      );
+      await tester.tap(find.text('验证并保存会话'));
+      await tester.pumpAndSettle();
+      expect(saves, 1);
+      expect(
+        tester.widget<TextField>(find.byType(TextField)).controller!.text,
+        isEmpty,
+      );
+      if (source == 'sfacg') expect(sf.websiteSession, isFalse);
+      expect(source == 'sfacg' ? sf.hasSession : fq.hasSession, isTrue);
+      expect(tester.takeException(), isNull);
+    }, variant: platforms);
   }
 }

@@ -10,6 +10,7 @@ import 'package:unr/sources/comment_source.dart';
 import 'package:unr/sources/qidian/qidian_api.dart';
 import 'package:unr/sources/qidian/qidian_source.dart';
 import 'package:unr/ui/comments_sheet.dart';
+import 'helpers/viewport.dart';
 
 const chapter = Chapter(id: '12345', title: '第一章');
 const book = Book(
@@ -344,10 +345,7 @@ void main() {
   for (final width in [390.0, 1400.0]) {
     for (final scale in [1.0, 1.6]) {
       testWidgets('登录后可发送段评，阻止重复点击并刷新最新列表（宽 $width，缩放 $scale）', (tester) async {
-        tester.view.physicalSize = Size(width, 900);
-        tester.view.devicePixelRatio = 1;
-        addTearDown(tester.view.resetPhysicalSize);
-        addTearDown(tester.view.resetDevicePixelRatio);
+        setTestViewport(tester, Size(width, 900));
         final gate = Completer<http.Response>();
         var posts = 0;
         final sorts = <String?>[];

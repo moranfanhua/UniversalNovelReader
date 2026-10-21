@@ -1,14 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:unr/ui/top_dropdown_button.dart';
+import 'helpers/viewport.dart';
 
 void main() {
   for (final width in [360.0, 1280.0]) {
     testWidgets('选择末项后再次展开仍从第一项开始（宽 $width，文字放大）', (tester) async {
-      tester.view.physicalSize = Size(width, 640);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
+      setTestViewport(tester, Size(width, 640));
       var value = 19;
       await tester.pumpWidget(
         MaterialApp(

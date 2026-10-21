@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:unr/domain/models.dart';
 import 'package:unr/domain/reading_preferences.dart';
 import 'package:unr/ui/paged_chapter.dart';
+import 'helpers/viewport.dart';
 
 void main() {
   Future<GlobalKey> mount(
@@ -14,10 +15,7 @@ void main() {
     bool disableAnimations = false,
     TextDirection direction = TextDirection.ltr,
   }) async {
-    tester.view.physicalSize = const Size(360, 640);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
+    setTestViewport(tester, const Size(360, 640));
     final capture = GlobalKey();
     await tester.pumpWidget(
       MaterialApp(

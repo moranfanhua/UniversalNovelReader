@@ -10,14 +10,12 @@ import 'package:unr/data/library.dart';
 import 'package:unr/sources/sfacg/sfacg_api.dart';
 import 'package:unr/sources/sfacg/sfacg_source.dart';
 import 'package:unr/ui/account.dart';
+import 'helpers/viewport.dart';
 
 void main() {
   for (final width in [320.0, 1280.0]) {
     testWidgets('账号页可以主动处理安全验证，宽度 $width 与两倍文字', (tester) async {
-      tester.view.physicalSize = Size(width, 1000);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
+      setTestViewport(tester, Size(width, 1000));
       final release = Completer<void>();
       var prompts = 0, submissions = 0;
       final api = SfacgApi(

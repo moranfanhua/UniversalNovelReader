@@ -1,41 +1,27 @@
 import 'dart:async';
-import 'dart:io';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:unr/data/library.dart';
 import 'package:unr/domain/models.dart';
-import 'package:unr/sources/sfacg/sfacg_api.dart';
-import 'package:unr/sources/sfacg/sfacg_source.dart';
 import 'package:unr/ui/reader.dart';
 import 'package:unr/formats/ebook.dart';
 import 'helpers/reading_taps.dart';
+import 'helpers/memory_library.dart';
+import 'helpers/viewport.dart';
 
-class MemoryLibrary extends Library {
-  MemoryLibrary() : super(Directory.systemTemp, SfacgSource(SfacgApi()));
+class MemoryLibrary extends TestLibrary
+    with MemoryPersistence, MemoryReadingProgress {
   final first = Completer<ChapterContent>(),
       second = Completer<ChapterContent>();
   @override
   Future<ChapterContent> read(Book book, Chapter chapter) =>
       chapter.id == '1' ? first.future : second.future;
-  @override
-  Future<void> save() async {
-    notifyListeners();
-  }
-
-  @override
-  Future<void> remember(Book book, int chapter, int paragraph) async {
-    progress[book.key] = [chapter, paragraph];
-  }
 }
 
 void main() {
   testWidgets('外部 TXT 在手机尺寸可见，滚动后立即返回也保存进度', (tester) async {
-    tester.view.physicalSize = const Size(360, 640);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
+    setTestViewport(tester, const Size(360, 640));
     final imported = Ebook.importTxt(
       Uint8List.fromList(
         utf8.encode(

@@ -7,7 +7,8 @@ import 'package:unr/domain/models.dart';
 import 'package:unr/sources/comment_source.dart';
 import 'package:unr/ui/comment_content.dart';
 import 'package:unr/ui/comments_sheet.dart';
-import 'comment_post_test.dart' as fixture;
+import 'helpers/sfacg_comments.dart' as fixture;
+import 'helpers/viewport.dart';
 
 const root = ParagraphComment(id: '9', author: '楼主', text: '原段评内容');
 const replyDraft = ValueKey('comment-reply-draft');
@@ -159,10 +160,7 @@ void main() {
   });
 
   testWidgets('点击回复作者后保留草稿，发送仍使用原段评 ID 并按旧到新排列', (tester) async {
-    tester.view.physicalSize = const Size(800, 1200);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
+    setTestViewport(tester, const Size(800, 1200));
     var sent = false;
     final sf = fixture.source((request) async {
       expect(request.url.path, '/tsukkomis/0/9/replys');
@@ -267,10 +265,7 @@ void main() {
   });
 
   testWidgets('未登录可查看回复，手机键盘不会遮住登录后的回复输入框', (tester) async {
-    tester.view.physicalSize = const Size(360, 640);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
+    setTestViewport(tester, const Size(360, 640));
     addTearDown(tester.view.resetViewInsets);
     final sf = fixture.source((request) async {
       expect(request.method, 'GET');

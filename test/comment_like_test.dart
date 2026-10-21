@@ -1,35 +1,12 @@
 import 'dart:async';
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
-import 'package:http/testing.dart';
 import 'package:unr/domain/models.dart';
-import 'package:unr/sources/sfacg/sfacg_api.dart';
 import 'package:unr/sources/sfacg/sfacg_source.dart';
 import 'package:unr/ui/comment_content.dart';
 import 'package:unr/ui/comments_sheet.dart';
-
-http.Response ok(Object? data, {int status = 200, String message = ''}) =>
-    http.Response(
-      jsonEncode({
-        'status': {'httpCode': status, 'msg': message},
-        'data': data,
-      }),
-      status,
-      headers: {'content-type': 'application/json; charset=utf-8'},
-    );
-
-SfacgSource source(
-  Future<http.Response> Function(http.Request) handler, {
-  bool loggedIn = true,
-}) {
-  final api = SfacgApi(client: MockClient(handler));
-  if (loggedIn) {
-    api.setCookie('.SFCommunity=synthetic; session_APP=synthetic-app');
-  }
-  return SfacgSource(api);
-}
+import 'helpers/sfacg_comments.dart' show response, source;
 
 const comment = ParagraphComment(id: '7', author: '其他读者', text: '别人发表的零赞评论');
 Map<String, Object> remote(int likes) => {
@@ -53,11 +30,11 @@ void main() {
         );
         expect(request.headers['sfsecurity'], contains('sign='));
         posts++;
-        return ok(null, status: 201);
+        return response(null, status: 201);
       }
       expect(request.url.path, '/tsukkomis/0/7');
       gets++;
-      return ok(remote(1));
+      return response(remote(1));
     });
     addTearDown(sf.api.close);
     await sf.likeComment(comment);
@@ -85,7 +62,7 @@ void main() {
     expect(sf.likeComment(comment), same(first));
     expect(sf.likeStatus(comment).value.count, 0);
     expect(sf.likeStatus(comment).value.sending, isTrue);
-    pending.complete(ok({'favNum': 4}));
+    pending.complete(response({'favNum': 4}));
     await Future.wait([first, second]);
     expect(posts, 1);
     expect(sf.likeStatus(comment).value.count, 4);
@@ -96,7 +73,7 @@ void main() {
     var calls = 0;
     final sf = source((_) async {
       calls++;
-      return ok(null);
+      return response(null);
     }, loggedIn: false);
     addTearDown(sf.api.close);
     await expectLater(sf.likeComment(comment), throwsA(isA<SourceException>()));
@@ -125,7 +102,7 @@ void main() {
         calls++;
         if (mode == 'network') throw http.ClientException('lost connection');
         if (mode == 'timeout') throw TimeoutException('timeout');
-        return ok(
+        return response(
           null,
           status: mode == 'forbidden' ? 403 : 503,
           message: '拒绝请求',
@@ -150,9 +127,11 @@ void main() {
 
   test('确认点赞后数量查询失败仍保持已点赞，刷新列表可更新赞数', () async {
     final sf = source((request) async {
-      if (request.method == 'POST') return ok(null);
-      if (request.url.path == '/tsukkomis/0/7') return ok(null, status: 403);
-      return ok([remote(8)]);
+      if (request.method == 'POST') return response(null);
+      if (request.url.path == '/tsukkomis/0/7') {
+        return response(null, status: 403);
+      }
+      return response([remote(8)]);
     });
     addTearDown(sf.api.close);
     await sf.likeComment(comment);
@@ -167,13 +146,13 @@ void main() {
   test('较早的评论列表响应不会覆盖刚确认的赞数，切换账号隔离点赞状态', () async {
     final old = Completer<http.Response>();
     final sf = source((request) async {
-      if (request.method == 'POST') return ok({'favNum': 1});
+      if (request.method == 'POST') return response({'favNum': 1});
       return old.future;
     });
     addTearDown(sf.api.close);
     final stale = sf.comments(const Chapter(id: '123', title: ''), 1);
     await sf.likeComment(comment);
-    old.complete(ok([remote(0)]));
+    old.complete(response([remote(0)]));
     await stale;
     expect(sf.likeStatus(comment).value.count, 1);
     sf.api.setCookie('.SFCommunity=other-synthetic; session_APP=other-session');
@@ -185,11 +164,11 @@ void main() {
     final sf = source((request) async {
       if (request.method == 'POST') {
         posts++;
-        return ok(null);
+        return response(null);
       }
-      if (request.url.path.endsWith('/replys')) return ok([]);
-      if (request.url.path == '/tsukkomis/0/7') return ok(remote(1));
-      return ok([remote(0)]);
+      if (request.url.path.endsWith('/replys')) return response([]);
+      if (request.url.path == '/tsukkomis/0/7') return response(remote(1));
+      return response([remote(0)]);
     });
     addTearDown(sf.api.close);
     await tester.pumpWidget(
@@ -227,7 +206,7 @@ void main() {
     final sf = source((_) {
       posts++;
       return posts == 1
-          ? Future.value(ok(null, status: 403, message: '会话失效'))
+          ? Future.value(response(null, status: 403, message: '会话失效'))
           : pending.future;
     });
     addTearDown(sf.api.close);
@@ -252,7 +231,7 @@ void main() {
     expect(tester.widget<TextButton>(button).onPressed, isNull);
     await tester.tap(button);
     expect(posts, 2);
-    pending.complete(ok({'favNum': 1}));
+    pending.complete(response({'favNum': 1}));
     await tester.pumpAndSettle();
     expect(
       find.descendant(of: button, matching: find.text('1')),

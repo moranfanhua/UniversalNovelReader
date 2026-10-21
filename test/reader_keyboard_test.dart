@@ -1,16 +1,14 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:unr/data/library.dart';
 import 'package:unr/domain/models.dart';
 import 'package:unr/sources/comment_source.dart';
-import 'package:unr/sources/sfacg/sfacg_api.dart';
-import 'package:unr/sources/sfacg/sfacg_source.dart';
 import 'package:unr/ui/book_page_progress.dart';
 import 'package:unr/ui/comments_sheet.dart';
 import 'package:unr/ui/paged_chapter.dart';
 import 'package:unr/ui/paragraph_comment_button.dart';
 import 'package:unr/ui/reader.dart';
+import 'helpers/memory_library.dart';
 
 class _KeyboardComments extends CommentSource {
   @override
@@ -38,13 +36,8 @@ class _KeyboardComments extends CommentSource {
   }) async => [];
 }
 
-class _KeyboardLibrary extends Library {
-  _KeyboardLibrary()
-    : super(
-        Directory.systemTemp,
-        SfacgSource(SfacgApi()),
-        commentSources: [_KeyboardComments()],
-      );
+class _KeyboardLibrary extends TestLibrary with MemoryReadingProgress {
+  _KeyboardLibrary() : super(commentSources: [_KeyboardComments()]);
   final content = ChapterContent([
     for (var i = 0; i < 18; i++)
       Paragraph('正文段落 $i，${'键盘弹出时保持正文尺寸和阅读位置稳定。' * 3}', remoteIndex: i + 1),
@@ -60,10 +53,6 @@ class _KeyboardLibrary extends Library {
 
   @override
   Future<void> save() async {}
-  @override
-  Future<void> remember(Book book, int chapter, int paragraph) async {
-    progress[book.key] = [chapter, paragraph];
-  }
 }
 
 void main() {

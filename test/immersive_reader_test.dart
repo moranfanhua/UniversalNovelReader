@@ -1,20 +1,19 @@
 import 'dart:async';
-import 'dart:io';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:unr/data/library.dart';
 import 'package:unr/domain/models.dart';
-import 'package:unr/sources/sfacg/sfacg_api.dart';
-import 'package:unr/sources/sfacg/sfacg_source.dart';
 import 'package:unr/ui/reader.dart';
 import 'package:unr/ui/chapter_page_layout.dart';
 import 'package:unr/ui/reading_tap_zones.dart';
 import 'helpers/reading_taps.dart';
+import 'helpers/memory_library.dart';
+import 'helpers/viewport.dart';
 
-class ImmersiveLibrary extends Library {
-  ImmersiveLibrary() : super(Directory.systemTemp, SfacgSource(SfacgApi()));
+class ImmersiveLibrary extends TestLibrary
+    with MemoryPersistence, MemoryReadingProgress {
   final reads = <String>[];
   final contents = <String, ChapterContent>{
     '1': ChapterContent([Paragraph('正文内容。' * 500)]),
@@ -31,12 +30,6 @@ class ImmersiveLibrary extends Library {
   @override
   Future<ChapterContent?> cached(Book book, Chapter chapter) async =>
       fullyCached || chapter.id == '1' ? contents[chapter.id] : null;
-  @override
-  Future<void> save() async => notifyListeners();
-  @override
-  Future<void> remember(Book book, int chapter, int paragraph) async {
-    progress[book.key] = [chapter, paragraph];
-  }
 }
 
 class DelayedScrollLibrary extends ImmersiveLibrary {
@@ -73,10 +66,7 @@ void main() {
     double width = 360,
     double textScale = 1,
   }) async {
-    tester.view.devicePixelRatio = 1;
-    tester.view.physicalSize = Size(width, 640);
-    addTearDown(tester.view.resetDevicePixelRatio);
-    addTearDown(tester.view.resetPhysicalSize);
+    setTestViewport(tester, Size(width, 640));
     addTearDown(library.dispose);
     addTearDown(library.source.api.close);
     await tester.pumpWidget(

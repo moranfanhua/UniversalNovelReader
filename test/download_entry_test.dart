@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -12,6 +11,8 @@ import 'package:unr/sources/sfacg/sfacg_source.dart';
 import 'package:unr/ui/chapter_download_dialog.dart';
 import 'package:unr/ui/reader.dart';
 import 'helpers/reading_taps.dart';
+import 'helpers/memory_library.dart';
+import 'helpers/viewport.dart';
 
 const chapters = [
   Chapter(id: '1', title: '第一章'),
@@ -43,13 +44,11 @@ class EntrySource extends SfacgSource {
   }
 }
 
-class EntryLibrary extends Library {
-  EntryLibrary(EntrySource source) : super(Directory.systemTemp, source) {
+class EntryLibrary extends TestLibrary with MemoryPersistence {
+  EntryLibrary(EntrySource source) : super(source: source) {
     showParagraphComments = false;
   }
   final downloads = <({Book book, List<Chapter> chapters})>[];
-  @override
-  Future<void> save() async => notifyListeners();
   @override
   Future<ShelfUpdateResult> refreshShelfBooks({
     String? shelfId,
@@ -94,12 +93,12 @@ void main() {
   });
 
   void viewport(WidgetTester tester) {
-    tester.view.physicalSize = defaultTargetPlatform == TargetPlatform.windows
-        ? const Size(1400, 900)
-        : const Size(320, 720);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
+    setTestViewport(
+      tester,
+      defaultTargetPlatform == TargetPlatform.windows
+          ? const Size(1400, 900)
+          : const Size(320, 720),
+    );
   }
 
   Future<void> shelfDownload(WidgetTester tester, Book book) async {

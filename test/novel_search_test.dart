@@ -11,6 +11,8 @@ import 'package:unr/sources/sfacg/sfacg_api.dart';
 import 'package:unr/sources/sfacg/sfacg_source.dart';
 import 'package:unr/ui/home.dart';
 import 'package:unr/ui/settings.dart';
+import 'helpers/memory_library.dart';
+import 'helpers/viewport.dart';
 
 Book book(
   String id,
@@ -71,14 +73,8 @@ class PlatformSearchSource extends SearchSource
   String get searchNotice => '同一作品可能有多个书名，搜索结果可能显示其他书名。';
 }
 
-class SearchMemoryLibrary extends Library {
+class SearchMemoryLibrary extends Library with MemoryPersistence {
   SearchMemoryLibrary(super.root, super.source, {super.novelSources});
-  bool failSave = false;
-  @override
-  Future<void> save() async {
-    if (failSave) throw const FileSystemException('保存失败');
-    notifyListeners();
-  }
 }
 
 void main() {
@@ -127,10 +123,7 @@ void main() {
   });
 
   testWidgets('搜索设置显示平台开关，保存失败回滚并显示错误', (tester) async {
-    tester.view.physicalSize = const Size(320, 700);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
+    setTestViewport(tester, const Size(320, 700));
     final api = SfacgApi();
     addTearDown(api.close);
     final library = SearchMemoryLibrary(
@@ -503,10 +496,7 @@ void main() {
 
   for (final width in [320.0, 1200.0]) {
     testWidgets('多书名提示兼容宽度 $width 和大字号，重搜及切换平台清理提示', (tester) async {
-      tester.view.physicalSize = Size(width, 900);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
+      setTestViewport(tester, Size(width, 900));
       final root = Directory.systemTemp.createTempSync('unr-search-notice-');
       addTearDown(() => root.deleteSync(recursive: true));
       final api = SfacgApi();

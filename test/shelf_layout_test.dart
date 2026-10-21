@@ -12,6 +12,8 @@ import 'package:unr/sources/sfacg/sfacg_source.dart';
 import 'package:unr/ui/home.dart';
 import 'package:unr/ui/reader.dart';
 import 'helpers/reading_taps.dart';
+import 'helpers/memory_library.dart';
+import 'helpers/viewport.dart';
 
 const chapters = [
   Chapter(id: '1', title: '第一章'),
@@ -31,29 +33,18 @@ Book shelfBook(
   updatedAt: updated,
 );
 
-class LayoutLibrary extends Library {
+class LayoutLibrary extends TestLibrary
+    with MemoryPersistence, EmptyChapterCache {
   LayoutLibrary()
     : super(
-        Directory.systemTemp,
-        SfacgSource(
+        source: SfacgSource(
           SfacgApi(client: MockClient((_) async => throw StateError('不应访问网络'))),
         ),
         clock: () => DateTime.utc(2026, 10, 14, 12),
       );
-  bool failSave = false;
   @override
   Future<void> saveShelfUpdateTimes() => save();
-  @override
-  Future<void> save() async {
-    if (failSave) throw const FileSystemException('保存失败');
-    notifyListeners();
-  }
 
-  @override
-  Future<Set<String>> cachedChapterIds(Book book) async =>
-      (await cachedContents(book)).keys.toSet();
-  @override
-  Future<Map<String, ChapterContent>> cachedContents(Book book) async => {};
   @override
   Future<ChapterContent> read(Book book, Chapter chapter) async =>
       const ChapterContent([Paragraph('测试正文')]);
@@ -65,19 +56,17 @@ void main() {
     TargetPlatform.android,
   });
   void viewport(WidgetTester tester, {double? width}) {
-    tester.view.physicalSize = Size(
-      width ?? (defaultTargetPlatform == TargetPlatform.windows ? 1400 : 390),
-      900,
+    setTestViewport(
+      tester,
+      Size(
+        width ?? (defaultTargetPlatform == TargetPlatform.windows ? 1400 : 390),
+        900,
+      ),
     );
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
   }
 
   LayoutLibrary library() {
-    final result = LayoutLibrary();
-    addTearDown(result.dispose);
-    addTearDown(result.source.api.close);
+    final result = useLibrary(LayoutLibrary());
     return result;
   }
 

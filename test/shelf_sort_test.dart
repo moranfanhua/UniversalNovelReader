@@ -11,6 +11,7 @@ import 'package:unr/sources/sfacg/sfacg_api.dart';
 import 'package:unr/sources/sfacg/sfacg_source.dart';
 import 'package:unr/ui/reader.dart';
 import 'helpers/reading_taps.dart';
+import 'helpers/memory_library.dart';
 
 Book sample(
   String id,
@@ -26,21 +27,12 @@ Book sample(
   chapters: const [Chapter(id: '1', title: '第一章')],
 );
 
-class ShelfMemoryLibrary extends Library {
-  ShelfMemoryLibrary(DateTime Function() clock)
-    : super(Directory.systemTemp, SfacgSource(SfacgApi()), clock: clock);
+class ShelfMemoryLibrary extends TestLibrary
+    with MemoryPersistence, EmptyChapterCache {
+  ShelfMemoryLibrary(DateTime Function() clock) : super(clock: clock);
   @override
   Future<void> saveShelfUpdateTimes() => save();
-  @override
-  Future<void> save() async {
-    notifyListeners();
-  }
 
-  @override
-  Future<Set<String>> cachedChapterIds(Book book) async =>
-      (await cachedContents(book)).keys.toSet();
-  @override
-  Future<Map<String, ChapterContent>> cachedContents(Book book) async => {};
   @override
   Future<ChapterContent> read(Book book, Chapter chapter) async =>
       const ChapterContent([Paragraph('测试正文')]);
@@ -48,9 +40,7 @@ class ShelfMemoryLibrary extends Library {
 
 void main() {
   test('中文书名以完整无声调拼音参与字典序，混合英文忽略大小写且同音稳定', () async {
-    final library = ShelfMemoryLibrary(DateTime.now);
-    addTearDown(library.dispose);
-    addTearDown(library.source.api.close);
+    final library = useLibrary(ShelfMemoryLibrary(DateTime.now));
     library.books.addAll([
       sample('z', 'Zulu'),
       sample('guo', '国王'),
@@ -81,9 +71,7 @@ void main() {
     expect(library.books.firstWhere((book) => book.id == 'gui').title, '阿尔法');
   });
   test('多音字按词组转换，中文英文混排保留数字标点和特殊字符', () async {
-    final library = ShelfMemoryLibrary(DateTime.now);
-    addTearDown(library.dispose);
-    addTearDown(library.source.api.close);
+    final library = useLibrary(ShelfMemoryLibrary(DateTime.now));
     library.books.addAll([
       sample('chongqing', '重庆'),
       sample('chengdu', '成都'),

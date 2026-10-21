@@ -1,16 +1,14 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:unr/data/library.dart';
 import 'package:unr/data/download_queue.dart';
 import 'package:unr/domain/models.dart';
 import 'package:unr/sources/chapter_subscription_source.dart';
 import 'package:unr/sources/novel_source.dart';
-import 'package:unr/sources/sfacg/sfacg_api.dart';
-import 'package:unr/sources/sfacg/sfacg_source.dart';
 import 'package:unr/ui/chapter_download_dialog.dart';
+import 'helpers/viewport.dart';
+import 'helpers/memory_library.dart';
 
 class _SubscriptionSource implements ChapterSubscriptionSource {
   _SubscriptionSource(this.id);
@@ -60,13 +58,8 @@ class _FreeSource implements NovelSource {
       throw UnimplementedError();
 }
 
-class _Library extends Library {
-  _Library(NovelSource source)
-    : super(
-        Directory.systemTemp,
-        SfacgSource(SfacgApi()),
-        novelSources: [source],
-      );
+class _Library extends TestLibrary {
+  _Library(NovelSource source) : super(novelSources: [source]);
   int downloads = 0;
   Completer<void>? pending;
   final blocked = <String>{'2', '3'};
@@ -117,10 +110,7 @@ void main() {
     double width = 360,
     DownloadTask? previousTask,
   }) async {
-    tester.view.physicalSize = Size(width, 800);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
+    setTestViewport(tester, Size(width, 800));
     await tester.pumpWidget(
       MaterialApp(
         builder: (context, child) => MediaQuery(

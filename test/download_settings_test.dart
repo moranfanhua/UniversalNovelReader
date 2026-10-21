@@ -3,16 +3,12 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:unr/data/download_mirror.dart';
-import 'package:unr/data/library.dart';
-import 'package:unr/sources/sfacg/sfacg_api.dart';
-import 'package:unr/sources/sfacg/sfacg_source.dart';
 import 'package:unr/ui/download_settings.dart';
 import 'package:unr/ui/settings.dart';
+import 'helpers/viewport.dart';
+import 'helpers/memory_library.dart';
 
-class DownloadSettingsLibrary extends Library {
-  DownloadSettingsLibrary()
-    : super(Directory.systemTemp, SfacgSource(SfacgApi()));
-
+class DownloadSettingsLibrary extends TestLibrary {
   Completer<void>? pendingSave;
   @override
   Future<void> save() async {
@@ -25,13 +21,8 @@ void main() {
   for (final width in [360.0, 1200.0]) {
     for (final scale in [1.0, 2.0]) {
       testWidgets('下载设置可进入、校验、保存、关闭和恢复（宽$width，缩放$scale）', (tester) async {
-        tester.view.physicalSize = Size(width, 1000);
-        tester.view.devicePixelRatio = 1;
-        addTearDown(tester.view.resetPhysicalSize);
-        addTearDown(tester.view.resetDevicePixelRatio);
-        final library = DownloadSettingsLibrary();
-        addTearDown(library.dispose);
-        addTearDown(library.source.api.close);
+        setTestViewport(tester, Size(width, 1000));
+        final library = useLibrary(DownloadSettingsLibrary());
         await tester.pumpWidget(
           MaterialApp(
             builder: (context, child) => MediaQuery(
@@ -82,9 +73,7 @@ void main() {
   }
 
   testWidgets('保存期间禁用重复操作，失败后显示原因并可重试', (tester) async {
-    final library = DownloadSettingsLibrary();
-    addTearDown(library.dispose);
-    addTearDown(library.source.api.close);
+    final library = useLibrary(DownloadSettingsLibrary());
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(body: DownloadSettings(library: library)),
@@ -108,9 +97,7 @@ void main() {
   });
 
   testWidgets('保存中离开页面不访问已销毁的输入框', (tester) async {
-    final library = DownloadSettingsLibrary();
-    addTearDown(library.dispose);
-    addTearDown(library.source.api.close);
+    final library = useLibrary(DownloadSettingsLibrary());
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(body: DownloadSettings(library: library)),

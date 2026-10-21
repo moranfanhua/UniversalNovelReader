@@ -5,7 +5,8 @@ import 'package:unr/data/download_queue.dart';
 import 'package:unr/data/library.dart';
 import 'package:unr/ui/chapter_download_dialog.dart';
 import 'package:unr/ui/downloads.dart';
-import 'downloads_test.dart' show DownloadsLibrary, sample;
+import 'helpers/downloads.dart' show DownloadsLibrary, sample;
+import 'helpers/viewport.dart';
 
 void main() {
   late DownloadsLibrary library;
@@ -122,10 +123,7 @@ void main() {
   for (final width in [320.0, 1400.0]) {
     for (final scale in [1.0, 2.0]) {
       testWidgets('正在下载长书名与操作布局（宽$width，缩放$scale）', (tester) async {
-        tester.view.physicalSize = Size(width, 900);
-        tester.view.devicePixelRatio = 1;
-        addTearDown(tester.view.resetPhysicalSize);
-        addTearDown(tester.view.resetDevicePixelRatio);
+        setTestViewport(tester, Size(width, 900));
         library.downloadFailures.add('sfacg:1');
         final book = sample('1', title: '很长很长的后台下载测试书名用于验证手机宽屏与文字缩放不会溢出');
         library.downloadQueue.enqueue(book, book.chapters);

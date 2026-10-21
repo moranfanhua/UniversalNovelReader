@@ -14,6 +14,7 @@ import 'package:unr/sources/qidian/qidian_source.dart';
 import 'package:unr/sources/sfacg/sfacg_api.dart';
 import 'package:unr/sources/sfacg/sfacg_source.dart';
 import 'package:unr/ui/comments_sheet.dart';
+import 'helpers/viewport.dart';
 
 const chapter = Chapter(id: '12345', title: '第一章');
 const book = Book(
@@ -537,10 +538,7 @@ void main() {
 
   for (final width in [390.0, 1400.0]) {
     testWidgets('起点书源自动注册段评面板，宽度 $width 未登录可读取回复并提示登录', (tester) async {
-      tester.view.physicalSize = Size(width, 900);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
+      setTestViewport(tester, Size(width, 900));
       final source = sourceWith(
         (request) async => ok({
           'DataList': [

@@ -1,17 +1,15 @@
 import 'dart:async';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:unr/data/library.dart';
 import 'package:unr/domain/models.dart';
 import 'package:unr/domain/reading_preferences.dart';
 import 'package:unr/ui/reading_paragraph.dart';
 import 'package:unr/sources/comment_source.dart';
-import 'package:unr/sources/sfacg/sfacg_api.dart';
-import 'package:unr/sources/sfacg/sfacg_source.dart';
 import 'package:unr/ui/reader.dart';
-import 'chapter_preview_test.dart' show PreviewComments;
+import 'helpers/alternate_comments.dart' show PreviewComments;
 import 'helpers/reading_taps.dart';
+import 'helpers/memory_library.dart';
+import 'helpers/viewport.dart';
 
 final scrollBook = Book(
   id: 'continuous-scroll',
@@ -21,13 +19,10 @@ final scrollBook = Book(
   chapters: [for (var i = 1; i <= 6; i++) Chapter(id: '$i', title: '章节$i')],
 );
 
-class ScrollLibrary extends Library {
+class ScrollLibrary extends TestLibrary
+    with MemoryPersistence, MemoryReadingProgress {
   ScrollLibrary({CommentSource? comments})
-    : super(
-        Directory.systemTemp,
-        SfacgSource(SfacgApi()),
-        commentSources: comments == null ? [] : [comments],
-      );
+    : super(commentSources: comments == null ? [] : [comments]);
   final requests = <String>[];
   final contents = <String, ChapterContent>{
     for (var i = 1; i <= 6; i++)
@@ -42,13 +37,6 @@ class ScrollLibrary extends Library {
     requests.add(chapter.id);
     if (chapter.id == '2' && pending != null) return pending!.future;
     return contents[chapter.id]!;
-  }
-
-  @override
-  Future<void> save() async => notifyListeners();
-  @override
-  Future<void> remember(Book book, int chapter, int paragraph) async {
-    progress[book.key] = [chapter, paragraph];
   }
 }
 
@@ -69,10 +57,7 @@ void main() {
   }
 
   Future<void> open(WidgetTester tester, ScrollLibrary library) async {
-    tester.view.devicePixelRatio = 1;
-    tester.view.physicalSize = const Size(360, 640);
-    addTearDown(tester.view.resetDevicePixelRatio);
-    addTearDown(tester.view.resetPhysicalSize);
+    setTestViewport(tester, const Size(360, 640));
     addTearDown(library.dispose);
     addTearDown(library.source.api.close);
     await mount(tester, library);

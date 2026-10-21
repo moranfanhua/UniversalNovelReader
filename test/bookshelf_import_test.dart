@@ -16,6 +16,8 @@ import 'package:unr/sources/fanqie/fanqie_api.dart';
 import 'package:unr/sources/fanqie/fanqie_source.dart';
 import 'package:unr/sources/sfacg/sfacg_api.dart';
 import 'package:unr/sources/sfacg/sfacg_source.dart';
+import 'helpers/memory_library.dart';
+import 'helpers/viewport.dart';
 
 const first = Book(
   id: '1',
@@ -67,23 +69,17 @@ class FakeShelfSource extends SfacgSource {
   );
 }
 
-class MemoryShelfLibrary extends Library {
+class MemoryShelfLibrary extends TestLibrary with MemoryPersistence {
   MemoryShelfLibrary(
     SfacgSource source, {
     Iterable<NovelSource> sources = const [],
-  }) : super(Directory.systemTemp, source, novelSources: sources);
-  bool failSave = false;
+  }) : super(source: source, novelSources: sources);
   // Keep import request counts independent of automatic shelf visit updates.
   @override
   Future<ShelfUpdateResult> refreshShelfBooks({
     String? shelfId,
     required bool Function() isCancelled,
   }) async => const ShelfUpdateResult();
-  @override
-  Future<void> save() async {
-    if (failSave) throw const FileSystemException('保存失败');
-    notifyListeners();
-  }
 }
 
 void main() {
@@ -321,12 +317,12 @@ void main() {
     TargetPlatform.android,
   });
   void viewport(WidgetTester tester) {
-    tester.view.physicalSize = defaultTargetPlatform == TargetPlatform.windows
-        ? const Size(1400, 900)
-        : const Size(390, 844);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
+    setTestViewport(
+      tester,
+      defaultTargetPlatform == TargetPlatform.windows
+          ? const Size(1400, 900)
+          : const Size(390, 844),
+    );
   }
 
   Future<void> enterImport(

@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -11,20 +10,18 @@ import 'package:unr/sources/sfacg/sfacg_source.dart';
 import 'package:unr/ui/account.dart';
 import 'package:unr/ui/about.dart';
 import 'package:unr/ui/settings.dart';
+import 'helpers/memory_library.dart';
+import 'helpers/viewport.dart';
 
-class MyMemoryLibrary extends Library {
+class MyMemoryLibrary extends TestLibrary with MemoryPersistence {
   MyMemoryLibrary()
     : super(
-        Directory.systemTemp,
-        SfacgSource(
+        source: SfacgSource(
           SfacgApi(
             client: MockClient((_) async => throw StateError('导航不应发起网络请求')),
           ),
         ),
       );
-
-  @override
-  Future<void> save() async => notifyListeners();
 }
 
 void main() {
@@ -34,12 +31,12 @@ void main() {
   });
 
   void configureViewport(WidgetTester tester) {
-    tester.view.physicalSize = defaultTargetPlatform == TargetPlatform.windows
-        ? const Size(1400, 900)
-        : const Size(390, 844);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
+    setTestViewport(
+      tester,
+      defaultTargetPlatform == TargetPlatform.windows
+          ? const Size(1400, 900)
+          : const Size(390, 844),
+    );
   }
 
   testWidgets('关于收纳版本、检查更新与许可，逐级返回我的页', (tester) async {
@@ -51,9 +48,7 @@ void main() {
       buildNumber: '4',
       buildSignature: '',
     );
-    final library = MyMemoryLibrary();
-    addTearDown(library.dispose);
-    addTearDown(library.source.api.close);
+    final library = useLibrary(MyMemoryLibrary());
     await tester.pumpWidget(UnrApp(library: library));
     expect(find.byTooltip('开源许可'), findsNothing);
     await tester.tap(find.text('我的').last);
@@ -151,9 +146,7 @@ void main() {
 
   testWidgets('软件设置按分类进入并逐级返回，偏好和编码选择保留', (tester) async {
     configureViewport(tester);
-    final library = MyMemoryLibrary();
-    addTearDown(library.dispose);
-    addTearDown(library.source.api.close);
+    final library = useLibrary(MyMemoryLibrary());
     await tester.pumpWidget(UnrApp(library: library));
     await tester.tap(find.text('我的').last);
     await tester.pumpAndSettle();
