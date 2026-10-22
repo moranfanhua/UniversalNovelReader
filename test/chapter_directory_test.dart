@@ -28,9 +28,10 @@ const book = Book(
 class DirectoryLibrary extends Library {
   DirectoryLibrary() : super(Directory.systemTemp, SfacgSource(SfacgApi()));
   @override
-  Future<Map<String, ChapterContent>> cachedContents(Book book) async => {
-    '3': const ChapterContent([Paragraph('正文3')]),
-  };
+  Future<Set<String>> cachedChapterIds(Book book) async => {'3'};
+  @override
+  Future<Map<String, ChapterContent>> cachedContents(Book book) =>
+      throw StateError('详情和目录不得加载全书正文');
   @override
   Future<ChapterContent> read(Book book, Chapter chapter) async =>
       ChapterContent([Paragraph('正文${chapter.id}')]);

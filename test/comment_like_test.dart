@@ -77,6 +77,12 @@ void main() {
     addTearDown(sf.api.close);
     final first = sf.likeComment(comment), second = sf.likeComment(comment);
     expect(first, same(second));
+    final original = sf.likeStatus(comment);
+    for (var i = 0; i < 1000; i++) {
+      sf.likeStatus(ParagraphComment(id: '${10000 + i}', author: '', text: ''));
+    }
+    expect(sf.likeStatus(comment), same(original));
+    expect(sf.likeComment(comment), same(first));
     expect(sf.likeStatus(comment).value.count, 0);
     expect(sf.likeStatus(comment).value.sending, isTrue);
     pending.complete(ok({'favNum': 4}));

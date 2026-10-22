@@ -13,6 +13,7 @@ class LogEntry {
     required this.raw,
     this.time,
     this.errorType,
+    this.serverMessage,
     this.httpStatus,
     this.code,
     this.errorCode,
@@ -24,7 +25,7 @@ class LogEntry {
   final String event, raw;
   final LogLevel level;
   final DateTime? time;
-  final String? errorType;
+  final String? errorType, serverMessage;
   final int? httpStatus, code, errorCode, elapsedMs;
   final List<String> stack;
 
@@ -41,8 +42,8 @@ class LogEntry {
       event.startsWith('ciweimao.auth_') ||
       event.startsWith('fanqie.auth_') ||
       event.startsWith('qidian.auth_') ||
-      event == 'http.qidian.auth' ||
-      event == 'http.fanqie.auth';
+      event == 'http.fanqie.auth' ||
+      event == 'http.qidian.auth';
 
   String get message =>
       const {
@@ -168,6 +169,9 @@ String logLevelName(LogLevel level) => switch (level) {
           raw: line,
           time: data['time'] is String ? DateTime.tryParse(data['time']) : null,
           errorType: data['errorType'] is String ? data['errorType'] : null,
+          serverMessage: data['serverMessage'] is String
+              ? data['serverMessage']
+              : null,
           httpStatus: data['httpStatus'] is int ? data['httpStatus'] : null,
           code: data['code'] is int ? data['code'] : null,
           errorCode: data['errorCode'] is int ? data['errorCode'] : null,
@@ -240,6 +244,10 @@ class LogEntryTile extends StatelessWidget {
                     color: foreground,
                   ),
                 ),
+                if (entry.serverMessage != null) ...[
+                  const SizedBox(height: 4),
+                  Text('服务端：${entry.serverMessage}'),
+                ],
                 if (entry.errorType != null) ...[
                   const SizedBox(height: 4),
                   Text('异常：${entry.errorType}'),

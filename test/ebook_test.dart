@@ -1,10 +1,15 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
+import 'dart:isolate';
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 import 'package:archive/archive.dart';
 import 'package:enough_convert/gbk.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:unr/domain/models.dart';
 import 'package:unr/formats/ebook.dart';
+import 'package:xml/xml.dart';
 
 final tinyPng = base64Decode(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aN1QAAAAASUVORK5CYII=',
@@ -46,7 +51,227 @@ Uint8List fixture({
   return Uint8List.fromList(ZipEncoder().encode(zip));
 }
 
+class ObservedContent extends ChapterContent {
+  ObservedContent(this.events, this.text) : super(const []);
+  final SendPort events;
+  final String text;
+  @override
+  List<Paragraph> get paragraphs {
+    events.send(Isolate.current.debugName);
+    return [Paragraph(text), const Paragraph('', image: 'shared')];
+  }
+}
+
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('大书逐章请求并在后台生成和压缩，封面插图去重且文件可重新导入', () async {
+    final directory = await Directory.systemTemp.createTemp('unr-export-test-');
+    addTearDown(() => directory.delete(recursive: true));
+    final events = ReceivePort();
+    addTearDown(events.close);
+    final encoded = <String?>[];
+    final observed = Completer<void>();
+    events.listen((event) {
+      encoded.add(event as String?);
+      if (encoded.length == 80) observed.complete();
+    });
+    final chapters = [
+      for (var i = 0; i < 80; i++) Chapter(id: '$i', title: '章节$i'),
+    ];
+    final book = Book(
+      id: 'large',
+      title: '大书',
+      author: '作者',
+      cover: 'shared',
+      chapters: chapters,
+    );
+    final reads = <String>[];
+    var active = 0, imageReads = 0, ticks = 0;
+    final timer = Timer.periodic(
+      const Duration(milliseconds: 1),
+      (_) => ticks++,
+    );
+    addTearDown(timer.cancel);
+    final file = await Ebook.exportEpubFile(
+      book,
+      (chapter) async {
+        expect(++active, 1);
+        reads.add(chapter.id);
+        await Future<void>.delayed(Duration.zero);
+        active--;
+        return ObservedContent(
+          events.sendPort,
+          '${chapter.id}正文${'长文本' * 7000}',
+        );
+      },
+      (_) async {
+        imageReads++;
+        return tinyPng;
+      },
+      temporaryDirectory: directory,
+    );
+    await observed.future;
+    expect(encoded.toSet(), {'epub.export'});
+    expect(reads, chapters.map((chapter) => chapter.id));
+    expect(imageReads, 1);
+    expect(ticks, greaterThan(0));
+    final bytes = await file.readAsBytes();
+    final zip = ZipDecoder().decodeBytes(bytes, verify: true);
+    expect(zip.first.name, 'mimetype');
+    expect(zip.first.compression, CompressionType.none);
+    final imported = Ebook.importEpub(bytes);
+    expect(
+      imported.book.chapters.map((chapter) => chapter.title),
+      chapters.map((chapter) => chapter.title),
+    );
+    expect(imported.images, hasLength(1));
+    expect(imported.contents['79']!.paragraphs.first.text, startsWith('79正文'));
+    await file.parent.delete(recursive: true);
+    expect(await directory.list().toList(), isEmpty);
+  });
+
+  test('资源失败和取消均关闭后台文件并清理临时目录，不继续读取后续章节', () async {
+    final directory = await Directory.systemTemp.createTemp(
+      'unr-export-failure-',
+    );
+    addTearDown(() => directory.delete(recursive: true));
+    const book = Book(
+      id: 'failure',
+      title: '',
+      author: '',
+      chapters: [
+        Chapter(id: '1', title: ''),
+        Chapter(id: '2', title: ''),
+      ],
+    );
+    for (final cancel in [true, false]) {
+      var cancelled = false, reads = 0;
+      await expectLater(
+        Ebook.exportEpubFile(
+          book,
+          (chapter) async {
+            reads++;
+            cancelled = cancel;
+            return const ChapterContent([Paragraph('', image: 'missing')]);
+          },
+          (_) async => throw const SourceException('插图获取失败'),
+          isCancelled: () => cancelled,
+          temporaryDirectory: directory,
+        ),
+        throwsA(isA<SourceException>()),
+      );
+      expect(reads, 1);
+      expect(await directory.list().toList(), isEmpty);
+    }
+  });
+
+  Future<(int, int, Uint8List)> pixels(Uint8List bytes) async {
+    final codec = await ui.instantiateImageCodec(bytes);
+    try {
+      final frame = await codec.getNextFrame();
+      try {
+        final data = (await frame.image.toByteData())!;
+        return (
+          frame.image.width,
+          frame.image.height,
+          data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
+        );
+      } finally {
+        frame.image.dispose();
+      }
+    } finally {
+      codec.dispose();
+    }
+  }
+
+  // Locally generated 2 x 3 solid-color images; WebP includes transparency.
+  final otherImages = {
+    'WebP': base64Decode(
+      'UklGRh4AAABXRUJQVlA4TBEAAAAvAYAAEAfQll50qICBiOh/AAA=',
+    ),
+    'BMP': base64Decode(
+      'Qk1OAAAAAAAAADYAAAAoAAAAAgAAAAMAAAABABgAAAAAABgAAADEDgAAxA4AAAAAAAAAAAAAQy0XQy0XAABDLRdDLRcAAEMtF0MtFwAA',
+    ),
+  };
+  for (final entry in otherImages.entries) {
+    test('${entry.key} 封面与插图转为 PNG，保留尺寸像素并复用资源', () async {
+      const key = 'https://example.com/cover.jpg';
+      const book = Book(
+        id: 'converted',
+        title: '图片转换',
+        author: '作者',
+        cover: key,
+        chapters: [Chapter(id: '1', title: '第一章')],
+      );
+      var loads = 0;
+      final original = Uint8List.fromList(entry.value);
+      final bytes = await Ebook.exportEpub(
+        book,
+        {
+          '1': const ChapterContent([
+            Paragraph('前文'),
+            Paragraph('', image: key),
+            Paragraph('后文'),
+          ]),
+        },
+        (_) async {
+          loads++;
+          return entry.value;
+        },
+      );
+      expect(loads, 1);
+      expect(entry.value, original);
+      final zip = ZipDecoder().decodeBytes(bytes, verify: true);
+      final opf = XmlDocument.parse(
+        utf8.decode(zip.findFile('OEBPS/content.opf')!.content),
+      );
+      final image = opf.descendants.whereType<XmlElement>().singleWhere(
+        (e) => e.getAttribute('properties') == 'cover-image',
+      );
+      expect(image.getAttribute('media-type'), 'image/png');
+      expect(image.getAttribute('href'), 'images/0.png');
+      final imported = Ebook.importEpub(bytes);
+      expect(imported.images.length, 1);
+      final converted = imported.images[imported.book.cover]!;
+      expect(converted.take(8), [137, 80, 78, 71, 13, 10, 26, 10]);
+      final before = await pixels(original), after = await pixels(converted);
+      expect((after.$1, after.$2), (2, 3));
+      expect(after.$3, before.$3);
+      final paragraphs = imported.contents['0']!.paragraphs;
+      expect(paragraphs.map((p) => p.text), ['前文', '', '后文']);
+      expect(paragraphs[1].image, imported.book.cover);
+    });
+  }
+
+  for (final cover in [true, false]) {
+    test('无法解码的${cover ? '封面' : '插图'}仍阻止导出并明确提示', () async {
+      const key = 'https://example.com/private-image';
+      final book = Book(
+        id: 'invalid-image',
+        title: '测试',
+        author: '',
+        cover: cover ? key : '',
+        chapters: const [Chapter(id: '1', title: '第一章')],
+      );
+      await expectLater(
+        Ebook.exportEpub(book, {
+          '1': ChapterContent([
+            const Paragraph('正文'),
+            if (!cover) const Paragraph('', image: key),
+          ]),
+        }, (_) async => Uint8List.fromList(utf8.encode('<html>加载失败</html>'))),
+        throwsA(
+          isA<SourceException>().having(
+            (e) => e.toString(),
+            'message',
+            contains(cover ? 'EPUB 封面无法解码或转换' : 'EPUB 插图无法解码或转换'),
+          ),
+        ),
+      );
+    });
+  }
+
   test('EPUB 2 与 3 声明的封面都导入本地资源', () {
     for (final version in [2, 3]) {
       final imported = Ebook.importEpub(

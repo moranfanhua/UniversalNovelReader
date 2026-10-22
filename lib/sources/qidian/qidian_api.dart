@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
 
 import '../../domain/models.dart';
+import '../../domain/server_error_message.dart';
 import '../../data/app_log.dart';
 import '../logged_request.dart';
 import '../novel_source.dart';
@@ -117,16 +118,18 @@ class QidianApi {
     http.Response response,
     int? result, {
     String? path,
+    ServerErrorMessage? serverMessage,
   }) {
     final code = result != null && result != 0 ? result : response.statusCode;
     final SourceException error;
     if (code == -4403) {
       error = _pauseForRisk();
     } else {
+      final message = code == -2 || response.statusCode == 401
+          ? '起点会话已失效，请重新登录'
+          : '起点请求失败，请稍后重试（$code）';
       error = SourceException(
-        code == -2 || response.statusCode == 401
-            ? '起点会话已失效，请重新登录'
-            : '起点请求失败，请稍后重试（$code）',
+        serverMessage?.appendTo(message) ?? message,
         code: code,
       );
     }
@@ -144,6 +147,7 @@ class QidianApi {
       event,
       error: error,
       httpStatus: response.statusCode,
+      serverMessage: serverMessage,
     );
     return error;
   }
@@ -254,7 +258,12 @@ class QidianApi {
     if (document is Map) {
       final result = int.tryParse('${document['Result']}');
       if (result != null && result != 0) {
-        throw rejectResponse(response, result, path: path);
+        throw rejectResponse(
+          response,
+          result,
+          path: path,
+          serverMessage: _serverErrorMessage(response, document),
+        );
       }
     }
     return response;
@@ -266,7 +275,11 @@ class QidianApi {
       if (doc is! Map) throw const FormatException();
       final code = int.tryParse('${doc['Result']}');
       if (response.statusCode != 200 || code != 0) {
-        throw rejectResponse(response, code);
+        throw rejectResponse(
+          response,
+          code,
+          serverMessage: _serverErrorMessage(response, doc),
+        );
       }
       return doc['Data'];
     } on SourceException {
@@ -274,6 +287,26 @@ class QidianApi {
     } catch (_) {
       throw SourceException('起点返回无法识别的数据（HTTP ${response.statusCode}）');
     }
+  }
+
+  ServerErrorMessage? _serverErrorMessage(http.Response response, Map doc) {
+    final request = response.request;
+    return ServerErrorMessage.parse(
+      doc['Message'] ?? doc['Msg'],
+      responseData: doc,
+      secrets: [
+        credentials?.toJson(),
+        device,
+        request?.headers,
+        request?.url.queryParameters,
+        if (request is http.Request &&
+            request.headers['content-type']?.startsWith(
+                  'application/x-www-form-urlencoded',
+                ) ==
+                true)
+          request.bodyFields,
+      ],
+    );
   }
 
   Map<String, dynamic> responseData(http.Response response) {
@@ -412,6 +445,10 @@ class QidianApi {
   }
 
   Future<void> checkSession() async {
+    await accountPage();
+  }
+
+  Future<Map<String, dynamic>> accountPage() async {
     final session = credentials;
     if (session == null) throw const SourceException('请先登录起点读书');
     try {
@@ -430,6 +467,7 @@ class QidianApi {
       if (user is! Map || '${user['UserId']}' != session.userId) {
         throw const SourceException('起点账号检测返回的数据与当前账号不匹配');
       }
+      return data;
     } on SourceException catch (error) {
       if (error.code == -2 || error.code == 401) {
         throw const SessionExpiredException('起点会话已失效，请重新登录');

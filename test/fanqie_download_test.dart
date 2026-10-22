@@ -63,6 +63,47 @@ void restore(FanqieApi api, {List<int>? key}) => api.app.restore({
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  test('同批原生解密中损坏填充与非法密文仅使对应章节失败', () async {
+    final ids = chapters.take(5).map((c) => c.id).toList();
+    final key = List.filled(16, 7);
+    var calls = 0;
+    final api = FanqieApi(
+      client: MockClient((request) async {
+        expect(request.url.path, '/reading/reader/batch_full/v/');
+        calls++;
+        final broken = item(ids[1], key: key);
+        final blob = base64Decode(broken['content'] as String);
+        final length = gzip
+            .encode(utf8.encode('<p idx="0">正文 ${ids[1]}</p>'))
+            .length;
+        blob[blob.length - 17] ^= 16 - length % 16;
+        broken['content'] = base64Encode(blob);
+        return ok({
+          ids[4]: item(ids[4], key: key),
+          ids[1]: broken,
+          ids[2]: {...item(ids[2], key: key), 'content': 'not-base64'},
+          ids[3]: item(ids[3]),
+          ids[0]: item(ids[0], key: key),
+        });
+      }),
+    );
+    restore(api, key: key);
+    addTearDown(api.close);
+    final results = await api.app.chapters(bid, ids);
+    expect(results.map((r) => r.id), ids);
+    expect(results.map((r) => r.error != null), [
+      false,
+      true,
+      true,
+      false,
+      false,
+    ]);
+    for (final i in [0, 3, 4]) {
+      expect(results[i].data!['content'], '<p idx="0">正文 ${ids[i]}</p>');
+    }
+    expect(calls, 1);
+  });
+
   test('31章按官方30章分组，只请求App批量接口，乱序结果保留段评版本并写入缓存', () async {
     final calls = <List<String>>[];
     final api = FanqieApi(

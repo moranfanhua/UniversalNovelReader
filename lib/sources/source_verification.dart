@@ -16,11 +16,30 @@ abstract class SourceVerificationChallenge<T> {
 
   String get title;
   String get instruction;
+  DateTime get expiresAt;
+  T? parseResult(Object? value);
+}
+
+abstract class SourceWebVerificationChallenge<T>
+    extends SourceVerificationChallenge<T> {
+  const SourceWebVerificationChallenge();
+
   String get profileId;
   String get returnLabel => '返回';
-  DateTime get expiresAt;
   SourceVerificationDocument createDocument(String nonce);
-  T? parseResult(Object? value);
+}
+
+/// The source owns sending, cooldowns and server confirmation. The form only
+/// collects the code and hosts any preceding human verification.
+abstract class SourceSmsVerificationChallenge
+    extends SourceVerificationChallenge<bool> {
+  const SourceSmsVerificationChallenge();
+
+  String get maskedDestination;
+  DateTime? get resendAt;
+  bool get canSubmit;
+  Future<bool> sendCode(SourceVerificationSolver solve);
+  Future<void> submitCode(String code);
 }
 
 abstract interface class SourceVerificationDocument {

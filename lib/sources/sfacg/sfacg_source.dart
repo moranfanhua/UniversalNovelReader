@@ -7,6 +7,8 @@ import 'package:http/http.dart' as http;
 
 import '../../domain/models.dart';
 import '../novel_source.dart';
+import '../account_source.dart';
+import 'sfacg_account.dart';
 import '../source_verification.dart';
 import '../chapter_batch_source.dart';
 import '../bookshelf_source.dart';
@@ -15,17 +17,19 @@ import 'sfacg_markup.dart';
 import 'sfacg_subscriptions.dart';
 import '../chapter_subscription_source.dart';
 import '../comment_source.dart';
+import '../comment_like_cache.dart';
 
 export '../comment_source.dart' show CommentSort;
 
 class SfacgSource extends CommentSource
-    with SfacgSubscriptions
+    with SfacgSubscriptions, SfacgAccount
     implements
         SearchableNovelSource,
         BookshelfSource,
         ChapterBatchSource,
         VerifiableNovelSource,
-        BookUpdateSource {
+        BookUpdateSource,
+        AccountSource {
   SfacgSource(this.api, {Map<String, String>? cipher}) : cipher = cipher ?? {};
   @override
   final SfacgApi api;
@@ -34,7 +38,10 @@ class SfacgSource extends CommentSource
   final Map<String, ({DateTime at, int count})> _commentCounts = {};
   final Map<String, Future<int>> _countRequests = {};
   final Map<String, int> _countEpochs = {};
-  final Map<String, ValueNotifier<CommentLikeStatus>> _likes = {};
+  late final _likes = CommentLikeCache(
+    onEvict: (key) => _likeVersions.remove(key),
+    isPending: _likeRequests.containsKey,
+  );
   final Map<String, Future<void>> _likeRequests = {};
   final Map<String, int> _likeVersions = {};
   int _likeEpoch = 0;
@@ -542,7 +549,7 @@ class SfacgSource extends CommentSource
     ParagraphComment? root,
   }) => _likes.putIfAbsent(
     _likeKey(comment),
-    () => ValueNotifier(CommentLikeStatus(count: comment.likes)),
+    () => CommentLikeNotifier(CommentLikeStatus(count: comment.likes)),
   );
 
   @override
@@ -571,6 +578,7 @@ class SfacgSource extends CommentSource
       key,
       () => _likeComment(comment, state).whenComplete(() {
         _likeRequests.remove(key);
+        _likes.trim();
       }),
     );
   }

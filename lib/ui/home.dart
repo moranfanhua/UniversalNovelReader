@@ -10,6 +10,7 @@ import '../formats/ebook.dart';
 import '../sources/novel_search.dart';
 import '../sources/ciweimao/ciweimao_source.dart';
 import 'book_page.dart';
+import 'chapter_download_dialog.dart';
 import 'reader.dart';
 import 'image_bytes.dart';
 import 'my.dart';
@@ -17,7 +18,7 @@ import 'import_shelf.dart';
 import '../domain/bookshelf.dart';
 import 'top_dropdown_button.dart';
 
-enum _ShelfBookAction { details, pin, remove }
+enum _ShelfBookAction { details, download, pin, remove }
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key, required this.library});
@@ -347,7 +348,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _openShelfBook(Book book, {bool details = false}) async {
+  Future<void> _openShelfBook(Book book, {_ShelfBookAction? action}) async {
     if (busy) return;
     book =
         [
@@ -356,7 +357,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         ].where((item) => item.key == book.key).firstOrNull ??
         book;
     final service = library.sourceFor(book);
-    if (!details && book.chapters.isEmpty && service == null) {
+    if (action != _ShelfBookAction.details &&
+        book.chapters.isEmpty &&
+        service == null) {
       setState(() => error = '当前作品暂无可阅读章节，可长按作品查看详情。');
       return;
     }
@@ -383,14 +386,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (!active()) return;
       await library.markActive(book);
       if (!mounted || !active()) return;
-      await Navigator.push(
-        context,
-        MaterialPageRoute<void>(
-          builder: (_) => details
-              ? BookPage(library: library, book: book)
-              : ReaderPage(library: library, book: book),
-        ),
-      );
+      if (action == _ShelfBookAction.download) {
+        setState(() => busy = false);
+        await showChapterDownloadDialog(context, library: library, book: book);
+      } else {
+        await Navigator.push(
+          context,
+          MaterialPageRoute<void>(
+            builder: (_) => action == _ShelfBookAction.details
+                ? BookPage(library: library, book: book)
+                : ReaderPage(library: library, book: book),
+          ),
+        );
+      }
     } catch (e) {
       if (active()) setState(() => error = '$e');
     } finally {
@@ -418,31 +426,43 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       context: context,
       showDragHandle: true,
       builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.info_outline),
-              title: const Text('作品详情'),
-              onTap: () => Navigator.pop(context, _ShelfBookAction.details),
-            ),
-            ListTile(
-              leading: Icon(pinned ? Icons.push_pin : Icons.push_pin_outlined),
-              title: Text(pinned ? '取消置顶' : '置顶'),
-              onTap: () => Navigator.pop(context, _ShelfBookAction.pin),
-            ),
-            ListTile(
-              leading: const Icon(Icons.remove_circle_outline),
-              title: const Text('移除'),
-              onTap: () => Navigator.pop(context, _ShelfBookAction.remove),
-            ),
-          ],
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.info_outline),
+                title: const Text('作品详情'),
+                onTap: () => Navigator.pop(context, _ShelfBookAction.details),
+              ),
+              if (library.sourceFor(book) != null)
+                ListTile(
+                  leading: const Icon(Icons.download_outlined),
+                  title: const Text('下载章节'),
+                  onTap: () =>
+                      Navigator.pop(context, _ShelfBookAction.download),
+                ),
+              ListTile(
+                leading: Icon(
+                  pinned ? Icons.push_pin : Icons.push_pin_outlined,
+                ),
+                title: Text(pinned ? '取消置顶' : '置顶'),
+                onTap: () => Navigator.pop(context, _ShelfBookAction.pin),
+              ),
+              ListTile(
+                leading: const Icon(Icons.remove_circle_outline),
+                title: const Text('移除'),
+                onTap: () => Navigator.pop(context, _ShelfBookAction.remove),
+              ),
+            ],
+          ),
         ),
       ),
     );
     if (!mounted || action == null) return;
-    if (action == _ShelfBookAction.details) {
-      await _openShelfBook(book, details: true);
+    if (action == _ShelfBookAction.details ||
+        action == _ShelfBookAction.download) {
+      await _openShelfBook(book, action: action);
       return;
     }
     setState(() => busy = true);

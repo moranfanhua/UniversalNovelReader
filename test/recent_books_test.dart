@@ -37,6 +37,8 @@ class RecentLibrary extends Library {
   Completer<void>? saving;
   Completer<ChapterContent>? pendingRead;
   @override
+  Future<void> saveShelfUpdateTimes() => save();
+  @override
   Future<void> save() async {
     saves++;
     if (failSave) throw const FileSystemException('保存失败');
@@ -44,6 +46,9 @@ class RecentLibrary extends Library {
     await saving?.future;
   }
 
+  @override
+  Future<Set<String>> cachedChapterIds(Book book) async =>
+      (await cachedContents(book)).keys.toSet();
   @override
   Future<Map<String, ChapterContent>> cachedContents(Book book) async => {};
   @override

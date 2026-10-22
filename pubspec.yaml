@@ -1,7 +1,7 @@
 name: unr
 description: 跨平台 EPUB 与网络小说阅读器
 publish_to: none
-version: 1.0.1+6
+version: 1.0.2+7
 environment:
   sdk: ^3.12.2
 dependencies:
@@ -27,6 +27,10 @@ dependencies:
   package_info_plus: ^10.2.2
   url_launcher: ^6.3.3
   pub_semver: ^2.2.1
+  ffi: ^2.2.0
+  code_assets: ^1.2.1
+  hooks: ^2.0.2
+  native_toolchain_c: ^0.19.2
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -34,6 +38,7 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
+    - third_party/mbedtls/LICENSE
     - assets/sfacg_cipher.json
     - assets/fanqie_cipher.json
     - assets/sfacg_icon.jpg

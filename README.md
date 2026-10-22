@@ -95,11 +95,15 @@ UniversalNovelReader（UNR）是一个非官方第三方阅读工具，与任何
 - [peter-evans/create-pull-request](https://github.com/peter-evans/create-pull-request) — MIT；自动格式化变更的 PR 创建与更新工具。
 - [SFacgExporter](https://github.com/moranfanhua/SFacgExporter) — AGPL-3.0；菠萝包签名、正文字符表与导出逻辑参考来源，原作者 moranfanhua。
 - [fanqienovel-downloader](https://github.com/ying-ck/fanqienovel-downloader) — AGPL-3.0；番茄官网正文字体字符表参考来源，原作者 ying-ck（qxqycb）。
-- [Pointy Castle](https://pub.dev/packages/pointycastle) — MIT；番茄接口签名与阅读密钥注册使用的 AES、SM3 实现，起点 App 协议使用的 AES、DES 与 3DES 实现，以及刺猬猫 App 协议使用的 AES 与 RSA 实现。
+- [Pointy Castle](https://pub.dev/packages/pointycastle) — MIT；番茄设备与阅读密钥注册使用的 AES 加密，起点 App 请求使用的 3DES 加密，以及起点与刺猬猫 App 协议使用的 RSA 加密。
+- [Mbed TLS 3.6.7](https://github.com/Mbed-TLS/mbedtls/tree/068ff080b369adfac81509f9b57b2afabaf82dc5) — Apache-2.0（选择上游双重许可中的 Apache-2.0）；精简且未修改的 AES、DES 与平台工具源码用于起点、番茄、刺猬猫的原生章节解密。来源、文件摘要与许可见 `third_party/mbedtls/UPSTREAM`、`third_party/mbedtls/LICENSE`；许可随应用打包并显示在开源许可页。
+- [native_toolchain_c](https://pub.dev/packages/native_toolchain_c)、[glob](https://pub.dev/packages/glob)、[file](https://pub.dev/packages/file) — BSD-3-Clause；配合 `hooks`、`code_assets` 和 `ffi` 编译、打包并调用请求签名与章节解密的 C++ 实现。
+- [LLVM libc++ / libc++abi](https://github.com/llvm/llvm-project/blob/main/libcxx/LICENSE.TXT) — Apache-2.0 WITH LLVM-exception；Android 原生签名与章节解密库静态链接的 NDK C++ 运行库。
 - [pinyin](https://pub.dev/packages/pinyin) — BSD-2-Clause；书名排序使用的汉字转拼音实现。
 - [convert](https://pub.dev/packages/convert) — BSD-3-Clause；Pointy Castle 的传递依赖。
 - [fqapp](https://github.com/ch6vip/fqapp) — GPL-3.0；番茄签名、密钥注册与接口参数参考来源，原作者 ch6vip。
 - [Guava](https://github.com/google/guava) — Apache-2.0；AndroidX 仍使用其 listenablefuture 接口包。
 - [AndroidX Core](https://android.googlesource.com/platform/frameworks/support/)、[AndroidX Annotation](https://android.googlesource.com/platform/frameworks/support/) — Apache-2.0；Flutter Android 插件的平台适配。WebView 插件还使用 Apache-2.0 的 AndroidX WebKit、Browser、AppCompat 与 SwipeRefreshLayout。
 - [Error Prone annotations](https://github.com/google/error-prone)、[JSpecify](https://github.com/jspecify/jspecify) — Apache-2.0；Flutter Android 插件的传递依赖。
+
 起点 QIMEI／ibex 的独立 C++ 兼容实现依据本机已解包的起点读书 Android 7.9.480（1996）协议核对；不包含官方 APK、OStar／Fock 原生库或第三方 QIMEI 项目的源代码。Windows 加密调用系统 CNG，Android 调用系统 JCE。相关商标与协议权利归各自权利人所有。

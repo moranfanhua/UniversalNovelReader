@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
 import 'package:crypto/crypto.dart';
 import '../../domain/models.dart';
+import '../../domain/server_error_message.dart';
 import '../../data/app_log.dart';
 import '../logged_request.dart';
 import '../session_validation.dart';
@@ -78,7 +79,9 @@ class FanqieAppApi {
   };
   Map<String, String> get loginParameters => Map.unmodifiable(_params);
 
-  Future<String> accountId() async {
+  Future<String> accountId() async => '${(await accountInfo())['user_id']}';
+
+  Future<Map<String, dynamic>> accountInfo() async {
     await ensureDevice();
     // APK Passport SDK: AccountInfoApi -> /passport/account/info/v2/.
     final document = _document(
@@ -105,7 +108,7 @@ class FanqieAppApi {
         BigInt.parse(id).bitLength > 64) {
       throw const SourceException('番茄账号检测返回的数据格式已变化');
     }
-    return id;
+    return Map<String, dynamic>.from(data as Map);
   }
 
   Future<http.Response> _send(
@@ -318,12 +321,29 @@ class FanqieAppApi {
     final doc = _document(response);
     final code = int.tryParse('${doc['code']}') ?? -1;
     if (code != 0) {
+      final serverMessage = ServerErrorMessage.parse(
+        doc['message'] ?? doc['msg'],
+        responseData: doc,
+        secrets: [
+          cookie().split(RegExp(r'[=;]')),
+          deviceId,
+          installId,
+          query,
+          body,
+        ],
+      );
       AppLog.instance.record(
         LogLevel.warning,
         'fanqie.request_rejected',
         error: SourceException('', code: code),
+        httpStatus: response.statusCode,
+        serverMessage: serverMessage,
       );
-      throw SourceException('番茄 App 请求失败（状态 $code），请检查会话或阅读权限', code: code);
+      final message = '番茄 App 请求失败（状态 $code），请检查会话或阅读权限';
+      throw SourceException(
+        serverMessage?.appendTo(message) ?? message,
+        code: code,
+      );
     }
     return doc['data'];
   }
@@ -435,27 +455,68 @@ class FanqieAppApi {
     checkSession();
     final results = <String, FanqieChapterResult>{};
     final expired = <String>[];
-    FanqieChapterResult decode(String id, Object? raw, Uint8List key) {
-      try {
-        if (raw is! Map) throw const SourceException('番茄未返回该章节正文');
-        return (
-          id: id,
-          data: _decodeChapter(bookId, id, Map<String, dynamic>.from(raw), key),
-          error: null,
-        );
-      } catch (error) {
-        return (id: id, data: null, error: error);
+    void decodeGroup(
+      List<String> ids,
+      Map<String, dynamic> response,
+      Uint8List key,
+    ) {
+      final encryptedIds = <String>[];
+      final values = <String, Map<String, dynamic>>{};
+      for (final id in ids) {
+        try {
+          final raw = response[id];
+          if (raw is! Map) throw const SourceException('番茄未返回该章节正文');
+          final value = Map<String, dynamic>.from(raw);
+          final crypt = _chapterCrypt(bookId, id, value);
+          if (crypt == 0) {
+            values[id] = value;
+            encryptedIds.add(id);
+          } else {
+            results[id] = (
+              id: id,
+              data: _decodeChapter(bookId, id, value, key),
+              error: null,
+            );
+          }
+        } catch (error) {
+          results[id] = (id: id, data: null, error: error);
+        }
+      }
+      final decrypted = FanqieCrypto.decryptBlobs([
+        for (final id in encryptedIds) '${values[id]!['content'] ?? ''}',
+      ], key);
+      for (var i = 0; i < encryptedIds.length; i++) {
+        final id = encryptedIds[i];
+        try {
+          final blob = decrypted[i];
+          if (blob.error != null) throw blob.error!;
+          results[id] = (
+            id: id,
+            data: _decodeChapter(
+              bookId,
+              id,
+              values[id]!,
+              key,
+              plaintext: blob.bytes,
+            ),
+            error: null,
+          );
+        } catch (error) {
+          results[id] = (id: id, data: null, error: error);
+        }
       }
     }
 
+    final current = <String>[];
     for (final id in chapterIds) {
       final raw = data[id];
       if (raw is Map && '${raw['crypt_status']}' == '2') {
         expired.add(id);
       } else {
-        results[id] = decode(id, raw, key);
+        current.add(id);
       }
     }
+    decodeGroup(current, data, key);
     if (expired.isNotEmpty) {
       try {
         if (identical(_key, key)) _key = null;
@@ -464,9 +525,7 @@ class FanqieAppApi {
         final refreshedKey = _key!;
         final retry = await fetch(expired);
         checkSession();
-        for (final id in expired) {
-          results[id] = decode(id, retry[id], refreshedKey);
-        }
+        decodeGroup(expired, retry, refreshedKey);
       } catch (error) {
         for (final id in expired) {
           results[id] = (id: id, data: null, error: error);
@@ -477,11 +536,10 @@ class FanqieAppApi {
     return chapterIds.map((id) => results[id]!).toList();
   }
 
-  Map<String, dynamic> _decodeChapter(
+  int _chapterCrypt(
     String bookId,
     String chapterId,
     Map<String, dynamic> data,
-    Uint8List key,
   ) {
     final metadata = data['novel_data'];
     if (metadata is! Map ||
@@ -496,13 +554,24 @@ class FanqieAppApi {
         data['block_data'] != null) {
       throw const SourceException('番茄章节不可读取或仅返回试读，请确认官方阅读权限');
     }
-    final encrypted = '${data['content'] ?? ''}';
     final crypt = int.tryParse('${data['crypt_status']}');
     if (crypt == 2) throw const SourceException('番茄阅读密钥已过期，请重试');
     if (crypt != 0 && crypt != 1) throw const SourceException('番茄正文加密格式已变化');
+    return crypt!;
+  }
+
+  Map<String, dynamic> _decodeChapter(
+    String bookId,
+    String chapterId,
+    Map<String, dynamic> data,
+    Uint8List key, {
+    Uint8List? plaintext,
+  }) {
+    final crypt = _chapterCrypt(bookId, chapterId, data);
+    final encrypted = '${data['content'] ?? ''}';
     List<int> bytes = crypt == 1
         ? utf8.encode(encrypted)
-        : FanqieCrypto.decryptBlob(encrypted, key);
+        : plaintext ?? FanqieCrypto.decryptBlob(encrypted, key);
     if (bytes.length >= 2 && bytes[0] == 31 && bytes[1] == 139) {
       try {
         bytes = gzip.decode(bytes);

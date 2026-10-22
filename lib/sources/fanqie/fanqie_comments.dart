@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import '../../domain/models.dart';
 import '../comment_source.dart';
+import '../comment_like_cache.dart';
 import 'fanqie_api.dart';
 import 'fanqie_markup.dart';
 
@@ -23,7 +24,10 @@ abstract class FanqieComments extends CommentSource {
   final _counts = <String, ({DateTime at, Map<String, int> data})>{};
   final _countRequests = <String, Future<Map<String, int>>>{};
   final _countEpochs = <String, int>{};
-  final _likes = <String, ValueNotifier<CommentLikeStatus>>{};
+  late final _likes = CommentLikeCache(
+    onEvict: (key) => _services.remove(key),
+    isPending: _likeRequests.containsKey,
+  );
   final _likeRequests = <String, Future<void>>{};
   final _services = <String, Object>{};
   String _session = '';
@@ -151,7 +155,7 @@ abstract class FanqieComments extends CommentSource {
     _services[cid] = common['service_id'] ?? 1;
     final status = _likes.putIfAbsent(
       cid,
-      () => ValueNotifier(
+      () => CommentLikeNotifier(
         CommentLikeStatus(
           count: _int(stat['digg_count']),
           liked: action['user_digg'] == true,
@@ -441,7 +445,7 @@ abstract class FanqieComments extends CommentSource {
     _checkSession();
     return _likes.putIfAbsent(
       comment.id,
-      () => ValueNotifier(CommentLikeStatus(count: comment.likes)),
+      () => CommentLikeNotifier(CommentLikeStatus(count: comment.likes)),
     );
   }
 
@@ -495,6 +499,7 @@ abstract class FanqieComments extends CommentSource {
           rethrow;
         } finally {
           _likeRequests.remove(cid);
+          _likes.trim();
         }
       })();
     });

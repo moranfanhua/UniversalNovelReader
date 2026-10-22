@@ -8,6 +8,7 @@ import '../sources/comment_source.dart';
 import '../sources/source_verification.dart';
 import '../sources/chapter_subscription_source.dart';
 import 'chapter_subscription_dialog.dart';
+import 'chapter_download_dialog.dart';
 import 'account.dart';
 import 'source_verification_button.dart';
 import 'comments_sheet.dart';
@@ -815,7 +816,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   }
 
   Future<void> _directory() async {
-    final cached = library.cachedContents(widget.book);
+    final cached = library.cachedChapterIds(widget.book);
     final index = await showModalBottomSheet<int>(
       context: context,
       isScrollControlled: true,
@@ -834,12 +835,12 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
             Expanded(
               child: CustomScrollView(
                 slivers: [
-                  FutureBuilder<Map<String, ChapterContent>>(
+                  FutureBuilder<Set<String>>(
                     future: cached,
                     builder: (context, snapshot) => ChapterDirectory(
                       chapters: widget.book.chapters,
                       selectedChapter: chapter,
-                      cachedChapterIds: snapshot.data?.keys.toSet() ?? {},
+                      cachedChapterIds: snapshot.data ?? {},
                       onChapterSelected: (i) => Navigator.pop(context, i),
                     ),
                   ),
@@ -1177,6 +1178,16 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     ),
     actions: [
       AddToShelfButton(library: library, book: widget.book, compact: true),
+      if (library.sourceFor(widget.book) != null)
+        IconButton(
+          tooltip: '下载章节',
+          onPressed: () => showChapterDownloadDialog(
+            context,
+            library: library,
+            book: widget.book,
+          ),
+          icon: const Icon(Icons.download_outlined),
+        ),
       IconButton(
         tooltip: '目录',
         onPressed: _directory,

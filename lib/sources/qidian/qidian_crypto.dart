@@ -6,6 +6,7 @@ import 'package:crypto/crypto.dart';
 import 'package:pointycastle/export.dart';
 
 import '../../domain/models.dart';
+import '../native_chapter_crypto.dart';
 
 /// Interoperability profile verified against the official Android 7.9.480 APK
 /// (1996): a.c.sign, a.d.c, ye.cihai and libload-jni. No APK code is bundled.
@@ -59,6 +60,16 @@ class QidianCrypto {
   }) {
     final bytes = utf8.encode(key);
     final expanded = bytes.length == 16 ? [...bytes, ...bytes.take(8)] : bytes;
+    if (decrypt) {
+      return NativeChapterCrypto.decrypt(
+        ChapterDecryptInput(
+          data: Uint8List.fromList(input),
+          key: Uint8List.fromList(expanded),
+          iv: iv == null ? Uint8List(8) : Uint8List.fromList(utf8.encode(iv)),
+          cipher: ChapterCipher.des3Cbc,
+        ),
+      );
+    }
     final cipher = PaddedBlockCipherImpl(
       PKCS7Padding(),
       CBCBlockCipher(DESedeEngine()),
