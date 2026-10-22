@@ -9,16 +9,8 @@ mixin QidianSubscriptions implements ChapterSubscriptionSource {
   bool get canSubscribe => api.hasSession;
 
   Future<Set<String>> _subscriptionOwned(Book book) async {
-    final data = api.responsePayload(
-      await api.send('/argus/api/v2/subscription/getboughtchapterlist', {
-        'bookId': book.id,
-      }, post: true),
-    );
-    if (data is! List ||
-        data.any((c) => !RegExp(r'^[1-9]\d{0,11}$').hasMatch('$c'))) {
-      throw const SourceException('起点已购章节列表格式已变化');
-    }
-    return data.map((c) => '$c').toSet();
+    // Pricing and purchase confirmation always bypass the read cache.
+    return api.ownedChapters(book.id, refresh: true);
   }
 
   Future<Map<String, int>> _subscriptionPrices(Book book) async {
@@ -120,6 +112,7 @@ mixin QidianSubscriptions implements ChapterSubscriptionSource {
         if (latestTotal != total) {
           throw const SourceException('订阅总费用已变化，请重新获取费用并确认');
         }
+        api.invalidateOwnership(book.id);
         try {
           // Official component.api.f0.h -> f0.j -> Urls.b0. Parameters were
           // checked against the APK's native builder with HTTP blocked.

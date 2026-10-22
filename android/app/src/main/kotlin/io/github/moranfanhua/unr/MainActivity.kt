@@ -6,12 +6,14 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
+    private var qidianNative: QidianNativeBridge? = null
     private var volumeChannel: MethodChannel? = null
     private var volumeKeysEnabled = false
     private val consumedKeys = mutableSetOf<Int>()
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        qidianNative = QidianNativeBridge(applicationContext, flutterEngine.dartExecutor.binaryMessenger)
         volumeChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "unr/reader_volume_keys").also { channel ->
             channel.setMethodCallHandler { call, result ->
                 if (call.method == "setEnabled") {
@@ -54,6 +56,8 @@ class MainActivity : FlutterActivity() {
     override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
         volumeKeysEnabled = false
         consumedKeys.clear()
+        qidianNative?.dispose()
+        qidianNative = null
         volumeChannel?.setMethodCallHandler(null)
         volumeChannel = null
         super.cleanUpFlutterEngine(flutterEngine)

@@ -102,3 +102,4 @@ UniversalNovelReader（UNR）是一个非官方第三方阅读工具，与任何
 - [Guava](https://github.com/google/guava) — Apache-2.0；AndroidX 仍使用其 listenablefuture 接口包。
 - [AndroidX Core](https://android.googlesource.com/platform/frameworks/support/)、[AndroidX Annotation](https://android.googlesource.com/platform/frameworks/support/) — Apache-2.0；Flutter Android 插件的平台适配。WebView 插件还使用 Apache-2.0 的 AndroidX WebKit、Browser、AppCompat 与 SwipeRefreshLayout。
 - [Error Prone annotations](https://github.com/google/error-prone)、[JSpecify](https://github.com/jspecify/jspecify) — Apache-2.0；Flutter Android 插件的传递依赖。
+起点 QIMEI／ibex 的独立 C++ 兼容实现依据本机已解包的起点读书 Android 7.9.480（1996）协议核对；不包含官方 APK、OStar／Fock 原生库或第三方 QIMEI 项目的源代码。Windows 加密调用系统 CNG，Android 调用系统 JCE。相关商标与协议权利归各自权利人所有。

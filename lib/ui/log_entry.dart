@@ -40,6 +40,8 @@ class LogEntry {
       event.startsWith('session.') ||
       event.startsWith('ciweimao.auth_') ||
       event.startsWith('fanqie.auth_') ||
+      event.startsWith('qidian.auth_') ||
+      event == 'http.qidian.auth' ||
       event == 'http.fanqie.auth';
 
   String get message =>
@@ -54,6 +56,14 @@ class LogEntry {
         'http.fanqie.app': '番茄 App 请求完成',
         'http.fanqie.auth': '番茄认证请求完成',
         'http.ciweimao': '刺猬猫请求完成',
+        'http.qidian': '起点请求完成',
+        'http.qidian.auth': '起点认证请求完成',
+        'qidian.request_rejected': '起点请求被拒绝',
+        'qidian.auth_rejected': '起点认证未通过',
+        'qidian.batch_rejected': '起点批量下载请求被拒绝',
+        'qidian.key_rejected': '起点阅读密钥请求被拒绝',
+        'qidian.ownership_rejected': '起点章节权限查询被拒绝',
+        'qidian.chapter_rejected': '起点章节访问被拒绝',
         'ciweimao.response_invalid': '刺猬猫响应解析失败',
         'ciweimao.request_rejected': '刺猬猫请求被拒绝',
         'ciweimao.auth_response_invalid': '刺猬猫认证响应解析失败',
@@ -110,12 +120,15 @@ String logModuleName(String module) =>
       'http.sfacg': '菠萝包网络',
       'http.fanqie': '番茄网络',
       'http.ciweimao': '刺猬猫网络',
+      'http.qidian': '起点网络',
       'sfacg': '菠萝包',
       'fanqie': '番茄',
       'ciweimao': '刺猬猫',
+      'qidian': '起点',
       'session.sfacg': '菠萝包会话',
       'session.fanqie': '番茄会话',
       'session.ciweimao': '刺猬猫会话',
+      'session.qidian': '起点会话',
       'storage': '本地存储',
       'reader': '阅读器',
       'search': '搜索',

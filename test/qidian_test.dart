@@ -360,7 +360,7 @@ void main() {
     expect(result.books.every((b) => b.source == 'qidian'), isTrue);
     expect(result.books.every((b) => b.wordCount == 1000), isTrue);
     expect(lookups, unorderedEquals(['1', '2', '3', '4', '5', '6', '7', '8']));
-    expect(peak, 4);
+    expect(peak, 1);
   });
 
   for (final value in <Object?>[0, '273332', -1, 'invalid', null]) {

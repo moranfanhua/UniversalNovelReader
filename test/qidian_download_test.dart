@@ -110,7 +110,7 @@ void main() {
     addTearDown(h.api.close);
   });
 
-  test('起点按官方100章批量协议下载ZIP，已购检查和阅读密钥每批一次，不购买未购章节', () async {
+  test('起点按官方100章批量协议下载ZIP，首批检查权限并获取密钥，不购买未购章节', () async {
     expect(h.source.chapterBatchSize, 100);
     final results = await h.source.readChapterBatch(book, chapters);
     expect(h.requested, ['12345', '12347']);
