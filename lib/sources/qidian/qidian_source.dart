@@ -10,6 +10,7 @@ import '../account_source.dart';
 import '../chapter_batch_source.dart';
 import '../chapter_subscription_source.dart';
 import 'qidian_api.dart';
+import 'qidian_cache.dart';
 import 'qidian_account.dart';
 import 'qidian_comments.dart';
 import 'qidian_crypto.dart';
@@ -24,6 +25,10 @@ class QidianSource extends QidianComments
         BookUpdateSource,
         AccountSource {
   QidianSource(super.api);
+  late final _searchDetails = QidianCache<Map<String, dynamic>>(
+    lifetime: const Duration(minutes: 10),
+    clock: api.clock,
+  );
   @override
   String get id => 'qidian';
   @override
@@ -86,21 +91,20 @@ class QidianSource extends QidianComments
         entry.key: Book.parseFavoriteCount(entry.value['BssRecomTotal']),
     };
     final missing = items.keys.where((bid) => favorites[bid] == null).toList();
-    // Search currently omits the counter. Fetch details without chapter lists,
-    // limiting concurrency and keeping successful search hits on lookup failure.
-    for (var offset = 0; offset < missing.length; offset += 4) {
-      await Future.wait(
-        missing.skip(offset).take(4).map((bid) async {
-          try {
-            final data = await _details(bid);
-            favorites[bid] = Book.parseFavoriteCount(
-              (data['BaseBookInfo'] as Map)['BssRecomTotal'],
-            );
-          } on Exception {
-            // Unknown popularity must not discard a successful search result.
-          }
-        }),
-      );
+    // Reuse recent popularity lookups and avoid a four-request burst per page.
+    // Catalogs and explicit book/update refreshes continue to fetch fresh data.
+    for (final bid in missing) {
+      try {
+        final data = await _searchDetails.get(bid, () => _details(bid));
+        favorites[bid] = Book.parseFavoriteCount(
+          (data['BaseBookInfo'] as Map)['BssRecomTotal'],
+        );
+      } on SourceAccessRestrictedException {
+        // Keep the successful search hits but stop all optional enrichment.
+        break;
+      } on Exception {
+        // Unknown popularity must not discard a successful search result.
+      }
     }
     return [
       for (final entry in items.entries)
@@ -261,14 +265,9 @@ class QidianSource extends QidianComments
     if (vip) {
       // The download endpoint must never be used to trigger auto-subscription.
       // Confirm ownership first, even when the official App enables auto-buy.
-      final owned = api.responsePayload(
-        await api.send('/argus/api/v2/subscription/getboughtchapterlist', {
-          'bookId': bid,
-        }, post: true),
-      );
+      final owned = await api.ownedChapters(bid);
       checkSession();
-      if (owned is! List) throw const SourceException('起点已购章节列表格式已变化');
-      if (!owned.any((id) => '$id' == cid)) {
+      if (!owned.contains(cid)) {
         throw const SubscriptionRequiredException('此章节尚未购买，可订阅后续章节');
       }
     }
@@ -301,12 +300,25 @@ class QidianSource extends QidianComments
     String bid,
     QidianCredentials? session,
   ) async {
-    final data = await api.request('/argus/api/v4/bookcontent/getkey', {
-      'bookId': bid,
-      'ui': '0',
-    });
+    final key = await api.readingKey(bid);
     _checkSession(session);
-    return QidianReadingKey.fromJson(data);
+    return key;
+  }
+
+  String _unlock(String value, String cid, String bid, QidianReadingKey key) {
+    try {
+      return QidianFock.decode(
+        value,
+        chapterId: cid,
+        device: api.device,
+        readingKey: key,
+      );
+    } on SourceException {
+      // Do not automatically redownload or retry decryption. A later explicit
+      // request can obtain a fresh key if the cached version was superseded.
+      api.invalidateReadingKey(bid);
+      rethrow;
+    }
   }
 
   Future<ChapterContent> _decodeContent(
@@ -326,7 +338,7 @@ class QidianSource extends QidianComments
     );
     final code = int.tryParse('${data['code'] ?? 0}');
     if (code != 0) {
-      throw SourceException('该起点章节暂无阅读权限，请在官方 App 确认可读状态', code: code ?? -1);
+      throw api.rejectChapter(code ?? -1);
     }
     var content = data['Content'] ?? data['content'] ?? '';
     if (content is! String) {
@@ -340,12 +352,7 @@ class QidianSource extends QidianComments
       if (content.trim().isNotEmpty) {
         final key = await (getKey?.call() ?? _readingKey(bid, session));
         _checkSession(session);
-        content = QidianFock.decode(
-          content,
-          chapterId: cid,
-          device: api.device,
-          readingKey: key,
-        );
+        content = _unlock(content, cid, bid, key);
       }
     } else if (type != '0') {
       throw const SourceException('起点正文加密格式暂不支持');
@@ -380,14 +387,10 @@ class QidianSource extends QidianComments
     if (chapters.any((c) => directory[c.id]?.vip == true)) {
       try {
         if (session == null) throw const SourceException('请先登录起点读书，仅可下载已有权限章节');
-        final payload = api.responsePayload(
-          await api.send('/argus/api/v2/subscription/getboughtchapterlist', {
-            'bookId': bid,
-          }, post: true),
-        );
+        owned = await api.ownedChapters(bid);
         _checkSession(session);
-        if (payload is! List) throw const SourceException('起点已购章节列表格式已变化');
-        owned = payload.map((value) => '$value').toSet();
+      } on SourceAccessRestrictedException {
+        rethrow;
       } catch (error) {
         ownershipError = error;
       }
@@ -424,12 +427,7 @@ class QidianSource extends QidianComments
         final key = await _readingKey(bid, session);
         // FockUtil.unlock(DownloadUrl, bookId, "BatchChapterCos_...") uses the
         // book ID for key derivation; the third argument is its cache label.
-        final address = QidianFock.decode(
-          '${data['DownloadUrl'] ?? ''}',
-          chapterId: bid,
-          device: api.device,
-          readingKey: key,
-        );
+        final address = _unlock('${data['DownloadUrl'] ?? ''}', bid, bid, key);
         final bytes = await api.downloadArchive(
           address,
           '${data['Md5'] ?? ''}',

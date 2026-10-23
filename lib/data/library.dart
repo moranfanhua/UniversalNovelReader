@@ -1334,8 +1334,11 @@ class Library extends ChangeNotifier {
       }
       final queue = selected.values.toList();
       var offset = 0;
+      SourceAccessRestrictedException? restricted;
       Future<void> worker() async {
-        while (offset < queue.length && isCancelled?.call() != true) {
+        while (offset < queue.length &&
+            restricted == null &&
+            isCancelled?.call() != true) {
           final batch = queue.sublist(
             offset,
             (offset + size).clamp(0, queue.length),
@@ -1347,6 +1350,11 @@ class Library extends ChangeNotifier {
             service,
             refreshCached: refreshCached,
           );
+          for (final result in results) {
+            if (result.error case final SourceAccessRestrictedException error) {
+              restricted ??= error;
+            }
+          }
           for (var i = 0; i < batch.length; i++) {
             var error = results[i].error;
             if (error == null && !refreshCached) {
@@ -1363,6 +1371,7 @@ class Library extends ChangeNotifier {
 
       // Active batches finish caching; cancellation prevents scheduling more.
       await Future.wait(List.generate(concurrency, (_) => worker()));
+      if (restricted != null) throw restricted!;
     } finally {
       _downloads.remove(book.key);
     }

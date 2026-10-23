@@ -39,6 +39,8 @@ flutter:
   uses-material-design: true
   assets:
     - third_party/mbedtls/LICENSE
+    - third_party/qidian_quickjs/LICENSE
+    - third_party/qidian_mbedtls/LICENSE
     - assets/sfacg_cipher.json
     - assets/fanqie_cipher.json
     - assets/sfacg_icon.jpg

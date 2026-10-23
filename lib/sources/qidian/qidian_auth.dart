@@ -42,9 +42,10 @@ class QidianAuth {
     'autotime': '30',
     'version': QidianCrypto.versionCode,
     'sdkversion': '401',
-    'devicetype': 'Xiaomi_${QidianCrypto.deviceModel}',
+    'devicetype':
+        '${api.security?.deviceProfile?.brand ?? 'Xiaomi'}_${api.security?.deviceProfile?.model ?? QidianCrypto.deviceModel}',
     'osversion':
-        'Android15_${QidianCrypto.version}_${QidianCrypto.versionCode}',
+        'Android${api.security?.deviceProfile?.androidRelease ?? '15'}_${QidianCrypto.version}_${QidianCrypto.versionCode}',
     'signature': QidianCrypto.sdkSignature(
       api.device,
       api.clock().millisecondsSinceEpoch,
@@ -52,7 +53,8 @@ class QidianAuth {
     'returnurl': 'http://www.qidian.com',
     'format': 'json',
     'referer': 'http://android.qidian.com',
-    'devicename': QidianCrypto.deviceModel,
+    'devicename':
+        api.security?.deviceProfile?.model ?? QidianCrypto.deviceModel,
   };
 
   Future<Map<String, dynamic>> _request(
@@ -60,6 +62,7 @@ class QidianAuth {
     Map<String, String> fields, {
     Iterable<String> secrets = const [],
   }) async {
+    await api.prepareAuthenticationRequest();
     final request =
         http.Request('POST', Uri.https('ptlogin.yuewen.com', '/sdk/$path'))
           ..followRedirects = false
@@ -90,6 +93,14 @@ class QidianAuth {
           _phoneKey,
         ],
       );
+      if (code == -4403) {
+        throw api.rejectResponse(
+          response,
+          code,
+          path: '/sdk/$path',
+          serverMessage: serverMessage,
+        );
+      }
       AppLog.instance.record(
         LogLevel.warning,
         'qidian.auth_rejected',
@@ -220,12 +231,7 @@ class QidianAuth {
         throw const SourceException('起点未返回有效的 App 登录会话');
       }
       // No previous session is replaced until both SDK and reader validate.
-      final candidate = QidianApi(
-        client: api.client,
-        device: api.device,
-        clock: api.clock,
-      );
-      final credentials = await candidate.validateLogin(guid, key);
+      final credentials = await api.validateLogin(guid, key);
       _checkActive(generation);
       return credentials;
     } finally {
@@ -289,12 +295,7 @@ class QidianAuth {
         RegExp(r'[\s;,\x00-\x1f\x7f]').hasMatch(key)) {
       throw const SourceException('起点 App 会话需要有效的 ywGuid 和 ywKey');
     }
-    final candidate = QidianApi(
-      client: api.client,
-      device: api.device,
-      clock: api.clock,
-    );
-    final credentials = await candidate.validateLogin(guid, key);
+    final credentials = await api.validateLogin(guid, key);
     _checkActive(generation);
     return credentials;
   }
