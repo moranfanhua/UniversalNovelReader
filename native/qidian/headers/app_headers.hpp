@@ -1,5 +1,7 @@
 #pragma once
 #include "fock_digest.hpp"
+#include "script_runtime.hpp"
+#include <memory>
 #include <array>
 #include <cstdint>
 #include <functional>
@@ -61,6 +63,7 @@ struct HeaderContext {
   std::uint64_t timestamp_ms=0,cecelia_script_id=0;
   std::optional<std::uint64_t> cookie_timestamp_ms;
   std::uint16_t cecelia_seed=0;
+  std::shared_ptr<const script::SigningScript> signing_script;
 };
 using Headers=std::vector<std::pair<std::string,std::string>>;
 // POST /argus/api/v1/client/ostar, logical data field before form encoding.

@@ -10,6 +10,7 @@ import 'package:path_provider/path_provider.dart';
 import '../../domain/models.dart';
 import '../novel_source.dart';
 import 'qidian_device_profile.dart';
+import 'qidian_scripts.dart';
 
 /// Supplies the App's complete request context. Values must never be logged.
 abstract interface class QidianRequestSecurity {
@@ -31,6 +32,7 @@ class NativeQidianSecurity implements QidianRequestSecurity {
     QidianNativeDispatch? dispatch,
     Future<String> Function()? directory,
     this.allowRegistration = true,
+    this.prepareScripts,
   }) : _dispatch = dispatch ?? _platformDispatch,
        _directory = directory ?? _privateDirectory;
 
@@ -39,6 +41,8 @@ class NativeQidianSecurity implements QidianRequestSecurity {
       Platform.isWindows ? QidianDeviceProfile.windows : null;
 
   final bool allowRegistration;
+  final Future<void> Function()? prepareScripts;
+  QidianSigningScripts? _scripts;
   final QidianNativeDispatch _dispatch;
   final Future<String> Function() _directory;
   Future<String>? _handle;
@@ -75,6 +79,16 @@ class NativeQidianSecurity implements QidianRequestSecurity {
       throw const SourceException('起点安全参数暂不可用，请稍后手动重试');
     }
     try {
+      if (prepareScripts != null) {
+        await prepareScripts!();
+      } else {
+        final scripts = _scripts ??= QidianSigningScripts(
+          dispatch: _dispatch,
+          allowNetwork: allowRegistration,
+        );
+        await scripts.prepare(handle);
+      }
+      if (_closed) throw const SourceException('起点请求已取消');
       final reply = await _dispatch({'op': 'ensure', 'handle': handle});
       if (reply['serviceCode'] == -4403) {
         throw const SourceAccessRestrictedException(
@@ -165,6 +179,7 @@ class NativeQidianSecurity implements QidianRequestSecurity {
   void close() {
     if (_closed) return;
     _closed = true;
+    _scripts?.close();
     final opening = _handle;
     if (opening != null) {
       unawaited(

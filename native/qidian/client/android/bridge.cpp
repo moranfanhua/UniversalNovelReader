@@ -54,6 +54,17 @@ std::shared_ptr<State> get(jlong handle){std::lock_guard<std::mutex> guard(regis
 void failure(JNIEnv* env){if(env->ExceptionCheck())env->ExceptionClear();env->ThrowNew(env->FindClass("java/lang/IllegalStateException"),"Independent QIMEI client operation failed");}
 }
 extern "C" JNIEXPORT jstring JNICALL Java_org_unr_research_qimeiclient_NativeClient_profile(JNIEnv* env,jclass){return env->NewStringUTF(qimei::client::selected_protocol_json);}
+extern "C" JNIEXPORT jstring JNICALL Java_org_unr_research_qimeiclient_NativeClient_scripts(JNIEnv* env,jclass,jlong handle,jstring command){
+  try{Frame frame(env);const auto state=get(handle);const auto input=Json::parse(string(env,command));const auto text=[&](const char* name){const auto* v=input.find(name);if(!v||v->kind!=Json::Kind::string)throw std::invalid_argument("Script command missing");return v->text;};Json result;
+    if(text("op")=="script_auth"){
+      if(state->client->gate_status()==ProviderStatus::cooldown)result=Json::object({{"ok",Json::parse("false")},{"serviceCode",Json::number(-4403)}});
+      else{std::map<std::string,Json> headers;for(const auto& [key,value]:script::authorization(text("uid"),text("timestamp")))headers.emplace(key,Json::string(value));result=Json::object({{"ok",Json::parse("true")},{"headers",Json::object(std::move(headers))}});}
+    }else if(text("op")=="script_install"){
+      const auto* id=input.find("id");if(!id||id->kind!=Json::Kind::number||id->integer(-1)<0)throw std::invalid_argument("Script id invalid");state->client->install_script(std::uint64_t(id->integer()),unbase64(text("data")));result=Json::object({{"ok",Json::parse("true")}});
+    }else throw std::invalid_argument("Script command invalid");
+    return static_cast<jstring>(frame.pop(java(env,result.encode())));
+  }catch(...){failure(env);return nullptr;}
+}
 extern "C" JNIEXPORT jlong JNICALL Java_org_unr_research_qimeiclient_NativeClient_create(JNIEnv* env,jclass,jobject owner,jstring path,jstring profile,jboolean consent){
   try{if(!consent||!owner)throw std::invalid_argument("Client requires privacy consent");Frame frame(env);auto state=std::make_shared<State>();state->callbacks=std::make_shared<Callbacks>(env,owner);auto callbacks=state->callbacks;auto store=std::make_shared<FileStateStore>(std::filesystem::u8path(string(env,path)));
     state->client=std::make_unique<Client>(decode_profile(string(env,profile)),bytes("0I000JZU8B16UN21"),store,[callbacks](const auto& ids){return callbacks->snapshot(ids);},[callbacks](auto kind,const auto& plain,const auto& key,const auto& iv){return callbacks->cipher(kind,plain,key,iv);},[](ibex::Report& report,std::int64_t stamp){return ibex::generate(report,stamp);},[callbacks](const auto& request){return callbacks->send(request);},[callbacks]{callbacks->stop();},now);

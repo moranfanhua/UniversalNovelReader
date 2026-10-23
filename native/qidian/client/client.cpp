@@ -53,6 +53,7 @@ struct Client::Runtime {
   mutable std::mutex state;std::mutex operation;bool closed=false;Stage stage=Stage::idle;
   Collector collect;app::Encrypt encrypt;EncodeIbex encode;Send send;Cancel cancel;Clock clock;
   std::optional<Snapshot> pending;std::string ibex;Identifiers encoded_ids;
+  std::shared_ptr<const script::SigningScript> signing_script;
 };
 Client::Client(Profile protocol,Bytes app_key,std::shared_ptr<StateStore> store,Collector collect,app::Encrypt encrypt,EncodeIbex encode,Send send,Cancel cancel,Clock clock):runtime_(std::make_shared<Runtime>()){
   if(!collect||!encrypt||!encode||!send||!cancel||!clock)throw std::invalid_argument("QIMEI client configuration missing");
@@ -69,12 +70,21 @@ void Client::close(){auto r=runtime_;{std::lock_guard<std::mutex> guard(r->state
 Identifiers Client::current()const{return provider_->current();}
 std::string Client::current_ibex()const{if(provider_->gate_status()!=ProviderStatus::ready)return {};std::lock_guard<std::mutex> guard(runtime_->state);const auto ids=provider_->current();return runtime_->closed||ids.empty()||!(runtime_->encoded_ids==ids)?std::string():runtime_->ibex;}
 ProviderResult Client::note_risk(){return provider_->note_risk();}
+ProviderStatus Client::gate_status()const{return provider_->gate_status();}
+void Client::install_script(std::uint64_t id,const Bytes& envelope){
+  auto r=runtime_;std::unique_lock<std::mutex> operation(r->operation);
+  std::shared_ptr<const script::SigningScript> value;
+  if(id){auto bytecode=script::decode(envelope);script::sign(bytecode,id,Bytes{'s','y','n','t','h','e','t','i','c'},1);value=std::make_shared<const script::SigningScript>(script::SigningScript{id,std::move(bytecode)});}
+  else if(!envelope.empty())throw std::invalid_argument("Default script cannot contain remote data");
+  std::lock_guard<std::mutex> guard(r->state);if(r->closed)throw std::runtime_error("Client closed");r->signing_script=std::move(value);
+}
 app::Headers Client::prepare(const std::map<std::string,std::string>& fields,const app::CookieContext& session,const std::string& user_id){
   auto r=runtime_;std::unique_lock<std::mutex> operation(r->operation);
   if(user_id.empty()||user_id.find_first_not_of("0123456789")!=std::string::npos||provider_->gate_status()!=ProviderStatus::ready)throw std::runtime_error("Client request unavailable");
   const auto ids=provider_->current();Snapshot snapshot;
   {std::lock_guard<std::mutex> guard(r->state);if(r->closed||!r->pending||ids.empty()||!(r->encoded_ids==ids))throw std::runtime_error("Client snapshot unavailable");snapshot=*r->pending;}
   snapshot.headers.session=session;snapshot.headers.device.user_id=user_id;bind(snapshot,ids);
+  {std::lock_guard<std::mutex> guard(r->state);snapshot.headers.signing_script=r->signing_script;snapshot.headers.cecelia_script_id=r->signing_script?r->signing_script->id:0;}
   const auto stamp=r->clock();snapshot.headers.timestamp_ms=stamp;snapshot.headers.cookie_timestamp_ms=stamp;std::array<std::uint8_t,2> entropy{};crypto::random(entropy.data(),entropy.size());snapshot.headers.cecelia_seed=std::uint16_t(entropy[0]|(std::uint16_t(entropy[1])<<8));
   const auto token=r->encode(snapshot.report,std::int64_t(stamp));if(token.empty())throw std::runtime_error("Client report unavailable");
   auto headers=app::request_headers(fields,snapshot.headers,r->encrypt,token);
@@ -98,6 +108,7 @@ Result Client::ensure(bool consent,bool force){
     stage(Stage::encode);const auto timestamp=r->clock();const auto token=r->encode(snapshot.report,std::int64_t(timestamp));if(token.empty())throw std::runtime_error("Ibex request parameter unavailable");
     std::array<std::uint8_t,2> entropy{};crypto::random(entropy.data(),entropy.size());snapshot.headers.timestamp_ms=timestamp;snapshot.headers.cookie_timestamp_ms=timestamp;snapshot.headers.cecelia_seed=std::uint16_t(entropy[0]|(std::uint16_t(entropy[1])<<8));
     if(request.path!="/argus/api/v1/client/ostar"||request.form.size()!=1||request.form.count("data")!=1)throw std::runtime_error("QIMEI transport boundary invalid");
+    {std::lock_guard<std::mutex> guard(r->state);snapshot.headers.signing_script=r->signing_script;snapshot.headers.cecelia_script_id=r->signing_script?r->signing_script->id:0;}
     stage(Stage::sign);const auto& logical=request.form.at("data");SignedRequest signed_request{request.path,app::registration_headers(logical,snapshot.headers,r->encrypt,token),"data="+form_encode(logical)};
     stage(Stage::transport);return r->send(signed_request);
   },true);

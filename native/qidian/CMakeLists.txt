@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(unr_qidian LANGUAGES CXX)
+project(unr_qidian LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(qidian_sources
@@ -9,7 +9,8 @@ set(qidian_sources
  client/client.cpp client/snapshot_json.cpp headers/app_headers.cpp
  primitives/fock_digest.cpp primitives/default_signature.cpp primitives/registration_signature.cpp
  ibex/ibex_generator.cpp assembly/assembly.cpp assembly/utf8.cpp
- armor/string_armor.cpp hav/hav.cpp)
+ armor/string_armor.cpp hav/hav.cpp scripts/script_crypto.cpp scripts/script_runtime.cpp)
+add_subdirectory(scripts)
 if(WIN32)
   add_library(unr_qidian SHARED ${qidian_sources}
     protocol/windows_cng.cpp protocol/crypto_cng.cpp headers/crypto_cng.cpp
@@ -33,6 +34,8 @@ else()
   set(qidian_target qimei_client_android)
 endif()
 target_include_directories(${qidian_target} PRIVATE protocol protocol/android client headers primitives ibex producer assembly lk armor hav)
+target_include_directories(${qidian_target} PRIVATE scripts)
+target_link_libraries(${qidian_target} PRIVATE qidian_script_engine qidian_script_crypto)
 if(MSVC)
   target_compile_options(${qidian_target} PRIVATE /W4 /WX /utf-8 /EHsc)
 else()

@@ -97,14 +97,15 @@ Bytes fock_lock(const Bytes& plain,const Encrypt& encrypt){
 }
 std::string gorgon(const EnvironmentReport& report,const Encrypt& encrypt){return base64(fock_lock(bytes(environment_json(report)),encrypt),true);}
 Headers request_headers(const std::map<std::string,std::string>& input,const HeaderContext& h,const Encrypt& encrypt,const std::string& ibex){
-  if(h.cecelia_script_id!=0)throw std::invalid_argument("Remote App signing script unsupported");
+  if(h.cecelia_script_id!=0&&(!h.signing_script||h.signing_script->id!=h.cecelia_script_id))throw std::invalid_argument("Remote App signing script missing");
   std::map<std::string,std::string> logical;
   for(const auto& [name,value]:input){std::string lowered;for(const auto ch:name){if(static_cast<unsigned char>(ch)>127)throw std::invalid_argument("App parameter name unsupported");lowered+=ch>='A'&&ch<='Z'?char(ch+32):ch;}if(!logical.emplace(lowered,value).second)throw std::invalid_argument("App parameter names collide");}
   const auto canonicalize=[](const auto& fields){std::string out;for(const auto& [name,value]:fields){if(!out.empty())out+='&';out+=name+'='+value;}return out;};
   const auto& c=h.device;LegacySign sign;sign.canonical=canonicalize(logical);sign.timestamp_ms=h.timestamp_ms;sign.user_id=c.user_id;sign.device=c.device;sign.version=c.version;sign.emulator=std::to_string(c.emulator);
   logical["qimei"]=c.qimei16;logical["clienttype"]="1";logical["versioncode"]=std::to_string(c.version_code);logical["tstamp"]=std::to_string(h.timestamp_ms);const auto canonical=canonicalize(logical);
   auto cookie_value=cookie(h.session,qdinfo(c,h.cookie_timestamp_ms.value_or(h.timestamp_ms),h.include_android_id,encrypt),c.qimei16,c.qimei36);while(!cookie_value.empty()&&cookie_value.back()==' ')cookie_value.pop_back();
-  Headers out={{"QDSign",qdsign(sign,encrypt)},{"borgus",qimei::http::sn(bytes(canonical))},{"cecelia",qimei::http::cecelia_default(bytes(canonical),h.cecelia_seed)},{"tstamp",std::to_string(h.timestamp_ms)},{"QDInfo",qdinfo(c,h.timestamp_ms,h.include_android_id,encrypt)},{"User-Agent",user_agent(c,h.brand,h.status_bar_dp)},{"Cookie",cookie_value},{"gorgon",gorgon(h.environment,encrypt)}};
+  const auto cecelia=h.signing_script?script::sign(h.signing_script->bytecode,h.signing_script->id,bytes(canonical),h.cecelia_seed):qimei::http::cecelia_default(bytes(canonical),h.cecelia_seed);
+  Headers out={{"QDSign",qdsign(sign,encrypt)},{"borgus",qimei::http::sn(bytes(canonical))},{"cecelia",cecelia},{"tstamp",std::to_string(h.timestamp_ms)},{"QDInfo",qdinfo(c,h.timestamp_ms,h.include_android_id,encrypt)},{"User-Agent",user_agent(c,h.brand,h.status_bar_dp)},{"Cookie",cookie_value},{"gorgon",gorgon(h.environment,encrypt)}};
   if(!ibex.empty())out.emplace_back("ibex",ibex);
   return out;
 }

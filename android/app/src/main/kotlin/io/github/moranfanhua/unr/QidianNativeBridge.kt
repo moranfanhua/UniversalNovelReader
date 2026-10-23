@@ -72,6 +72,7 @@ class QidianNativeBridge(context: Context, messenger: BinaryMessenger) {
                     "headers" -> JSONObject().put("ok", true).put("headers",
                         client.headers(input.getJSONObject("params"), input.optJSONObject("session") ?: JSONObject()))
                     "pause" -> JSONObject().put("ok", true).put("persisted", client.pause())
+                    "script_auth", "script_install" -> client.scripts(input)
                     else -> error("Unknown operation")
                 }
             }

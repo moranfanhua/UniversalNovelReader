@@ -107,3 +107,6 @@ UniversalNovelReader（UNR）是一个非官方第三方阅读工具，与任何
 - [Error Prone annotations](https://github.com/google/error-prone)、[JSpecify](https://github.com/jspecify/jspecify) — Apache-2.0；Flutter Android 插件的传递依赖。
 
 起点 QIMEI／ibex 的独立 C++ 兼容实现依据本机已解包的起点读书 Android 7.9.480（1996）协议核对；不包含官方 APK、OStar／Fock 原生库或第三方 QIMEI 项目的源代码。Windows 加密调用系统 CNG，Android 调用系统 JCE。相关商标与协议权利归各自权利人所有。
+
+- [QuickJS 2021-03-27](https://bellard.org/quickjs/) — MIT；起点 FockRT 签名脚本的字节码运行时，版本与已核实的官方 SDK 格式对应，包含 MSVC 兼容调整；来源与文件摘要见 `third_party/qidian_quickjs/UPSTREAM`，许可随应用打包。
+- [Mbed TLS 2.28.10](https://github.com/Mbed-TLS/mbedtls/tree/2fc8413bfcb51354c8e679141b17b3f1a5942561) — Apache-2.0；独立编译的精简旧式对称密码实现，用于 FockRT 脚本封装与原生函数兼容；来源与摘要见 `third_party/qidian_mbedtls/UPSTREAM`，许可随应用打包。

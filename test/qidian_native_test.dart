@@ -50,6 +50,7 @@ void main() {
   test('Windows SDK 登录字段与原生兼容设备档案一致', () async {
     var requests = 0;
     final provider = NativeQidianSecurity(
+      prepareScripts: () async {},
       directory: () async => '/synthetic',
       dispatch: (input) async {
         if (input['op'] == 'create') return {'ok': true, 'handle': '1'};
@@ -83,6 +84,7 @@ void main() {
     final calls = <Map<String, dynamic>>[];
     final waiting = Completer<void>();
     final provider = NativeQidianSecurity(
+      prepareScripts: () async {},
       directory: () async => '/synthetic',
       dispatch: (input) async {
         calls.add(input);
@@ -119,6 +121,7 @@ void main() {
     var registrations = 0;
     var business = 0;
     final provider = NativeQidianSecurity(
+      prepareScripts: () async {},
       directory: () async => '/synthetic',
       dispatch: (input) async {
         if (input['op'] == 'create') return {'ok': true, 'handle': '1'};
@@ -143,6 +146,7 @@ void main() {
 
   test('原生冷却拒绝请求，保留风控码', () async {
     final provider = NativeQidianSecurity(
+      prepareScripts: () async {},
       directory: () async => '/synthetic',
       dispatch: (input) async => input['op'] == 'create'
           ? {'ok': true, 'handle': '1'}
@@ -166,6 +170,7 @@ void main() {
     var closes = 0;
     var signed = 0;
     final provider = NativeQidianSecurity(
+      prepareScripts: () async {},
       directory: () async => '/synthetic',
       dispatch: (input) async {
         switch (input['op']) {
@@ -198,6 +203,7 @@ void main() {
     final sessions = <Map<String, String>>[];
     var pauses = 0;
     final provider = NativeQidianSecurity(
+      prepareScripts: () async {},
       directory: () async => '/synthetic',
       dispatch: (input) async {
         if (input['op'] == 'create') return {'ok': true, 'handle': '1'};
@@ -246,6 +252,7 @@ void main() {
   test('重启后的原生风控也阻止 SDK 短信请求', () async {
     var requests = 0;
     final provider = NativeQidianSecurity(
+      prepareScripts: () async {},
       directory: () async => '/synthetic',
       dispatch: (input) async => input['op'] == 'create'
           ? {'ok': true, 'handle': '1'}
@@ -274,6 +281,7 @@ void main() {
     final waiting = Completer<void>();
     var requests = 0;
     final provider = NativeQidianSecurity(
+      prepareScripts: () async {},
       directory: () async => '/synthetic',
       dispatch: (input) async {
         if (input['op'] == 'create') return {'ok': true, 'handle': '1'};

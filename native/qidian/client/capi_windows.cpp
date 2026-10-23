@@ -48,6 +48,13 @@ Json dispatch(const Json& input){
     app::CookieContext session;std::string user="0";if(const auto* account=input.find("session")){require(account->kind==Json::Kind::object);user=text(*account,"userId","0");session.token=text(*account,"token");session.yw_key=text(*account,"ywKey");session.yw_guid=text(*account,"ywGuid");}
     const auto result=value->client->prepare(fields,session,user);std::map<std::string,Json> headers;for(const auto& [name,data]:result)headers.emplace(name,Json::string(data));return Json::object({{"ok",boolean(true)},{"headers",Json::object(std::move(headers))}});
   }
+  if(op=="script_auth"){
+    const auto value=owner(identifier(input));if(value->client->gate_status()==ProviderStatus::cooldown)return Json::object({{"ok",boolean(false)},{"serviceCode",Json::number(-4403)}});
+    std::map<std::string,Json> headers;for(const auto& [name,data]:script::authorization(text(input,"uid"),text(input,"timestamp")))headers.emplace(name,Json::string(data));return Json::object({{"ok",boolean(true)},{"headers",Json::object(std::move(headers))}});
+  }
+  if(op=="script_install"){
+    const auto id=input.find("id");require(id&&id->kind==Json::Kind::number&&id->integer(-1)>=0);owner(identifier(input))->client->install_script(std::uint64_t(id->integer()),unbase64(text(input,"data")));return Json::object({{"ok",boolean(true)}});
+  }
   if(op=="ensure"){
     const auto value=owner(identifier(input));const auto result=value->client->ensure(true,flag(input,"forceRefresh"));
     return Json::object({{"ok",boolean(true)},{"ready",boolean(result.ready())},{"status",Json::string(status(result.provider.status))},{"pairComplete",boolean(result.pair_complete())},{"fromCache",boolean(result.from_cache)},{"serviceCode",Json::number(result.provider.service_code)},{"qimei",Json::string(std::string(result.provider.identifiers.qimei.begin(),result.provider.identifiers.qimei.end()))},{"qimei36",Json::string(std::string(result.provider.identifiers.qimei36.begin(),result.provider.identifiers.qimei36.end()))},{"ibex",Json::string(result.ibex)}});

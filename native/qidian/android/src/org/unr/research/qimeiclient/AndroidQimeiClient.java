@@ -64,6 +64,10 @@ public final class AndroidQimeiClient implements AutoCloseable {
   private synchronized String stable(String key)throws Exception {
     String value=history.getString(key,"");if(value==null||value.isEmpty()){value=key.equals("uin")?Long.toString(System.currentTimeMillis())+UUID.randomUUID().toString().replace("-","").substring(0,16):UUID.randomUUID().toString();if(!history.edit().putString(key,value).commit())throw new IllegalStateException("Client identity persistence failed");}return value;
   }
+  public JSONObject scripts(JSONObject command)throws Exception {
+    long selected;synchronized(this){selected=handle;}if(selected==0)throw new IllegalStateException("Client closed");
+    return new JSONObject(NativeClient.scripts(selected,command.toString()));
+  }
   private String collectSnapshot(String q16,String q36)throws Exception {
     String androidId=Settings.Secure.getString(context.getContentResolver(),Settings.Secure.ANDROID_ID);androidId=androidId==null?"":androidId.toLowerCase(Locale.ROOT);
     String device=session.deviceId.isEmpty()?(androidId.isEmpty()?stable("fallback-device"):androidId):session.deviceId;

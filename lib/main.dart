@@ -25,6 +25,12 @@ void main() async {
     yield LicenseEntryWithLineBreaks([
       'Mbed TLS',
     ], await rootBundle.loadString('third_party/mbedtls/LICENSE'));
+    yield LicenseEntryWithLineBreaks([
+      'QuickJS (FockRT protocol runtime)',
+    ], await rootBundle.loadString('third_party/qidian_quickjs/LICENSE'));
+    yield LicenseEntryWithLineBreaks([
+      'Mbed TLS 2.28.10 (FockRT legacy ciphers)',
+    ], await rootBundle.loadString('third_party/qidian_mbedtls/LICENSE'));
   });
   final log = AppLog.instance;
   installErrorLogging(log);

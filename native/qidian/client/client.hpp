@@ -46,6 +46,8 @@ class Client {
   void close();
   Identifiers current()const;
   std::string current_ibex()const;
+  ProviderStatus gate_status()const;
+  void install_script(std::uint64_t id,const Bytes& envelope);
  private:
   struct Runtime;
   std::shared_ptr<Runtime> runtime_;

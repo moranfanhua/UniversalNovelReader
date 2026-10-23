@@ -1,0 +1,24 @@
+QuickJS 2021-03-27
+Upstream: https://bellard.org/quickjs/quickjs-2021-03-27.tar.xz
+Archive SHA-256: a45bface4c3379538dea8533878d694e289330488ea7028b105f72572fe7fe1a
+License: MIT
+Compatibility changes: MSVC attributes/intrinsics and time shim; switch interpreter dispatch; disable Atomics operations on MSVC while retaining SDK atom numbering; remove redundant C struct casts; C++ JSValue constructors; INFINITY constant; bounded bytecode reader counts/instructions and safe truncated-input cleanup. Runtime exposes only the fockrt module and no OS/network helpers.
+
+SHA-256 of bundled files:
+1847fb53500fa63855b2c46a7a063f940712b10c22a4dcd1273c50a13fc598f0  .gitattributes
+d48c4386f65ac55d0523ccb90af243a845bf9f63b1a05717a88746c36b860af6  compat/qjs_msvc.h
+aad836b2bda8c5e371137b1f8f9f3f4329dd17f55b04b0091286bc06e842bd79  compat/sys/time.h
+82a2cf31e18fb5d080e0ef146886af46a336bd523fb5ad01e4187c687008ebf2  cutils.c
+0ac28c0aa234b3ef0f53df4262c34b4da13f3a8d826cf14b04e94e9ac95f42e1  cutils.h
+ef2e192734aacbe67bb15b7856239368054e19558f636a93cca51ad128b63ba3  libregexp-opcode.h
+f167039cfef4b6d830bdd000e01ab0e030b89098ae13d3ef31b633163594ae27  libregexp.c
+bcf851a670715db2450588ae8e8f7d7c453583ed29195208cb391239fe5d5bf6  libregexp.h
+a990fbe88ed90ff8a141dfc29a8afb8951549130129f0559d67082cca47e0144  libunicode-table.h
+7fe7d1b375946fc7f9684f7b7f42b2088098ce62533ba5ce9470f0070a70ac15  libunicode.c
+3158cc84164e43ad3e24d04436060c77c8cf66dcce88bb86429522b651cbc7c5  libunicode.h
+f41baf09eef895d468d18c23055d74f711e4b8b2641cef279b5d71285c07bfe8  LICENSE
+d275d4830a019944bff3f08747b12f16bc932630cff34f147a7b59b68f952f5f  list.h
+f3beca60ebb72d2888ef57e4ee08592a93e79095146e8a69eafadb14ecb96a77  quickjs-atom.h
+ef37e98009fd84f1f0e3acea8d5a8acded9da3d657a48b2cfbc690d50f543ca5  quickjs-opcode.h
+c5d4011223c54b0b999c6bc20096e67c17c1311b970622f33df51f994526e9a8  quickjs.c
+0946ac918442433245b79a1a29e8b25974d5b384d7342b9a6119566aaa6a5dc0  quickjs.h
