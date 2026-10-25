@@ -149,10 +149,10 @@ void main() {
     await tester.pump();
     await tester.pump();
     await showReadingControls(tester);
-    await tester.tap(find.text('下一章'));
+    await tester.tap(find.byTooltip('下一章'));
     await tester.pump();
     await showReadingControls(tester);
-    await tester.tap(find.text('下一章'));
+    await tester.tap(find.byTooltip('下一章'));
     await settle(tester);
     library.pending!.complete(library.contents['2']);
     await settle(tester);

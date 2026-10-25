@@ -102,7 +102,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.textContaining('正文1').hitTestable(), findsOneWidget);
     await showReadingControls(tester);
-    await tester.tap(find.text('下一章'));
+    await tester.tap(find.byTooltip('下一章'));
     await tester.pumpAndSettle();
     expect(find.textContaining('正文2').hitTestable(), findsOneWidget);
     await showReadingControls(tester);

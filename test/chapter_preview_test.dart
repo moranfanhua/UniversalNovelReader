@@ -255,10 +255,10 @@ void main() {
     await open(tester, library);
     expect(library.requests, ['1']);
     await showReadingControls(tester);
-    await tester.tap(find.text('下一章'));
+    await tester.tap(find.byTooltip('下一章'));
     await settle(tester);
     await showReadingControls(tester);
-    await tester.tap(find.text('下一章'));
+    await tester.tap(find.byTooltip('下一章'));
     await settle(tester);
     expect(find.text('　　丙章首页').hitTestable(), findsOneWidget);
     expect(find.text('正在加载下一章'), findsNothing);

@@ -28,12 +28,14 @@ class BookPageProgress extends StatefulWidget {
     required this.position,
     required this.contents,
     required this.onSeek,
+    this.canSeek,
   });
   final Library library;
   final Book book;
   final ValueListenable<ReaderPagePosition?> position;
   final Map<int, ChapterContent> contents;
   final void Function(int chapter, int paragraph, int offset) onSeek;
+  final bool Function()? canSeek;
   @override
   State<BookPageProgress> createState() => _BookPageProgressState();
 }
@@ -51,6 +53,13 @@ class _BookPageProgressState extends State<BookPageProgress> {
   Future<void> _seek(double value, List<int> counts) async {
     final position = widget.position.value;
     if (position == null || seeking) return;
+    if (widget.canSeek?.call() == false) {
+      setState(() {
+        dragPage = null;
+        dragCounts = null;
+      });
+      return;
+    }
     final token = generation;
     var page = value.round() - 1;
     var chapter = 0;
@@ -257,8 +266,45 @@ class _BookPageProgressState extends State<BookPageProgress> {
             .clamp(1, total);
     final estimated = stats.length != chapters.length;
     final displayed = (dragPage?.round() ?? current).clamp(1, total);
+    var previewChapter = 0;
+    var previewPage = displayed - 1;
+    while (previewChapter < counts.length - 1 &&
+        previewPage >= counts[previewChapter]) {
+      previewPage -= counts[previewChapter++];
+    }
+    final preview = dragPage != null;
+    final title = chapters[previewChapter].title;
+    final percent = total <= 1 ? 0.0 : (displayed - 1) / (total - 1) * 100;
     return Column(
       children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: Semantics(
+            key: ValueKey(
+              preview ? 'book-progress-preview' : 'book-progress-chapter',
+            ),
+            liveRegion: preview,
+            label:
+                '${preview ? '预览' : '当前位置'}：$title，第 $displayed 页，共 ${estimated ? '约' : ''}$total 页，${percent.toStringAsFixed(1)}%',
+            excludeSemantics: true,
+            child: DefaultTextStyle(
+              style: Theme.of(context).textTheme.labelMedium!,
+              child: SizedBox(
+                width: double.infinity,
+                child: Tooltip(
+                  message: title,
+                  child: Text(
+                    title,
+                    key: const ValueKey('book-progress-title'),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
         Expanded(
           child: SliderTheme(
             data: SliderTheme.of(context).copyWith(
@@ -276,7 +322,10 @@ class _BookPageProgressState extends State<BookPageProgress> {
                   '第 ${value.round()} 页，共 $total 页',
               onChangeStart: seeking || total <= 1
                   ? null
-                  : (_) => dragCounts = List.of(counts),
+                  : (value) => setState(() {
+                      dragCounts = List.of(counts);
+                      dragPage = value;
+                    }),
               onChanged: seeking || total <= 1
                   ? null
                   : (value) => setState(() => dragPage = value),
@@ -290,12 +339,21 @@ class _BookPageProgressState extends State<BookPageProgress> {
           height: 20,
           child: FittedBox(
             fit: BoxFit.scaleDown,
-            child: Text(
-              '$displayed/${estimated ? '约' : ''}$total',
-              key: const ValueKey('book-page-progress'),
-              textAlign: TextAlign.center,
-              semanticsLabel:
-                  '${estimated ? '估算全书页码' : '全书页码'}，第 $displayed 页，共 $total 页',
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  seeking
+                      ? '正在跳转…'
+                      : '$displayed/${estimated ? '约' : ''}$total',
+                  key: const ValueKey('book-page-progress'),
+                  textAlign: TextAlign.center,
+                  semanticsLabel:
+                      '${estimated ? '估算全书页码' : '全书页码'}，第 $displayed 页，共 $total 页',
+                ),
+                const SizedBox(width: 12),
+                Text('${percent.toStringAsFixed(1)}%'),
+              ],
             ),
           ),
         ),
