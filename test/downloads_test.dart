@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/testing.dart';
@@ -42,6 +43,7 @@ class DownloadsLibrary extends Library {
   final downloadFailures = <String>{};
   Completer<void>? pendingDelete, pendingDownload;
   bool failChapter = false;
+  String? readErrorChapter;
 
   @override
   Future<void> deleteDownloadedBook(Book book) async {
@@ -93,6 +95,9 @@ class DownloadsLibrary extends Library {
   @override
   Future<ChapterContent> read(Book book, Chapter chapter) async {
     reads.add(chapter.id);
+    if (chapter.id == readErrorChapter) {
+      throw const SourceException('章节未下载，网络不可用');
+    }
     return content;
   }
 
@@ -246,7 +251,6 @@ void main() {
         DownloadedBook(book: book, chapterIds: {'2'}),
       ],
     );
-    library.progress[book.key] = [0, 0];
     await tester.pumpWidget(UnrApp(library: library));
     await tester.tap(find.text('我的').last);
     await tester.pumpAndSettle();
@@ -293,6 +297,143 @@ void main() {
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
   });
+
+  for (final mode in ReadingMode.values) {
+    for (final choice in ['取消', '继续阅读', '从已下载章节开始']) {
+      testWidgets(
+        '未缓存续读章节时先选择，不自动覆盖旧进度（${mode.name}，$choice）',
+        (tester) async {
+          tester.view.physicalSize =
+              defaultTargetPlatform == TargetPlatform.android
+              ? const Size(390, 844)
+              : const Size(1400, 900);
+          tester.view.devicePixelRatio = 1;
+          addTearDown(tester.view.resetPhysicalSize);
+          addTearDown(tester.view.resetDevicePixelRatio);
+          final library = memoryLibrary()
+            ..readingMode = mode
+            ..readErrorChapter = '3';
+          final book = sample('missing-resume');
+          library.progress[book.key] = [2, 12];
+          library.pageOffsets[book.key] = 7;
+          library.snapshot = DownloadedBooksSnapshot(
+            books: [
+              DownloadedBook(book: book, chapterIds: {'1'}),
+            ],
+          );
+          await tester.pumpWidget(
+            MaterialApp(home: DownloadsPage(library: library)),
+          );
+          await tester.pumpAndSettle();
+          await tester.tap(find.byKey(ValueKey('downloaded-book-${book.key}')));
+          await tester.pumpAndSettle();
+          await tester.pump(const Duration(milliseconds: 700));
+          expect(find.text('上次阅读章节未下载'), findsOneWidget);
+          expect(find.byType(ReaderPage), findsNothing);
+          expect(library.progress[book.key], [2, 12]);
+          expect(library.pageOffsets[book.key], 7);
+          await tester.tap(find.text(choice));
+          await tester.pumpAndSettle();
+          await tester.pump(const Duration(milliseconds: 700));
+          if (choice == '取消') {
+            expect(find.byType(ReaderPage), findsNothing);
+            expect(library.reads, isEmpty);
+          } else {
+            final reader = tester.widget<ReaderPage>(find.byType(ReaderPage));
+            if (choice == '继续阅读') {
+              expect(reader.initialChapter, isNull);
+              expect(library.reads.first, '3');
+              expect(find.text('章节未下载，网络不可用'), findsOneWidget);
+            } else {
+              expect(reader.initialChapter, 0);
+              expect(library.reads.first, '1');
+              expect(library.progress[book.key], [0, 0]);
+              expect(library.pageOffsets[book.key], 0);
+            }
+            await showReadingControls(tester);
+            await tester.tap(find.byType(BackButton).hitTestable());
+            await tester.pumpAndSettle();
+          }
+          if (choice != '从已下载章节开始') {
+            expect(library.progress[book.key], [2, 12]);
+            expect(library.pageOffsets[book.key], 7);
+          }
+          await tester.pumpWidget(const SizedBox.shrink());
+          expect(tester.takeException(), isNull);
+        },
+        variant: TargetPlatformVariant({
+          TargetPlatform.android,
+          TargetPlatform.windows,
+        }),
+      );
+    }
+  }
+
+  for (final saved in [-1, 9]) {
+    testWidgets('下载页目录不含旧章节时不回退并覆盖进度（$saved）', (tester) async {
+      final library = memoryLibrary();
+      final book = sample('invalid-resume');
+      library.progress[book.key] = [saved, 12];
+      library.pageOffsets[book.key] = 7;
+      library.snapshot = DownloadedBooksSnapshot(
+        books: [
+          DownloadedBook(book: book, chapterIds: {'1'}),
+        ],
+      );
+      await tester.pumpWidget(
+        MaterialApp(home: DownloadsPage(library: library)),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(ValueKey('downloaded-book-${book.key}')));
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 700));
+      expect(find.textContaining('上次阅读章节不在当前目录中'), findsOneWidget);
+      expect(library.reads, isEmpty);
+      await showReadingControls(tester);
+      await tester.tap(find.byType(BackButton).hitTestable());
+      await tester.pumpAndSettle();
+      expect(library.progress[book.key], [saved, 12]);
+      expect(library.pageOffsets[book.key], 7);
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  }
+
+  for (final width in [320.0, 1400.0]) {
+    testWidgets('未缓存续读提示在两倍文字下可取消（宽$width）', (tester) async {
+      tester.view.physicalSize = Size(width, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final library = memoryLibrary();
+      final book = sample('large-text');
+      library.progress[book.key] = [2, 12];
+      library.snapshot = DownloadedBooksSnapshot(
+        books: [
+          DownloadedBook(book: book, chapterIds: {'1'}),
+        ],
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: const TextScaler.linear(2)),
+            child: child!,
+          ),
+          home: DownloadsPage(library: library),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(ValueKey('downloaded-book-${book.key}')));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('取消'));
+      await tester.tap(find.text('取消'));
+      await tester.pumpAndSettle();
+      expect(library.progress[book.key], [2, 12]);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  }
 
   testWidgets('加载、空列表、失败重试及离开后的异步结果均正常处理', (tester) async {
     final library = memoryLibrary()
