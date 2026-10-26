@@ -65,6 +65,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   bool settingsOpen = false;
   bool controlsVisible = false;
   bool readingRecorded = false;
+  bool invalidSavedChapter = false;
   ChapterPageLayout? pageLayout;
   final pagePosition = ValueNotifier<ReaderPagePosition?>(null);
   final knownContents = <int, ChapterContent>{};
@@ -100,11 +101,18 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     final saved = library.progress[widget.book.key];
-    chapter = (widget.initialChapter ?? saved?.first ?? 0).clamp(
-      0,
-      widget.book.chapters.length - 1,
-    );
-    paragraph = widget.initialChapter == null ? saved?.last ?? 0 : 0;
+    final savedChapter = saved?.firstOrNull;
+    invalidSavedChapter =
+        widget.initialChapter == null &&
+        savedChapter != null &&
+        (savedChapter < 0 || savedChapter >= widget.book.chapters.length);
+    chapter = widget.book.chapters.isEmpty
+        ? 0
+        : (widget.initialChapter ?? savedChapter ?? 0).clamp(
+            0,
+            widget.book.chapters.length - 1,
+          );
+    paragraph = widget.initialChapter == null ? saved?.lastOrNull ?? 0 : 0;
     characterOffset = widget.initialChapter == null
         ? library.pageOffsets[widget.book.key] ?? 0
         : 0;
@@ -143,6 +151,16 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     final atEnd = openAtEnd;
     restoreAtEnd = atEnd;
     pagedStartAtEnd = atEnd;
+    if (invalidSavedChapter || widget.book.chapters.isEmpty) {
+      content = Future.error(
+        SourceException(
+          invalidSavedChapter
+              ? '上次阅读章节不在当前目录中，已保留阅读进度。请返回作品详情刷新目录，或通过目录选择章节。'
+              : '当前作品暂无可阅读章节，请返回作品详情刷新目录。',
+        ),
+      );
+      return;
+    }
     content = library.read(widget.book, widget.book.chapters[chapter]).then((
       value,
     ) {
@@ -627,6 +645,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   Future<void> _savePosition() async {
     debounce?.cancel();
+    if (invalidSavedChapter || widget.book.chapters.isEmpty) return;
     if (!restoring &&
         !settingsOpen &&
         library.readingMode == ReadingMode.scroll) {
@@ -791,6 +810,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     if (index < 0 || index >= widget.book.chapters.length) return;
     debounce?.cancel();
     setState(() {
+      invalidSavedChapter = false;
       chapter = index;
       paragraph = initialParagraph;
       characterOffset = initialOffset;

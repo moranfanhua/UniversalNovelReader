@@ -5,6 +5,8 @@ import 'book_page.dart';
 import 'home.dart';
 import 'reader.dart';
 
+enum _ResumeChoice { resume, cached }
+
 class DownloadsPage extends StatefulWidget {
   const DownloadsPage({super.key, required this.library});
   final Library library;
@@ -209,25 +211,57 @@ class _DownloadsPageState extends State<DownloadsPage>
   }
 
   Future<void> _open(DownloadedBook downloaded, {bool details = false}) async {
+    final library = widget.library;
     final book = downloaded.book;
-    final saved = widget.library.progress[book.key]?.firstOrNull;
-    final resume =
-        saved != null &&
-        saved >= 0 &&
-        saved < book.chapters.length &&
-        downloaded.chapterIds.contains(book.chapters[saved].id);
+    final saved = library.progress[book.key]?.firstOrNull;
     final firstCached = book.chapters.indexWhere(
       (chapter) => downloaded.chapterIds.contains(chapter.id),
     );
+    // An existing bookmark belongs to the reader even if its chapter is no
+    // longer cached or the available directory is incomplete.
+    int? initialChapter = saved == null ? firstCached : null;
+    if (!details &&
+        saved != null &&
+        saved >= 0 &&
+        saved < book.chapters.length &&
+        !downloaded.chapterIds.contains(book.chapters[saved].id)) {
+      final choice = await showDialog<_ResumeChoice>(
+        context: context,
+        builder: (context) => AlertDialog(
+          scrollable: true,
+          title: const Text('上次阅读章节未下载'),
+          content: Text(
+            '上次阅读到第 ${saved + 1} 章，该章尚未下载。继续阅读会尝试加载该章；从已下载章节开始会更新阅读进度。',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('取消'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, _ResumeChoice.cached),
+              child: const Text('从已下载章节开始'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, _ResumeChoice.resume),
+              child: const Text('继续阅读'),
+            ),
+          ],
+        ),
+      );
+      if (!mounted || widget.library != library || choice == null) return;
+      if (choice == _ResumeChoice.cached) initialChapter = firstCached;
+    }
+    if (!mounted) return;
     await Navigator.push<void>(
       context,
       MaterialPageRoute(
         builder: (_) => details
-            ? BookPage(library: widget.library, book: book)
+            ? BookPage(library: library, book: book)
             : ReaderPage(
-                library: widget.library,
+                library: library,
                 book: book,
-                initialChapter: resume ? null : firstCached,
+                initialChapter: initialChapter,
               ),
       ),
     );

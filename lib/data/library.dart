@@ -636,12 +636,12 @@ class Library extends ChangeNotifier {
     }
   }
 
-  Future<void> updateBook(Book book, {bool preserveChapterPosition = false}) =>
+  Future<void> updateBook(Book book, {bool preserveChapterPosition = true}) =>
       _updateBook(book, preserveChapterPosition: preserveChapterPosition);
 
   Future<void> _updateBook(
     Book book, {
-    bool preserveChapterPosition = false,
+    bool preserveChapterPosition = true,
     Future<void> Function()? persist,
   }) async {
     final shelfIndex = books.indexWhere((item) => item.key == book.key);
@@ -649,7 +649,9 @@ class Library extends ChangeNotifier {
     final oldShelf = shelfIndex < 0 ? null : books[shelfIndex];
     final oldRecent = recentIndex < 0 ? null : recentBooks[recentIndex];
     final oldUpdated = updatedTimes[book.key];
-    final previous = oldShelf ?? oldRecent;
+    final previous = oldShelf?.chapters.isNotEmpty == true
+        ? oldShelf
+        : oldRecent ?? oldShelf;
     final oldProgress = progress[book.key];
     List<int>? nextProgress;
     final oldEntries = <String, List<int>>{};
