@@ -1,5 +1,11 @@
 import '../domain/models.dart';
 
+/// A platform explicitly rejected further access. Finish active batch results,
+/// then stop scheduling requests rather than treating this as a chapter error.
+class SourceAccessRestrictedException extends SourceException {
+  const SourceAccessRestrictedException(super.message, {super.code});
+}
+
 abstract interface class NovelSource {
   String get id;
   String get name;

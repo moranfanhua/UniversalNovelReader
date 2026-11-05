@@ -1,0 +1,5 @@
+# Preserve upstream source whitespace and its recorded provenance.
+* text eol=lf
+*.c whitespace=-blank-at-eol,-blank-at-eof,-space-before-tab
+*.h whitespace=-blank-at-eol,-blank-at-eof,-space-before-tab
+LICENSE whitespace=-blank-at-eol,-blank-at-eof,-space-before-tab

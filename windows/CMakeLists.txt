@@ -63,6 +63,9 @@ target_compile_definitions(flutter_inappwebview_windows_plugin PRIVATE
   _SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS)
 
 
+add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/../native/qidian" "${CMAKE_CURRENT_BINARY_DIR}/qidian")
+add_dependencies(${BINARY_NAME} unr_qidian)
+
 # === Installation ===
 # Support files are copied into place next to the executable, so that it can
 # run in place. This is done instead of making a separate bundle (as on Linux)
@@ -76,6 +79,8 @@ endif()
 
 set(INSTALL_BUNDLE_DATA_DIR "${CMAKE_INSTALL_PREFIX}/data")
 set(INSTALL_BUNDLE_LIB_DIR "${CMAKE_INSTALL_PREFIX}")
+
+install(TARGETS unr_qidian RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}" COMPONENT Runtime)
 
 install(TARGETS ${BINARY_NAME} RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}"
   COMPONENT Runtime)

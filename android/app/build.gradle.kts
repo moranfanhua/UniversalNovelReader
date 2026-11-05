@@ -46,7 +46,11 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        externalNativeBuild { cmake { arguments += "-DANDROID_STL=c++_static" } }
     }
+
+    externalNativeBuild { cmake { path = file("../../native/qidian/CMakeLists.txt") } }
+    sourceSets.getByName("main").java.srcDir("../../native/qidian/android/src")
 
     signingConfigs {
         if (hasReleaseSigning) {
@@ -61,6 +65,7 @@ android {
 
     buildTypes {
         release {
+            proguardFiles("../../native/qidian/android/consumer-rules.pro")
             // 保留未配置密钥时的本机试用构建；CI 强制要求上面的正式签名。
             signingConfig = signingConfigs.getByName(if (hasReleaseSigning) "release" else "debug")
         }
