@@ -14,11 +14,15 @@ import 'helpers/reading_taps.dart';
 
 class MemoryLibrary extends Library {
   MemoryLibrary() : super(Directory.systemTemp, SfacgSource(SfacgApi()));
+  final reads = <String>[];
   final first = Completer<ChapterContent>(),
       second = Completer<ChapterContent>();
   @override
-  Future<ChapterContent> read(Book book, Chapter chapter) =>
-      chapter.id == '1' ? first.future : second.future;
+  Future<ChapterContent> read(Book book, Chapter chapter) {
+    reads.add(chapter.id);
+    return chapter.id == '1' ? first.future : second.future;
+  }
+
   @override
   Future<void> save() async {
     notifyListeners();
@@ -31,6 +35,62 @@ class MemoryLibrary extends Library {
 }
 
 void main() {
+  for (final mode in ReadingMode.values) {
+    for (final width in [390.0, 1400.0]) {
+      testWidgets('旧章节超出目录时保留进度，明确选章后才更新（${mode.name}，$width）', (tester) async {
+        tester.view.physicalSize = Size(width, 844);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        final library = MemoryLibrary()..readingMode = mode;
+        addTearDown(library.dispose);
+        addTearDown(library.source.api.close);
+        const book = Book(
+          id: 'invalid-progress',
+          source: 'local',
+          title: '目录暂时不完整',
+          author: '',
+          chapters: [Chapter(id: '1', title: '第一章')],
+        );
+        library.progress[book.key] = [2, 7];
+        library.pageOffsets[book.key] = 12;
+        library.first.complete(const ChapterContent([Paragraph('第一章正文')]));
+        await tester.pumpWidget(
+          MaterialApp(
+            home: ReaderPage(library: library, book: book),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.pump(const Duration(milliseconds: 700));
+        expect(library.progress[book.key], [2, 7]);
+        expect(library.pageOffsets[book.key], 12);
+        expect(library.reads, isEmpty);
+        expect(find.textContaining('上次阅读章节不在当前目录中'), findsOneWidget);
+        tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.inactive,
+        );
+        tester.binding.handleAppLifecycleStateChanged(
+          AppLifecycleState.resumed,
+        );
+        await tester.pumpAndSettle();
+        expect(library.progress[book.key], [2, 7]);
+        await showReadingControls(tester);
+        await tester.tap(find.byTooltip('目录'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('directory-volume-1')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('directory-chapter-1')));
+        await tester.pumpAndSettle();
+        await tester.pump(const Duration(milliseconds: 700));
+        expect(library.reads, ['1']);
+        expect(library.progress[book.key], [0, 0]);
+        expect(library.pageOffsets[book.key], 0);
+        await tester.pumpWidget(const SizedBox.shrink());
+        expect(tester.takeException(), isNull);
+      });
+    }
+  }
+
   testWidgets('外部 TXT 在手机尺寸可见，滚动后立即返回也保存进度', (tester) async {
     tester.view.physicalSize = const Size(360, 640);
     tester.view.devicePixelRatio = 1;

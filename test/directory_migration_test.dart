@@ -45,10 +45,7 @@ void main() {
     final original = [1, 0, 0];
     value.progress['local:directory'] = [2, 7];
     value.pagedChapterEntries['local:directory:2'] = original;
-    await value.updateBook(
-      directory(['序章', 'A', 'B', 'C']),
-      preserveChapterPosition: true,
-    );
+    await value.updateBook(directory(['序章', 'A', 'B', 'C']));
     expect(value.progress['local:directory'], [3, 7]);
     // A's final spread contains B, so C still returns to A rather than B.
     expect(value.pagedChapterEntries, {
@@ -84,10 +81,7 @@ void main() {
     value.pagedChapterEntries['${originalBook.key}:1'] = original;
     value.failSave = true;
     await expectLater(
-      value.updateBook(
-        directory(['序章', 'A', 'B']),
-        preserveChapterPosition: true,
-      ),
+      value.updateBook(directory(['序章', 'A', 'B'])),
       throwsA(isA<FileSystemException>()),
     );
     expect(value.books.single, same(originalBook));
@@ -111,10 +105,7 @@ void main() {
     value.progress[original.key] = [1, 7];
     value.pageOffsets[original.key] = 12;
     value.pagedChapterEntries['${original.key}:1'] = [1, 0, 0];
-    await value.updateBook(
-      directory(['序章', 'A', 'B']),
-      preserveChapterPosition: true,
-    );
+    await value.updateBook(directory(['序章', 'A', 'B']));
     final reopened = await Library.open(source, directory: root);
     addTearDown(reopened.dispose);
     expect(reopened.progress[original.key], [2, 7]);
@@ -122,6 +113,35 @@ void main() {
     expect(reopened.pagedChapterEntries, {
       '${original.key}:2': [1, 1, 0],
     });
+  });
+
+  test('新目录缺少当前阅读章节时默认拒绝替换，保留原目录和进度', () async {
+    final original = directory(['A', 'B', 'C']);
+    final value = library()..books.add(original);
+    value.recentBooks.add(original);
+    value.progress[original.key] = [2, 7];
+    value.pageOffsets[original.key] = 12;
+    value.pagedChapterEntries['${original.key}:2'] = [1, 1, 0];
+    await expectLater(
+      value.updateBook(directory(['A'])),
+      throwsA(isA<SourceException>()),
+    );
+    expect(value.books.single, same(original));
+    expect(value.recentBooks.single, same(original));
+    expect(value.progress[original.key], [2, 7]);
+    expect(value.pageOffsets[original.key], 12);
+    expect(value.pagedChapterEntries['${original.key}:2'], [1, 1, 0]);
+  });
+
+  test('书架仅有预览时按最近阅读的完整目录迁移位置', () async {
+    final original = directory(['A', 'B']);
+    final value = library()..books.add(directory([]));
+    value.recentBooks.add(original);
+    value.progress[original.key] = [1, 7];
+    await value.updateBook(directory(['序章', 'A', 'B']));
+    expect(value.progress[original.key], [2, 7]);
+    expect(value.books.single.chapters[2].id, 'B');
+    expect(value.recentBooks.single.chapters[2].id, 'B');
   });
 
   for (final width in [390.0, 1400.0]) {
