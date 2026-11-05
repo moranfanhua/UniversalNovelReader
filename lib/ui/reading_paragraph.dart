@@ -15,6 +15,7 @@ class ReadingParagraph extends StatelessWidget {
     this.image,
     this.comment,
     this.textScaler,
+    this.onShareQuote,
   });
   final String text;
   final TextStyle style;
@@ -22,6 +23,7 @@ class ReadingParagraph extends StatelessWidget {
   final ParagraphCommentPlacement placement;
   final Widget? image, comment;
   final TextScaler? textScaler;
+  final ValueChanged<String>? onShareQuote;
 
   @override
   Widget build(BuildContext context) => LayoutBuilder(
@@ -62,7 +64,10 @@ class ReadingParagraph extends StatelessWidget {
           ),
         );
       }
-      final body = SizedBox(width: textWidth, child: layout.selectable(text));
+      final body = SizedBox(
+        width: textWidth,
+        child: layout.selectable(text, onShareQuote: onShareQuote),
+      );
       if (comment == null) {
         return Padding(
           padding: EdgeInsets.only(right: width - textWidth),

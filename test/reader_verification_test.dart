@@ -212,7 +212,7 @@ void main() {
     await tester.tap(find.text('前往账号设置处理验证'));
     await tester.pumpAndSettle();
     expect(find.text('账号设置'), findsOneWidget);
-    expect(find.text('菠萝包轻小说'), findsOneWidget);
+    expect(find.byKey(const ValueKey('account-card-sfacg')), findsOneWidget);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
   });

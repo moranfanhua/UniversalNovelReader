@@ -83,7 +83,7 @@ void main() {
       await volume(tester, -1);
       expect(readingPager(tester).page, 0);
       await showReadingControls(tester);
-      await tester.tap(find.text('下一章'));
+      await tester.tap(find.byTooltip('下一章'));
       await settle(tester);
       await volume(tester, -1);
       expect(readingChapter(tester), 0);

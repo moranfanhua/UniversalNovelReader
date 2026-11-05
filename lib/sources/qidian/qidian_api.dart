@@ -234,6 +234,10 @@ class QidianApi {
   }
 
   Future<void> checkSession() async {
+    await accountPage();
+  }
+
+  Future<Map<String, dynamic>> accountPage() async {
     final session = credentials;
     if (session == null) throw const SourceException('请先登录起点读书');
     final probe = QidianApi(client: client, device: device, clock: clock)
@@ -257,6 +261,7 @@ class QidianApi {
       if (user is! Map || '${user['UserId']}' != session.userId) {
         throw const SourceException('起点账号检测返回的数据与当前账号不匹配');
       }
+      return data;
     } on SourceException catch (error) {
       if (error.code == -2 || error.code == 401) {
         throw const SessionExpiredException('起点会话已失效，请重新登录');

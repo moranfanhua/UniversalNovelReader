@@ -79,7 +79,9 @@ class FanqieAppApi {
   };
   Map<String, String> get loginParameters => Map.unmodifiable(_params);
 
-  Future<String> accountId() async {
+  Future<String> accountId() async => '${(await accountInfo())['user_id']}';
+
+  Future<Map<String, dynamic>> accountInfo() async {
     await ensureDevice();
     // APK Passport SDK: AccountInfoApi -> /passport/account/info/v2/.
     final document = _document(
@@ -106,7 +108,7 @@ class FanqieAppApi {
         BigInt.parse(id).bitLength > 64) {
       throw const SourceException('番茄账号检测返回的数据格式已变化');
     }
-    return id;
+    return Map<String, dynamic>.from(data as Map);
   }
 
   Future<http.Response> _send(

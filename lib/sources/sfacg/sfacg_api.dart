@@ -37,6 +37,7 @@ class SfacgApi {
   bool websiteSession = false;
   bool _closed = false;
   Future<SourceVerificationOutcome>? _verification;
+  ({Object session, String destination, DateTime resendAt})? _smsDelivery;
   Future<void> Function()? onSessionChanged;
   bool get hasSession =>
       !websiteSession &&
@@ -198,7 +199,7 @@ class SfacgApi {
       // The App may supply a security prompt with different HTTP/error codes.
       // Keep this interpretation in the source; never infer it in reader UI.
       final requiresVerification = RegExp(
-        r'风控|人机验证|安全验证',
+        r'风控|人机验证|安全验证|短信验证|账号异常',
       ).hasMatch('${status['msg'] ?? ''}');
       if (code >= 200 &&
           code < 300 &&
@@ -222,7 +223,17 @@ class SfacgApi {
       final serverMessage = ServerErrorMessage.parse(
         status['msg'],
         responseData: doc,
-        secrets: [cookies, body, query, device, nonce, req.headers.values],
+        secrets: [
+          cookies,
+          body,
+          query,
+          device,
+          nonce,
+          req.headers.values,
+          if (uri.pathSegments.firstOrNull == 'sms' &&
+              uri.pathSegments.length > 1)
+            uri.pathSegments[1],
+        ],
       );
       AppLog.instance.record(
         LogLevel.warning,
@@ -258,6 +269,8 @@ class SfacgApi {
           ? '账号登录'
           : uri.path == '/user'
           ? '登录会话校验'
+          : uri.path.startsWith('/sms/')
+          ? '短信安全验证'
           : uri.path.startsWith('/Chaps/')
           ? '章节读取'
           : body != null && uri.path.endsWith('/tsukkomis')
@@ -359,45 +372,131 @@ class SfacgApi {
     )..clockOffset = clockOffset;
     candidate.cookies.addAll(original);
     const query = {'expand': 'accountException'};
-    final user = await candidate.request('user', query: query, retry: false);
+    var user = await candidate.request('user', query: query, retry: false);
     checkActive();
     final accountId = _verificationAccountId(user);
-    final ban = _verificationBanStatus(user);
+    var ban = _verificationBanStatus(user);
     if (ban == 0) return SourceVerificationOutcome.notRequired;
-    // APK WebCommonFragment.E2 opens CaptchaDialog only for banStatus=6.
-    // Binding, identity and other restrictions have separate official flows.
-    if (ban != 6) {
-      throw const SourceException('当前菠萝包账号限制需要在官方 App 中处理，无法通过人机验证解除');
+
+    Future<SfacgVerificationChallenge> loadCaptcha() async {
+      checkActive();
+      final aid = await candidate.request('user/captcha/aid', retry: false);
+      checkActive();
+      if (aid is! String) {
+        throw const SourceException('菠萝包安全验证配置无效，请稍后重试');
+      }
+      return SfacgVerificationChallenge(
+        aid: aid,
+        expiresAt: DateTime.now().add(const Duration(minutes: 5)),
+      );
     }
-    final aid = await candidate.request('user/captcha/aid', retry: false);
-    checkActive();
-    if (aid is! String) {
-      throw const SourceException('菠萝包安全验证配置无效，请稍后重试');
+
+    void checkUser(dynamic value) {
+      checkActive();
+      if (_verificationAccountId(value) != accountId || !candidate.hasSession) {
+        throw const SourceException('菠萝包未返回原账号的验证结果，请重新发起验证');
+      }
     }
-    final challenge = SfacgVerificationChallenge(
-      aid: aid,
-      expiresAt: DateTime.now().add(const Duration(minutes: 5)),
-    );
-    final result = await solve(challenge);
-    checkActive();
-    if (result == null) return SourceVerificationOutcome.cancelled;
-    if (!challenge.expiresAt.isAfter(DateTime.now())) {
-      throw const SourceException('菠萝包安全验证已过期，请重新发起验证');
-    }
-    final verified = await candidate.request(
-      'user',
-      query: {
-        ...query,
-        'captcha_randstr': result.randstr,
-        'captcha_ticket': result.ticket,
-      },
-      retry: false,
-    );
-    checkActive();
-    if (_verificationAccountId(verified) != accountId ||
-        _verificationBanStatus(verified) != 0 ||
-        !candidate.hasSession) {
-      throw const SourceException('菠萝包尚未确认解除账号限制，请稍后重试或在官方 App 检查');
+
+    // WebCommonFragment routes 6 to captcha and 9 to SMS. Re-read the returned
+    // restriction so a successful captcha can continue into SMS, or vice versa.
+    final visited = <int>{};
+    while (ban != 0) {
+      if (!visited.add(ban)) {
+        throw const SourceException('菠萝包尚未确认解除账号限制，请稍后重试或在官方 App 检查');
+      }
+      if (ban == 6) {
+        final challenge = await loadCaptcha();
+        final result = await solve(challenge);
+        checkActive();
+        if (result == null) return SourceVerificationOutcome.cancelled;
+        if (!challenge.expiresAt.isAfter(DateTime.now())) {
+          throw const SourceException('菠萝包安全验证已过期，请重新发起验证');
+        }
+        user = await candidate.request(
+          'user',
+          query: {
+            ...query,
+            'captcha_randstr': result.randstr,
+            'captcha_ticket': result.ticket,
+          },
+          retry: false,
+        );
+      } else if (ban == 9) {
+        // The official flow uses the account's bound number, never an arbitrary
+        // destination. Binding a missing number remains a separate App action.
+        final phone = '${user['phoneNum'] ?? ''}'.trim();
+        final country = '${user['countryCode'] ?? ''}';
+        if (!RegExp(r'^\d{4,15}$').hasMatch(phone) ||
+            !RegExp(r'^[1-9]\d{0,3}$').hasMatch(country)) {
+          throw const SourceException(
+            '当前账号未返回可用的绑定手机号及区号，请先在官方 App 绑定或确认手机号后重试',
+          );
+        }
+        final path = 'sms/$phone/$country';
+        final session = (original['.SFCommunity'], original['session_APP']);
+        final delivery = _smsDelivery;
+        final challenge = SfacgSmsVerificationChallenge(
+          maskedDestination:
+              '+$country ****${phone.substring(phone.length - 4)}',
+          expiresAt: DateTime.now().add(const Duration(minutes: 15)),
+          resendAt:
+              delivery?.session == session && delivery?.destination == path
+              ? delivery?.resendAt
+              : null,
+          onSend: (until) => _smsDelivery = (
+            session: session,
+            destination: path,
+            resendAt: until,
+          ),
+          checkActive: checkActive,
+          loadCaptcha: loadCaptcha,
+          send: (result) async {
+            checkActive();
+            await candidate.request(
+              path,
+              method: 'POST',
+              query: {'type': 'check'},
+              body: {'ticket': result.ticket, 'randstr': result.randstr},
+              retry: false,
+            );
+            checkActive();
+          },
+          submit: (code) async {
+            checkActive();
+            await candidate.request(
+              path,
+              method: 'PUT',
+              query: {'type': 'check'},
+              body: {'smsAuthCode': code},
+              retry: false,
+            );
+            checkActive();
+            final refreshed = await candidate.request(
+              'user',
+              query: query,
+              retry: false,
+            );
+            checkUser(refreshed);
+            if (_verificationBanStatus(refreshed) == 9) {
+              throw const SourceException('菠萝包尚未确认解除短信限制，请检查验证码后重试');
+            }
+            user = refreshed;
+          },
+        );
+        try {
+          final result = await solve(challenge);
+          checkActive();
+          if (result == null) return SourceVerificationOutcome.cancelled;
+          challenge.parseResult(result);
+        } finally {
+          challenge.close();
+        }
+      } else {
+        throw const SourceException('当前菠萝包账号限制需要在官方 App 中处理，无法通过人机或短信验证解除');
+      }
+      checkUser(user);
+      ban = _verificationBanStatus(user);
     }
     cookies
       ..clear()

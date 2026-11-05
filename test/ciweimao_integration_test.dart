@@ -230,7 +230,9 @@ void main() {
       );
       await tester.pumpWidget(app(AccountSettingsPage(library: library)));
       await tester.pumpAndSettle();
-      expect(find.text('刺猬猫阅读'), findsOneWidget);
+      final accountCard = find.byKey(const ValueKey('account-card-ciweimao'));
+      expect(accountCard, findsOneWidget);
+      expect(find.byTooltip('刺猬猫阅读'), findsOneWidget);
       expect(
         find.byWidgetPredicate(
           (w) =>
@@ -240,8 +242,9 @@ void main() {
         ),
         findsOneWidget,
       );
-      await tester.ensureVisible(find.text('刺猬猫阅读'));
-      await tester.tap(find.text('刺猬猫阅读'));
+      await tester.ensureVisible(accountCard);
+      await tester.pumpAndSettle();
+      await tester.tap(accountCard);
       await tester.pumpAndSettle();
       expect(find.byType(CiweimaoAccountPage), findsOneWidget);
       expect(find.text('账号密码登录'), findsOneWidget);

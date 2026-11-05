@@ -64,6 +64,9 @@ UniversalNovelReader（UNR）是一个非官方第三方阅读工具，与任何
 - [flutter_svg](https://pub.dev/packages/flutter_svg) — MIT
 - [uuid](https://pub.dev/packages/uuid)、[file_picker](https://pub.dev/packages/file_picker) — MIT
 - [path_provider](https://pub.dev/packages/path_provider) — BSD-3-Clause
+- [share_plus](https://pub.dev/packages/share_plus)、[share_plus_platform_interface](https://pub.dev/packages/share_plus_platform_interface) — BSD-3-Clause；由用户主动将选句卡片交给系统分享。
+- [mime](https://pub.dev/packages/mime) — BSD-3-Clause；系统分享的文件类型识别依赖。
+- [Kotlin](https://github.com/JetBrains/kotlin)、[kotlinx.coroutines](https://github.com/Kotlin/kotlinx.coroutines) — Apache-2.0；系统分享等 Android 插件使用的运行库与协程支持。
 - [package_info_plus](https://pub.dev/packages/package_info_plus)、[package_info_plus_platform_interface](https://pub.dev/packages/package_info_plus_platform_interface) — BSD-3-Clause；读取已安装应用的版本与构建号。
 - [url_launcher](https://pub.dev/packages/url_launcher) 及其 Android、iOS、Linux、macOS、Web、Windows 和平台接口包 — BSD-3-Clause；使用系统浏览器下载更新包。
 - [pub_semver](https://pub.dev/packages/pub_semver) — BSD-3-Clause；检查更新时解析、比较正式版本号。

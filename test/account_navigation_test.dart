@@ -12,6 +12,7 @@ import 'package:unr/sources/qidian/qidian_source.dart';
 import 'package:unr/sources/sfacg/sfacg_api.dart';
 import 'package:unr/sources/sfacg/sfacg_source.dart';
 import 'package:unr/ui/account.dart';
+import 'package:unr/ui/account_platform_card.dart';
 import 'package:unr/ui/settings.dart';
 
 void main() {
@@ -47,12 +48,16 @@ void main() {
     );
     expect(
       tester
-          .widgetList<ListTile>(find.byType(ListTile))
-          .map((tile) => (tile.title! as Text).data),
+          .widgetList<AccountPlatformCard>(find.byType(AccountPlatformCard))
+          .map((card) => card.source.name),
       ['起点读书', '番茄小说', '刺猬猫阅读', '菠萝包轻小说'],
     );
-    for (final name in ['起点读书', '番茄小说', '刺猬猫阅读', '菠萝包轻小说']) {
-      await tester.tap(find.text(name));
+    expect(find.text('未登录'), findsNWidgets(4));
+    for (final id in ids) {
+      final card = find.byKey(ValueKey('account-card-$id'));
+      await tester.ensureVisible(card);
+      await tester.pumpAndSettle();
+      await tester.tap(card);
       await tester.pumpAndSettle();
       expect(find.text('选择登录方式'), findsOneWidget);
       expect(find.byType(TextField), findsNothing);
@@ -84,4 +89,29 @@ void main() {
     );
     expect(tester.takeException(), isNull);
   });
+
+  for (final width in [390.0, 1400.0]) {
+    testWidgets('账号卡片在宽度 $width 始终竖排且高度一致', (tester) async {
+      tester.view.physicalSize = Size(width, 1100);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpWidget(
+        MaterialApp(home: AccountSettingsPage(library: library())),
+      );
+      await tester.pumpAndSettle();
+      final cards = find.byType(AccountPlatformCard);
+      final first = tester.getRect(cards.at(0));
+      var previous = first;
+      for (var i = 1; i < 4; i++) {
+        final current = tester.getRect(cards.at(i));
+        expect(current.left, first.left);
+        expect(current.width, first.width);
+        expect(current.height, first.height);
+        expect(current.top, greaterThan(previous.bottom));
+        previous = current;
+      }
+      expect(tester.takeException(), isNull);
+    });
+  }
 }

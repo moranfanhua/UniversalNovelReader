@@ -21,11 +21,13 @@ import 'volume_page_turner.dart';
 import 'reading_tap_zones.dart';
 import 'chapter_page_layout.dart';
 import 'book_page_progress.dart';
+import 'book_page.dart';
 import 'chapter_directory.dart';
 import 'add_to_shelf_button.dart';
 import 'paragraph_comment_button.dart';
 import 'reading_paragraph.dart';
 import 'reading_heading.dart';
+import 'quote_share_sheet.dart';
 
 class ReaderPage extends StatefulWidget {
   const ReaderPage({
@@ -43,7 +45,8 @@ class ReaderPage extends StatefulWidget {
   State<ReaderPage> createState() => _ReaderPageState();
 }
 
-class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
+class _ReaderPageState extends State<ReaderPage>
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late int chapter;
   late Future<ChapterContent> content;
   final scroll = ScrollController();
@@ -63,8 +66,12 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   bool leaving = false;
   bool turningPage = false;
   bool settingsOpen = false;
+  bool detailsOpen = false;
   bool controlsVisible = false;
+  late final AnimationController controlsAnimation;
+  late final Animation<Offset> topBarPosition, bottomBarPosition;
   bool readingRecorded = false;
+  bool invalidSavedChapter = false;
   ChapterPageLayout? pageLayout;
   final pagePosition = ValueNotifier<ReaderPagePosition?>(null);
   final knownContents = <int, ChapterContent>{};
@@ -84,6 +91,12 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   ({GlobalKey key, int offset})? pendingScrollRestore;
   String _entryKey(int chapter) => '${widget.book.key}:$chapter';
   Library get library => widget.library;
+  Future<void> _shareQuote(String quote) => showQuoteShareSheet(
+    context,
+    library: library,
+    book: widget.book,
+    quote: quote,
+  );
   CommentSource? get comments =>
       library.showParagraphComments ? library.commentsFor(widget.book) : null;
   Paragraph? _titleParagraph(int index) => library
@@ -98,13 +111,33 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    controlsAnimation = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 200),
+    );
+    final curve = controlsAnimation.drive(CurveTween(curve: Curves.easeInOut));
+    topBarPosition = Tween<Offset>(
+      begin: const Offset(0, -1),
+      end: Offset.zero,
+    ).animate(curve);
+    bottomBarPosition = Tween<Offset>(
+      begin: const Offset(0, 1),
+      end: Offset.zero,
+    ).animate(curve);
     WidgetsBinding.instance.addObserver(this);
     final saved = library.progress[widget.book.key];
-    chapter = (widget.initialChapter ?? saved?.first ?? 0).clamp(
-      0,
-      widget.book.chapters.length - 1,
-    );
-    paragraph = widget.initialChapter == null ? saved?.last ?? 0 : 0;
+    final savedChapter = saved?.firstOrNull;
+    invalidSavedChapter =
+        widget.initialChapter == null &&
+        savedChapter != null &&
+        (savedChapter < 0 || savedChapter >= widget.book.chapters.length);
+    chapter = widget.book.chapters.isEmpty
+        ? 0
+        : (widget.initialChapter ?? savedChapter ?? 0).clamp(
+            0,
+            widget.book.chapters.length - 1,
+          );
+    paragraph = widget.initialChapter == null ? saved?.lastOrNull ?? 0 : 0;
     characterOffset = widget.initialChapter == null
         ? library.pageOffsets[widget.book.key] ?? 0
         : 0;
@@ -143,6 +176,16 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     final atEnd = openAtEnd;
     restoreAtEnd = atEnd;
     pagedStartAtEnd = atEnd;
+    if (invalidSavedChapter || widget.book.chapters.isEmpty) {
+      content = Future.error(
+        SourceException(
+          invalidSavedChapter
+              ? '上次阅读章节不在当前目录中，已保留阅读进度。请返回作品详情刷新目录，或通过目录选择章节。'
+              : '当前作品暂无可阅读章节，请返回作品详情刷新目录。',
+        ),
+      );
+      return;
+    }
     content = library.read(widget.book, widget.book.chapters[chapter]).then((
       value,
     ) {
@@ -627,6 +670,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   Future<void> _savePosition() async {
     debounce?.cancel();
+    if (invalidSavedChapter || widget.book.chapters.isEmpty) return;
     if (!restoring &&
         !settingsOpen &&
         library.readingMode == ReadingMode.scroll) {
@@ -791,6 +835,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     if (index < 0 || index >= widget.book.chapters.length) return;
     debounce?.cancel();
     setState(() {
+      invalidSavedChapter = false;
       chapter = index;
       paragraph = initialParagraph;
       characterOffset = initialOffset;
@@ -855,7 +900,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   }
 
   Future<void> _settings() async {
-    if (settingsOpen) return;
+    if (settingsOpen || detailsOpen) return;
     try {
       final saving = _savePosition();
       settingsOpen = true;
@@ -880,23 +925,66 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _toggleTheme() async {
-    final dark = Theme.of(context).brightness == Brightness.dark;
+  Future<void> _details() async {
+    if (detailsOpen || settingsOpen) return;
+    detailsOpen = true;
     try {
-      await library.setThemeMode(dark ? AppThemeMode.light : AppThemeMode.dark);
+      await _savePosition();
+      if (!mounted) return;
+      await Navigator.of(context).push<void>(
+        MaterialPageRoute(
+          builder: (_) => BookPage(library: library, book: widget.book),
+        ),
+      );
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text('显示模式保存失败：$e')));
+        ).showSnackBar(SnackBar(content: Text('作品详情打开失败：$e')));
       }
+    } finally {
+      detailsOpen = false;
     }
   }
 
   void _toggleControls() {
-    if (settingsOpen || ModalRoute.isCurrentOf(context) == false) return;
+    if (settingsOpen ||
+        detailsOpen ||
+        ModalRoute.isCurrentOf(context) == false) {
+      return;
+    }
     setState(() => controlsVisible = !controlsVisible);
+    if (MediaQuery.disableAnimationsOf(context)) {
+      controlsAnimation.value = controlsVisible ? 1 : 0;
+    } else if (controlsVisible) {
+      controlsAnimation.forward();
+    } else {
+      controlsAnimation.reverse();
+    }
   }
+
+  Widget _slidingBar({
+    required String key,
+    required Animation<Offset> position,
+    required Widget child,
+  }) => AnimatedBuilder(
+    animation: controlsAnimation,
+    builder: (context, child) => Offstage(
+      offstage: controlsAnimation.value == 0,
+      child: IgnorePointer(
+        ignoring: !controlsVisible,
+        child: ExcludeFocus(
+          excluding: !controlsVisible,
+          child: SlideTransition(
+            key: ValueKey(key),
+            position: position,
+            child: child,
+          ),
+        ),
+      ),
+    ),
+    child: child,
+  );
 
   void _publishPagePosition() {
     final layout = pageLayout;
@@ -933,6 +1021,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     debounce?.cancel();
     scroll.dispose();
+    controlsAnimation.dispose();
     pagePosition.dispose();
     super.dispose();
   }
@@ -1044,6 +1133,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                 padding: const EdgeInsets.only(bottom: 18),
                 child: ReadingParagraph(
                   text: '　　${block.content.paragraphs[i].text}',
+                  onShareQuote: _shareQuote,
                   style: Theme.of(context).textTheme.bodyLarge!.copyWith(
                     fontSize: library.fontSize,
                     fontFamily: library.readingFontFamily,
@@ -1138,24 +1228,27 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                       },
                     ),
                   ),
-                  if (controlsVisible)
-                    Positioned(
-                      top: 0,
-                      left: 0,
-                      right: 0,
+                  Positioned(
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    child: _slidingBar(
+                      key: 'reader-top-slide',
+                      position: topBarPosition,
                       child: SizedBox(
                         height:
                             MediaQuery.paddingOf(context).top + kToolbarHeight,
                         child: _topBar(context),
                       ),
                     ),
+                  ),
                   Positioned(
                     bottom: 0,
                     left: 0,
                     right: 0,
-                    child: Visibility(
-                      visible: controlsVisible,
-                      maintainState: true,
+                    child: _slidingBar(
+                      key: 'reader-bottom-slide',
+                      position: bottomBarPosition,
                       child: Material(
                         color: Theme.of(context).scaffoldBackgroundColor,
                         child: _bottomBar(context),
@@ -1188,25 +1281,6 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
           ),
           icon: const Icon(Icons.download_outlined),
         ),
-      IconButton(
-        tooltip: '目录',
-        onPressed: _directory,
-        icon: const Icon(Icons.format_list_bulleted),
-      ),
-      IconButton(
-        tooltip: '阅读设置',
-        onPressed: _settings,
-        icon: const Icon(Icons.settings_outlined),
-      ),
-      IconButton(
-        tooltip: '日夜模式',
-        onPressed: _toggleTheme,
-        icon: Icon(
-          Theme.of(context).brightness == Brightness.dark
-              ? Icons.light_mode_outlined
-              : Icons.dark_mode_outlined,
-        ),
-      ),
     ],
   );
 
@@ -1251,6 +1325,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       if (library.readingMode == ReadingMode.paged) {
         return PagedChapter(
           key: pagedKey,
+          onShareQuote: _shareQuote,
           content: snapshot.data!,
           title: widget.book.chapters[chapter].title,
           titleParagraph: _titleParagraph(chapter),
@@ -1402,62 +1477,118 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   Widget _bottomBar(BuildContext context) => SafeArea(
     top: false,
-    child: SizedBox(
+    child: Column(
       key: const ValueKey('reader-bottom-toolbar'),
-      height: kToolbarHeight,
-      width: double.infinity,
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final compact =
-              constraints.maxWidth < 360 ||
-              MediaQuery.textScalerOf(context).scale(14) > 20;
-          Widget chapterButton({required bool previous}) {
-            final enabled = previous
-                ? chapter > 0
-                : chapter + 1 < widget.book.chapters.length;
-            final action = enabled
-                ? () => _go(chapter + (previous ? -1 : 1))
-                : null;
-            final icon = Icon(
-              previous ? Icons.chevron_left : Icons.chevron_right,
-            );
-            final label = previous ? '上一章' : '下一章';
-            return compact
-                ? IconButton(tooltip: label, onPressed: action, icon: icon)
-                : TextButton.icon(
-                    onPressed: action,
-                    icon: icon,
-                    label: Text(label),
-                  );
-          }
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(
+          height: 88,
+          width: double.infinity,
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              Widget chapterButton({required bool previous}) {
+                final enabled = previous
+                    ? chapter > 0
+                    : chapter + 1 < widget.book.chapters.length;
+                final action = enabled
+                    ? () => _go(chapter + (previous ? -1 : 1))
+                    : null;
+                final icon = Icon(
+                  previous ? Icons.skip_previous : Icons.skip_next,
+                );
+                final label = previous ? '上一章' : '下一章';
+                return IconButton(
+                  tooltip: label,
+                  onPressed: action,
+                  icon: icon,
+                );
+              }
 
-          return Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-            child: Row(
-              children: [
-                chapterButton(previous: true),
-                Expanded(
-                  child: Overlay.wrap(
-                    alwaysSizeToContent: true,
-                    clipBehavior: Clip.none,
-                    child: BookPageProgress(
-                      library: library,
-                      book: widget.book,
-                      position: pagePosition,
-                      contents: knownContents,
-                      onSeek: (chapter, paragraph, offset) => _go(
-                        chapter,
-                        initialParagraph: paragraph,
-                        initialOffset: offset,
+              return Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                child: Row(
+                  children: [
+                    chapterButton(previous: true),
+                    Expanded(
+                      child: Overlay.wrap(
+                        alwaysSizeToContent: true,
+                        clipBehavior: Clip.none,
+                        child: BookPageProgress(
+                          canSeek: () => controlsVisible,
+                          library: library,
+                          book: widget.book,
+                          position: pagePosition,
+                          contents: knownContents,
+                          onSeek: (chapter, paragraph, offset) => _go(
+                            chapter,
+                            initialParagraph: paragraph,
+                            initialOffset: offset,
+                          ),
+                        ),
                       ),
                     ),
-                  ),
+                    chapterButton(previous: false),
+                  ],
                 ),
-                chapterButton(previous: false),
-              ],
+              );
+            },
+          ),
+        ),
+        Row(
+          key: const ValueKey('reader-bottom-actions'),
+          children: [
+            _menuAction(
+              label: '目录',
+              tooltip: '目录',
+              icon: Icons.format_list_bulleted,
+              onPressed: _directory,
             ),
-          );
-        },
+            _menuAction(
+              label: '详情',
+              tooltip: '作品详情',
+              icon: Icons.info_outline,
+              onPressed: _details,
+            ),
+            _menuAction(
+              label: '设置',
+              tooltip: '阅读设置',
+              icon: Icons.settings_outlined,
+              onPressed: _settings,
+            ),
+          ],
+        ),
+      ],
+    ),
+  );
+
+  Widget _menuAction({
+    required String label,
+    required String tooltip,
+    required IconData icon,
+    required VoidCallback onPressed,
+  }) => Expanded(
+    child: Tooltip(
+      message: tooltip,
+      child: TextButton(
+        onPressed: onPressed,
+        style: TextButton.styleFrom(
+          minimumSize: const Size(48, 64),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+          shape: const RoundedRectangleBorder(),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.labelMedium,
+            ),
+          ],
+        ),
       ),
     ),
   );

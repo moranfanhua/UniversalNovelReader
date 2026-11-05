@@ -4,7 +4,7 @@ import 'qidian_captcha_document.dart';
 
 /// YWLogin's nextAction=11 uses the Tencent captcha configured in the App.
 class QidianCaptchaChallenge
-    extends SourceVerificationChallenge<QidianCaptchaResult> {
+    extends SourceWebVerificationChallenge<QidianCaptchaResult> {
   const QidianCaptchaChallenge({required this.expiresAt});
 
   static const appId = '1600000770';

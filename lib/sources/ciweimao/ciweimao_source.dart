@@ -4,6 +4,8 @@ import '../../domain/models.dart';
 import '../chapter_batch_source.dart';
 import '../chapter_subscription_source.dart';
 import '../novel_source.dart';
+import '../account_source.dart';
+import 'ciweimao_account.dart';
 import 'ciweimao_bookshelf.dart';
 import 'ciweimao_comments.dart';
 import 'ciweimao_content.dart';
@@ -12,8 +14,12 @@ import 'ciweimao_parser.dart';
 import 'ciweimao_subscriptions.dart';
 
 class CiweimaoSource extends CiweimaoComments
-    with CiweimaoBookshelf, CiweimaoSubscriptions
-    implements SearchableNovelSource, ChapterBatchSource, BookUpdateSource {
+    with CiweimaoBookshelf, CiweimaoSubscriptions, CiweimaoAccount
+    implements
+        SearchableNovelSource,
+        ChapterBatchSource,
+        BookUpdateSource,
+        AccountSource {
   CiweimaoSource(super.api);
   @override
   String get id => 'ciweimao';

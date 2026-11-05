@@ -4,7 +4,7 @@ import '../../domain/models.dart';
 import '../source_verification.dart';
 
 class SfacgVerificationChallenge
-    extends SourceVerificationChallenge<SfacgVerificationResult> {
+    extends SourceWebVerificationChallenge<SfacgVerificationResult> {
   SfacgVerificationChallenge({required this.aid, required this.expiresAt}) {
     if (aid.isEmpty ||
         aid.length > 16384 ||
@@ -28,6 +28,116 @@ class SfacgVerificationChallenge
   @override
   SfacgVerificationResult? parseResult(Object? value) =>
       SfacgVerificationResult.fromCallback(value);
+}
+
+/// CancelAccountExceptionSmsActivity in the QEMU-unpacked official APK sends
+/// a Tencent ticket before SMS, then submits smsAuthCode with type=check.
+class SfacgSmsVerificationChallenge extends SourceSmsVerificationChallenge {
+  SfacgSmsVerificationChallenge({
+    required this.maskedDestination,
+    required this.expiresAt,
+    required this._loadCaptcha,
+    required this._send,
+    required this._submit,
+    required void Function() checkActive,
+    DateTime? resendAt,
+    this._onSend,
+  }) : _checkSession = checkActive,
+       _resendAt = resendAt,
+       _sent = resendAt != null;
+
+  final Future<SfacgVerificationChallenge> Function() _loadCaptcha;
+  final Future<void> Function(SfacgVerificationResult) _send;
+  final Future<void> Function(String) _submit;
+  final void Function() _checkSession;
+  final void Function(DateTime)? _onSend;
+  @override
+  final String maskedDestination;
+  @override
+  final DateTime expiresAt;
+  DateTime? _resendAt;
+  bool _busy = false, _closed = false, _completed = false;
+  bool _sent;
+
+  @override
+  String get title => '菠萝包短信安全验证';
+  @override
+  String get instruction => '请验证账号绑定的手机号，获取短信前需先完成人机验证。';
+  @override
+  DateTime? get resendAt => _resendAt;
+  @override
+  bool get canSubmit => _sent && !_completed;
+  bool get completed => _completed;
+
+  void _checkActive() {
+    _checkSession();
+    if (_closed || !expiresAt.isAfter(DateTime.now())) {
+      throw const SourceException('菠萝包短信验证已过期，请重新发起验证');
+    }
+  }
+
+  void close() => _closed = true;
+
+  @override
+  Future<bool> sendCode(SourceVerificationSolver solve) async {
+    _checkActive();
+    if (_busy || _completed) {
+      throw const SourceException('请等待当前短信验证完成');
+    }
+    if (_resendAt?.isAfter(DateTime.now()) == true) {
+      throw const SourceException('请等待倒计时结束后重新获取验证码');
+    }
+    _busy = true;
+    try {
+      final captcha = await _loadCaptcha();
+      _checkActive();
+      final result = await solve(captcha);
+      _checkActive();
+      if (result == null) return false;
+      if (!captcha.expiresAt.isAfter(DateTime.now())) {
+        throw const SourceException('菠萝包人机验证已过期，请重新获取验证码');
+      }
+      // A timeout can still mean the SMS was sent. Keep the cooldown and allow
+      // entering an already received code, without automatically sending again.
+      _resendAt = DateTime.now().add(const Duration(seconds: 60));
+      _sent = true;
+      _onSend?.call(_resendAt!);
+      await _send(result);
+      _checkActive();
+      return true;
+    } finally {
+      _busy = false;
+    }
+  }
+
+  @override
+  Future<void> submitCode(String code) async {
+    _checkActive();
+    if (_busy || _completed) {
+      throw const SourceException('请等待当前短信验证完成');
+    }
+    if (!_sent) throw const SourceException('请先获取短信验证码');
+    code = code.trim();
+    if (code.isEmpty || code.length > 32 || !RegExp(r'^\d+$').hasMatch(code)) {
+      throw const SourceException('请输入有效的短信验证码');
+    }
+    _busy = true;
+    try {
+      await _submit(code);
+      _checkActive();
+      _completed = true;
+    } finally {
+      _busy = false;
+    }
+  }
+
+  @override
+  bool? parseResult(Object? value) {
+    if (value == null) return null;
+    _checkActive();
+    if (value == true && _completed) return true;
+    throw const SourceException('菠萝包尚未确认短信验证结果，请重新验证');
+  }
 }
 
 class SfacgVerificationResult {

@@ -9,6 +9,7 @@ import 'package:unr/main.dart';
 import 'package:unr/sources/sfacg/sfacg_api.dart';
 import 'package:unr/sources/sfacg/sfacg_source.dart';
 import 'package:unr/ui/account.dart';
+import 'package:unr/ui/account_platform_card.dart';
 import 'package:unr/ui/about.dart';
 import 'package:unr/ui/settings.dart';
 
@@ -108,14 +109,14 @@ void main() {
     await tester.tap(find.text('账号设置'));
     await tester.pumpAndSettle();
     expect(find.byType(NavigationBar), findsNothing);
-    expect(find.byType(ListTile), findsOneWidget);
-    expect(find.text('菠萝包轻小说'), findsOneWidget);
+    expect(find.byType(AccountPlatformCard), findsOneWidget);
+    expect(find.byTooltip('菠萝包轻小说'), findsOneWidget);
     expect(find.textContaining('起点'), findsNothing);
     final image = tester.widget<Image>(find.byType(Image));
     expect(image.image, isA<AssetImage>());
     expect((image.image as AssetImage).assetName, 'assets/sfacg_icon.jpg');
 
-    await tester.tap(find.text('菠萝包轻小说'));
+    await tester.tap(find.byKey(const ValueKey('account-card-sfacg')));
     await tester.pumpAndSettle();
     expect(find.text('已保存菠萝包登录会话'), findsOneWidget);
     expect(find.text('选择登录方式'), findsOneWidget);
@@ -135,7 +136,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byType(BackButton));
     await tester.pumpAndSettle();
-    expect(find.text('菠萝包轻小说'), findsOneWidget);
+    expect(find.byKey(const ValueKey('account-card-sfacg')), findsOneWidget);
     expect(find.byType(AccountPage), findsNothing);
     await tester.tap(find.byType(BackButton));
     await tester.pumpAndSettle();

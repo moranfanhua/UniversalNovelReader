@@ -3,16 +3,20 @@ import 'package:html/dom.dart';
 import 'package:html/parser.dart' as html;
 import '../../domain/models.dart';
 import '../novel_source.dart';
+import '../account_source.dart';
+import 'fanqie_account.dart';
 import '../chapter_batch_source.dart';
 import '../bookshelf_source.dart';
 import 'fanqie_comments.dart';
 
 class FanqieSource extends FanqieComments
+    with FanqieAccount
     implements
         PlatformRankedSearchSource,
         BookshelfSource,
         ChapterBatchSource,
-        BookUpdateSource {
+        BookUpdateSource,
+        AccountSource {
   FanqieSource(super.api, {Map<String, String>? cipher})
     : cipher = cipher ?? {};
   final Map<String, String> cipher;

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../sources/source_verification.dart';
+import '../sources/account_source.dart';
 import 'source_verification_button.dart';
 import '../data/library.dart';
 import '../sources/sfacg/sfacg_session.dart';
@@ -12,7 +13,7 @@ import 'fanqie_account.dart';
 import 'account_login_method.dart';
 import 'account_session_check.dart';
 import 'platform_order.dart';
-import 'source_icon.dart';
+import 'account_platform_card.dart';
 
 class AccountSettingsPage extends StatelessWidget {
   const AccountSettingsPage({super.key, required this.library});
@@ -25,43 +26,40 @@ class AccountSettingsPage extends StatelessWidget {
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 660),
         child: ListView(
-          padding: const EdgeInsets.all(24),
+          padding: const EdgeInsets.all(20),
           children: [
-            for (final (index, source) in platformDisplayOrder(
-              library.searchSources.where(
-                (source) =>
-                    source.id == 'sfacg' ||
-                    source is FanqieSource ||
-                    source is QidianSource ||
-                    source is CiweimaoSource,
-              ),
-            ).indexed)
-              Card(
-                margin: index == 0
-                    ? EdgeInsets.zero
-                    : const EdgeInsets.only(top: 16),
-                clipBehavior: Clip.antiAlias,
-                child: ListTile(
-                  leading: SourceIcon(source.id),
-                  title: Text(source.name),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () => Navigator.push<void>(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => source is CiweimaoSource
-                          ? CiweimaoAccountPage(api: source.api)
-                          : source is QidianSource
-                          ? QidianAccountPage(api: source.api)
-                          : source is FanqieSource
-                          ? FanqieAccountPage(api: source.api)
-                          : Scaffold(
-                              appBar: AppBar(title: Text('${source.name}账号')),
-                              body: AccountPage(library: library),
-                            ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                for (final (index, source) in platformDisplayOrder(
+                  library.searchSources.whereType<AccountSource>(),
+                ).indexed)
+                  Padding(
+                    padding: EdgeInsets.only(top: index == 0 ? 0 : 16),
+                    child: AccountPlatformCard(
+                      key: ValueKey('account-card-${source.id}'),
+                      source: source,
+                      onOpen: () => Navigator.push<void>(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => source is CiweimaoSource
+                              ? CiweimaoAccountPage(api: source.api)
+                              : source is QidianSource
+                              ? QidianAccountPage(api: source.api)
+                              : source is FanqieSource
+                              ? FanqieAccountPage(api: source.api)
+                              : Scaffold(
+                                  appBar: AppBar(
+                                    title: Text('${source.name}账号'),
+                                  ),
+                                  body: AccountPage(library: library),
+                                ),
+                        ),
+                      ),
                     ),
                   ),
-                ),
-              ),
+              ],
+            ),
           ],
         ),
       ),

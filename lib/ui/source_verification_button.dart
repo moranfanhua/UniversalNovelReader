@@ -58,7 +58,7 @@ class _SourceVerificationButtonState extends State<SourceVerificationButton> {
       setState(() {
         _message = switch (outcome) {
           SourceVerificationOutcome.notRequired =>
-            '当前账号无需人机验证，${widget.retryHint}',
+            '当前账号无需安全验证，${widget.retryHint}',
           SourceVerificationOutcome.verified => '安全验证已通过，${widget.retryHint}',
           SourceVerificationOutcome.cancelled => '已取消安全验证。',
         };

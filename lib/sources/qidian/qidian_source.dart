@@ -6,17 +6,23 @@ import 'package:archive/archive.dart';
 
 import '../../domain/models.dart';
 import '../novel_source.dart';
+import '../account_source.dart';
 import '../chapter_batch_source.dart';
 import '../chapter_subscription_source.dart';
 import 'qidian_api.dart';
+import 'qidian_account.dart';
 import 'qidian_comments.dart';
 import 'qidian_crypto.dart';
 import 'qidian_fock.dart';
 import 'qidian_subscriptions.dart';
 
 class QidianSource extends QidianComments
-    with QidianSubscriptions
-    implements SearchableNovelSource, ChapterBatchSource, BookUpdateSource {
+    with QidianSubscriptions, QidianAccount
+    implements
+        SearchableNovelSource,
+        ChapterBatchSource,
+        BookUpdateSource,
+        AccountSource {
   QidianSource(super.api);
   @override
   String get id => 'qidian';

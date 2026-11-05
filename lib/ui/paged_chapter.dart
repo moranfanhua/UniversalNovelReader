@@ -63,6 +63,7 @@ class PagedChapter extends StatefulWidget {
     this.showPageIndicator = true,
     this.commentPlacement = ParagraphCommentPlacement.right,
     this.pageTurnAnimation = PageTurnAnimation.slide,
+    this.onShareQuote,
   });
   final ChapterContent content;
   final String title;
@@ -74,6 +75,7 @@ class PagedChapter extends StatefulWidget {
   final Paragraph? titleParagraph;
   final ParagraphCommentPlacement commentPlacement;
   final PageTurnAnimation pageTurnAnimation;
+  final ValueChanged<String>? onShareQuote;
   final bool startAtEnd;
   final VoidCallback? onPreviousChapter, onNextChapter;
   final Future<ChapterPreview> Function()? loadNextChapter;
@@ -571,6 +573,7 @@ class PagedChapterState extends State<PagedChapter> {
               height: fragment.height,
               child: ReadingParagraph(
                 text: fragment.text,
+                onShareQuote: widget.onShareQuote,
                 style: style,
                 textScaler: scaler,
                 rightInset: widget.horizontalMargin,

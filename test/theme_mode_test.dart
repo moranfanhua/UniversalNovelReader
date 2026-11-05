@@ -215,7 +215,7 @@ void main() {
   }, variant: platforms);
 
   for (final mode in ReadingMode.values) {
-    testWidgets('阅读器按实际亮度切换日夜，面板即时更新且保持进度（${mode.name}）', (tester) async {
+    testWidgets('阅读设置切换显示模式，面板即时更新且保持进度（${mode.name}）', (tester) async {
       viewport(tester);
       final library = libraryForTest()
         ..readingMode = mode
@@ -243,8 +243,10 @@ void main() {
         reader.characterOffset,
       );
       final reads = library.reads;
-      expect(find.byIcon(Icons.light_mode_outlined), findsOneWidget);
-      await tester.tap(find.byTooltip('日夜模式'));
+      expect(find.byTooltip('日夜模式'), findsNothing);
+      await tester.tap(find.byTooltip('阅读设置'));
+      await tester.pumpAndSettle();
+      await selectMode(tester, '日间模式');
       await tester.pumpAndSettle();
       expect(library.themeMode, AppThemeMode.light);
       expect(currentTheme(tester).brightness, Brightness.light);
@@ -254,8 +256,6 @@ void main() {
         reader.characterOffset,
       ), position);
       expect(library.reads, reads);
-      await tester.tap(find.byTooltip('阅读设置'));
-      await tester.pumpAndSettle();
       await selectMode(tester, '跟随系统');
       final dropdownContext = tester.element(
         find.byKey(const ValueKey('theme-mode')),
