@@ -27,6 +27,7 @@ import 'add_to_shelf_button.dart';
 import 'paragraph_comment_button.dart';
 import 'reading_paragraph.dart';
 import 'reading_heading.dart';
+import 'quote_share_sheet.dart';
 
 class ReaderPage extends StatefulWidget {
   const ReaderPage({
@@ -89,6 +90,12 @@ class _ReaderPageState extends State<ReaderPage>
   ({GlobalKey key, int offset})? pendingScrollRestore;
   String _entryKey(int chapter) => '${widget.book.key}:$chapter';
   Library get library => widget.library;
+  Future<void> _shareQuote(String quote) => showQuoteShareSheet(
+    context,
+    library: library,
+    book: widget.book,
+    quote: quote,
+  );
   CommentSource? get comments =>
       library.showParagraphComments ? library.commentsFor(widget.book) : null;
   Paragraph? _titleParagraph(int index) => library
@@ -1106,6 +1113,7 @@ class _ReaderPageState extends State<ReaderPage>
                 padding: const EdgeInsets.only(bottom: 18),
                 child: ReadingParagraph(
                   text: '　　${block.content.paragraphs[i].text}',
+                  onShareQuote: _shareQuote,
                   style: Theme.of(context).textTheme.bodyLarge!.copyWith(
                     fontSize: library.fontSize,
                     fontFamily: library.readingFontFamily,
@@ -1297,6 +1305,7 @@ class _ReaderPageState extends State<ReaderPage>
       if (library.readingMode == ReadingMode.paged) {
         return PagedChapter(
           key: pagedKey,
+          onShareQuote: _shareQuote,
           content: snapshot.data!,
           title: widget.book.chapters[chapter].title,
           titleParagraph: _titleParagraph(chapter),

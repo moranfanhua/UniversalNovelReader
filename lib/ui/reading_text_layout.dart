@@ -70,15 +70,37 @@ class ReadingTextLayout {
     )..layout(minWidth: available, maxWidth: available);
   }
 
-  Widget selectable(String text) => SelectableText(
-    text,
-    style: style,
-    textScaler: scaler,
-    textDirection: direction,
-    textAlign: align,
-    textWidthBasis: widthBasis,
-    textHeightBehavior: heightBehavior,
-    strutStyle: strut,
-    cursorWidth: cursorWidth,
-  );
+  Widget selectable(String text, {ValueChanged<String>? onShareQuote}) =>
+      SelectableText(
+        text,
+        style: style,
+        textScaler: scaler,
+        textDirection: direction,
+        textAlign: align,
+        textWidthBasis: widthBasis,
+        textHeightBehavior: heightBehavior,
+        strutStyle: strut,
+        cursorWidth: cursorWidth,
+        contextMenuBuilder: (context, editable) {
+          final value = editable.textEditingValue;
+          final selection = value.selection;
+          final quote = selection.isValid && !selection.isCollapsed
+              ? selection.textInside(value.text).trim()
+              : '';
+          return AdaptiveTextSelectionToolbar.buttonItems(
+            anchors: editable.contextMenuAnchors,
+            buttonItems: [
+              if (onShareQuote != null && quote.isNotEmpty)
+                ContextMenuButtonItem(
+                  label: '选句分享',
+                  onPressed: () {
+                    editable.hideToolbar();
+                    onShareQuote(quote);
+                  },
+                ),
+              ...editable.contextMenuButtonItems,
+            ],
+          );
+        },
+      );
 }
