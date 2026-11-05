@@ -61,8 +61,8 @@ void main() {
     text = tester.getRect(find.text('　　短页正文'));
     expect(text.width, inInclusiveRange(1000, 1080));
     await showReadingControls(tester);
-    expect(tester.getCenter(find.text('上一章')).dx, lessThan(120));
-    expect(tester.getCenter(find.text('下一章')).dx, greaterThan(1800));
+    expect(tester.getCenter(find.byTooltip('上一章')).dx, lessThan(120));
+    expect(tester.getCenter(find.byTooltip('下一章')).dx, greaterThan(1800));
     expect(
       tester.getSize(find.byKey(const ValueKey('reader-bottom-toolbar'))).width,
       1920,

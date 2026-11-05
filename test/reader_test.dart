@@ -103,7 +103,7 @@ void main() {
       ),
     );
     await showReadingControls(tester);
-    await tester.tap(find.text('下一章'));
+    await tester.tap(find.byTooltip('下一章'));
     await tester.pump();
     library.second.complete(const ChapterContent([Paragraph('第二章正文')]));
     await tester.pumpAndSettle();
@@ -113,14 +113,19 @@ void main() {
         (widget) => widget is SelectableText && widget.data == '　　第二章正文',
       ),
     );
-    final footerRect = tester.getRect(find.text('下一章'));
+    final footerRect = tester.getRect(find.byTooltip('下一章'));
     expect(bodyRect.top, greaterThanOrEqualTo(0));
     expect(bodyRect.bottom, lessThan(footerRect.top));
     expect(
       tester.getSize(find.byType(SingleChildScrollView)).height,
       greaterThan(100),
     );
-    expect(footerRect.top, greaterThan(500));
+    expect(
+      footerRect.bottom,
+      lessThan(
+        tester.getRect(find.byKey(const ValueKey('reader-bottom-actions'))).top,
+      ),
+    );
     library.first.complete(
       const ChapterContent([Paragraph('过时正文'), Paragraph('另一段')]),
     );

@@ -9,6 +9,7 @@ Future<void> showReadingControls(WidgetTester tester) async {
   if (find.byTooltip('阅读设置').evaluate().isEmpty) {
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
   }
 }
 

@@ -218,7 +218,7 @@ void main() {
         await tester.tap(find.text('开始阅读'));
         await tester.pumpAndSettle();
         await showReadingControls(tester);
-        await tester.tap(find.text('下一章'));
+        await tester.tap(find.byTooltip('下一章'));
         await tester.pumpAndSettle();
         expect(readingChapter(tester), 1);
         await showReadingControls(tester);
