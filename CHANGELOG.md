@@ -1,5 +1,24 @@
 # 更新日志
 
+## v1.0.3
+
+### 新增 | New
+
+* 正文选字菜单新增“选句分享”，可将选中文字与封面、书名和作者生成 PNG 图片，提供暖纸、青绿、夜色三种样式，支持预览、保存和系统分享；适用于滚动、翻页及宽屏双页阅读。[#74](https://github.com/moranfanhua/UniversalNovelReader/pull/74)
+* 新增菠萝包短信安全验证，平台要求验证绑定手机号时，可先完成人机验证再获取、提交短信验证码；支持 60 秒重发倒计时、手动重试，并衔接连续出现的人机与短信验证。其他账号限制仍需在官方 App 处理。[#70](https://github.com/moranfanhua/UniversalNovelReader/pull/70)
+
+### 改进 | Improved
+
+* 重设计菠萝包、番茄、起点与刺猬猫的账号卡片，显示头像、昵称与账号 ID，并按平台展示余额、月票、等级或活跃天数；资料获取失败可重试，登录或退出后返回账号页自动刷新。[#69](https://github.com/moranfanhua/UniversalNovelReader/pull/69)
+* 阅读菜单改为分行底部面板，集中提供目录、作品详情和阅读设置，并为顶栏与底栏加入同步滑入滑出动画；日夜模式在阅读设置中调整。[#72](https://github.com/moranfanhua/UniversalNovelReader/pull/72)
+* 阅读进度条补充章节名和全书阅读百分比，拖动时预览目标章节与进度，松手后再加载并跳转。[#72](https://github.com/moranfanhua/UniversalNovelReader/pull/72)
+
+### 修复 | Fix
+
+* 修复刷新目录后续读位置偏移的问题，按章节标识保留阅读位置与双页衔接记录；新目录缺少当前章节时保留原目录和进度。旧阅读章节超出目录范围时提示刷新目录或手动选章，避免自动回退覆盖进度。[#73](https://github.com/moranfanhua/UniversalNovelReader/pull/73)
+* 修复下载页在上次阅读章节未下载时自动跳到已下载章节、覆盖续读进度的问题，改为由用户选择继续阅读、从已下载章节开始或取消。[#73](https://github.com/moranfanhua/UniversalNovelReader/pull/73)
+* Windows 增加单实例保护，重复启动时尝试激活已有窗口，避免多个实例用旧书库数据覆盖新的阅读进度。[#73](https://github.com/moranfanhua/UniversalNovelReader/pull/73)
+
 ## v1.0.2
 
 ### 新增 | New
