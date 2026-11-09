@@ -6,6 +6,7 @@ import 'package:http/testing.dart';
 import 'package:unr/data/library.dart';
 import 'package:unr/domain/models.dart';
 import 'package:unr/sources/chapter_batch_source.dart';
+import 'package:unr/sources/novel_source.dart';
 import 'package:unr/sources/sfacg/sfacg_api.dart';
 import 'package:unr/sources/sfacg/sfacg_source.dart';
 
@@ -85,6 +86,46 @@ void main() {
     library = Library(root, SfacgSource(api), novelSources: [source]);
   });
   tearDown(() => root.delete(recursive: true));
+
+  test('书源明确限制访问后停止调度，保留并发批次已完成的成功与失败结果', () async {
+    const restricted = SourceAccessRestrictedException('需要稍后重试', code: -4403);
+    final gate = Completer<void>();
+    source.fetch = (batch) async {
+      if (batch.first.id == '1') {
+        return [
+          content(batch.first),
+          ChapterBatchResult.failure(batch.last.id, restricted),
+        ];
+      }
+      await gate.future;
+      return batch.map(content).toList();
+    };
+    final completed = <String, Object?>{};
+    final downloading = library.downloadChapters(
+      book,
+      chapters,
+      onProgress: (chapter, error) {
+        completed[chapter.id] = error;
+      },
+    );
+    final check = expectLater(downloading, throwsA(same(restricted)));
+    await until(() => completed.containsKey('2'));
+    expect(source.calls.length, 2);
+    gate.complete();
+    await check;
+    expect(source.calls.length, 2);
+    expect(completed.keys, unorderedEquals(['1', '2', '3', '4']));
+    expect(completed['2'], same(restricted));
+    expect(
+      (await library.cached(book, chapters.first))!.paragraphs.single.text,
+      '正文 1',
+    );
+    expect(
+      (await library.cached(book, chapters[2]))!.paragraphs.single.text,
+      '正文 3',
+    );
+    expect(await library.cached(book, chapters.last), isNull);
+  });
 
   test('按书源批量及并发上限调度，乱序响应仍对应原章节并可离线读取', () async {
     final gate = Completer<void>();

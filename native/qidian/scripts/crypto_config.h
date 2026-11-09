@@ -1,0 +1,7 @@
+#pragma once
+#define MBEDTLS_AES_C
+#define MBEDTLS_BLOWFISH_C
+#define MBEDTLS_CAMELLIA_C
+#define MBEDTLS_DES_C
+#define MBEDTLS_XTEA_C
+#define MBEDTLS_CIPHER_MODE_CBC
